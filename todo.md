@@ -1,0 +1,3 @@
+- merge all training/eval/test data in single datasets so that we have one for train, one for eval, one for test
+- make sure that we use shuffle=True in dataloader
+- 
