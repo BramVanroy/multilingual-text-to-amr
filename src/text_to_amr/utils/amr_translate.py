@@ -77,7 +77,7 @@ def translate(amr_dir: Union[str, PathLike], output_dir: Union[str, PathLike],
                         print()
                     lines[transl_idx] = f"# ::snt {transl}"
 
-                fhout.write("\n".join(lines) + "\n")
+            fhout.write("\n".join(lines) + "\n")
 
 
 def check_sequence_length(amr_dir: Union[str, PathLike]):
@@ -109,7 +109,7 @@ def main():
     cparser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cparser.add_argument("amr_dir", help="dir with AMR files (potentially deep-structured)")
     cparser.add_argument("output_dir", help="dir to write the new structure and files in with translated sentences")
-    cparser.add_argument("--model_name_or_path", default="facebook/m2m100_418M",
+    cparser.add_argument("-m", "--model_name_or_path", default="facebook/m2m100_418M",
                          help="name or path of M2M translation model")
     cparser.add_argument("--src_lang", default="en", help="language code of source language")
     cparser.add_argument("--tgt_lang", default="nl", help="language code of target language")
