@@ -18,7 +18,7 @@ setup(
     url="https://github.com/BramVanroy/multilingual-text-to-amr",
     author="Bram Vanroy",
     author_email="bramvanroy@hotmail.com",
-    license="cc-by-nc-sa-4.0",
+    license="GPLv3",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
