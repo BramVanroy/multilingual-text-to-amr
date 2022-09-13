@@ -1,16 +1,23 @@
-import copy
-import math
+import logging
 import random
 from typing import *
 
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
-from transformers import modeling_bart as bart
-from transformers.modeling_utils import (BeamHypotheses,
-                                         calc_banned_bad_words_ids,
-                                         calc_banned_ngram_tokens,
-                                         top_k_top_p_filtering)
+from transformers import BartConfig
+from transformers.generation_beam_search import BeamHypotheses
+from transformers.generation_tf_utils import (calc_banned_bad_words_ids,
+                                              calc_banned_ngram_tokens)
+from transformers.generation_utils import top_k_top_p_filtering
+from transformers.modeling_outputs import (
+    BaseModelOutput, BaseModelOutputWithPastAndCrossAttentions)
+from transformers.models.bart.modeling_bart import (
+    BartDecoder, BartDecoderLayer, BartEncoder, BartLearnedPositionalEmbedding,
+    _expand_mask)
+
+
+logger = logging.get_logger(__name__)
 
 
 def extract_backreferences(ids, num_embeddings, backpointer_idx):
@@ -23,283 +30,367 @@ def extract_backreferences(ids, num_embeddings, backpointer_idx):
     return ids, backreferences
 
 
-class AMRBartEncoder(nn.Module):
+class AMRBartEncoder(BartEncoder):
     """
-    Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer
-    is a :class:`EncoderLayer`.
-
+    Modified from https://github.com/huggingface/transformers/blob/da02b4035c3cd972ce6dd67de47a88434a105550/src/transformers/models/bart/modeling_py
+    Mostly the same except that the forward accepts `embedded` to sum an extra value to the token embeddings and that
+    `input_embeds` cannot be given as a starting value to the encoder. Also, backreferences are extracted
     Args:
         config: BartConfig
     """
 
-    def __init__(self, config: bart.BartConfig, embed_tokens, backpointer_idx):
-        super().__init__()
-
+    def __init__(self, config: BartConfig, embed_tokens, backpointer_idx):
+        super().__init__(config, embed_tokens)
         self.backpointer_idx = backpointer_idx
-
-        self.dropout = config.dropout
-        self.layerdrop = config.encoder_layerdrop
-        self.output_attentions = config.output_attentions
-        self.output_hidden_states = config.output_hidden_states
-
-        embed_dim = embed_tokens.embedding_dim
-        self.embed_scale = math.sqrt(embed_dim) if config.scale_embedding else 1.0
-        self.padding_idx = embed_tokens.padding_idx
-        self.max_source_positions = config.max_position_embeddings
-
-        self.embed_tokens = embed_tokens
-
-        if config.static_position_embeddings:
-            self.embed_positions = bart.SinusoidalPositionalEmbedding(
-                config.max_position_embeddings, embed_dim, self.padding_idx
-            )
-        else:
-            self.embed_positions = bart.LearnedPositionalEmbedding(
-                config.max_position_embeddings,
-                embed_dim,
-                self.padding_idx,  # config.extra_pos_embeddings,
-            )
-
-        self.layers = nn.ModuleList([bart.EncoderLayer(config) for _ in range(config.encoder_layers)])
-        self.layernorm_embedding = bart.LayerNorm(embed_dim) if config.normalize_embedding else nn.Identity()
-        # mbart has one extra layer_norm
-        self.layer_norm = bart.LayerNorm(config.d_model) if config.normalize_before else None
 
     def forward(
         self,
-        input_ids,
-        embedded=None,
-        attention_mask=None,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+        embedded: Optional[torch.Tensor] = None,
     ):
-        """
+        r"""
         Args:
-            input_ids (LongTensor): tokens in the source language of shape
-                `(batch, src_len)`
-            attention_mask (torch.LongTensor): indicating which indices are padding tokens.
-        Returns:
-            Tuple comprised of:
-                - **x** (Tensor): the last encoder layer's output of
-                  shape `(src_len, batch, embed_dim)`
-                - **encoder_states** (List[Tensor]): all intermediate
-                  hidden states of shape `(src_len, batch, embed_dim)`.
-                  Only populated if *self.output_hidden_states:* is True.
-                - **all_attentions** (List[Tensor]): Attention weights for each layer.
-                During training might not be of length n_layers because of layer dropout.
+            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
+                Indices of input sequence tokens in the vocabulary. Padding will be ignored by default should you
+                provide it.
+                Indices can be obtained using [`BartTokenizer`]. See [`PreTrainedTokenizer.encode`] and
+                [`PreTrainedTokenizer.__call__`] for details.
+                [What are input IDs?](../glossary#input-ids)
+            attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
+                Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
+                - 1 for tokens that are **not masked**,
+                - 0 for tokens that are **masked**.
+                [What are attention masks?](../glossary#attention-mask)
+            head_mask (`torch.Tensor` of shape `(encoder_layers, encoder_attention_heads)`, *optional*):
+                Mask to nullify selected heads of the attention modules. Mask values selected in `[0, 1]`:
+                - 1 indicates the head is **not masked**,
+                - 0 indicates the head is **masked**.
+            output_attentions (`bool`, *optional*):
+                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
+                returned tensors for more detail.
+            output_hidden_states (`bool`, *optional*):
+                Whether or not to return the hidden states of all layers. See `hidden_states` under returned tensors
+                for more detail.
+            return_dict (`bool`, *optional*):
+                Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
+            embedded (`torch.Tensor`, *optional*):
+                An embedding to add to positional embeddings
         """
-        # check attention mask and invert
-        if attention_mask is not None:
-            attention_mask = bart.invert_mask(attention_mask)
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         input_ids, backreferences = extract_backreferences(
             input_ids, self.embed_tokens.num_embeddings, self.backpointer_idx
         )
+
+        input = input_ids
+        input_ids = input_ids.view(-1, input_ids.shape[-1])
+
         inputs_embeds = self.embed_tokens(input_ids) * self.embed_scale
-        embed_pos = self.embed_positions(input_ids)
-        x = inputs_embeds + embed_pos
+        embed_pos = self.embed_positions(input)
+        hidden_states = inputs_embeds + embed_pos
 
         if embedded is not None:
-            x += embedded
+            hidden_states += embedded
 
-        x = self.layernorm_embedding(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
+        hidden_states = self.layernorm_embedding(hidden_states)
+        hidden_states = F.dropout(hidden_states, p=self.dropout, training=self.training)
 
-        # B x T x C -> T x B x C
-        x = x.transpose(0, 1)
+        # expand attention_mask
+        if attention_mask is not None:
+            # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
+            attention_mask = _expand_mask(attention_mask, inputs_embeds.dtype)
 
-        encoder_states, all_attentions = [], []
-        for encoder_layer in self.layers:
-            if self.output_hidden_states:
-                encoder_states.append(x)
+        encoder_states = () if output_hidden_states else None
+        all_attentions = () if output_attentions else None
+
+        # check if head_mask has a correct number of layers specified if desired
+        if head_mask is not None:
+            if head_mask.size()[0] != (len(self.layers)):
+                raise ValueError(
+                    f"The head_mask should be specified for {len(self.layers)} layers, but it is for"
+                    f" {head_mask.size()[0]}."
+                )
+
+        # B x T x C -> T x B x C: from spring
+        # x = x.transpose(0, 1)
+
+        for idx, encoder_layer in enumerate(self.layers):
+            if output_hidden_states:
+                encoder_states = encoder_states + (hidden_states,)
             # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
             dropout_probability = random.uniform(0, 1)
             if self.training and (dropout_probability < self.layerdrop):  # skip the layer
-                attn = None
+                layer_outputs = (None, None)
             else:
-                x, attn = encoder_layer(x, attention_mask)
+                if self.gradient_checkpointing and self.training:
 
-            if self.output_attentions:
-                all_attentions.append(attn)
+                    def create_custom_forward(module):
+                        def custom_forward(*inputs):
+                            return module(*inputs, output_attentions)
 
-        if self.layer_norm:
-            x = self.layer_norm(x)
-        if self.output_hidden_states:
-            encoder_states.append(x)
+                        return custom_forward
 
-        # T x B x C -> B x T x C
-        encoder_states = [hidden_state.transpose(0, 1) for hidden_state in encoder_states]
-        x = x.transpose(0, 1)
+                    layer_outputs = torch.utils.checkpoint.checkpoint(
+                        create_custom_forward(encoder_layer),
+                        hidden_states,
+                        attention_mask,
+                        (head_mask[idx] if head_mask is not None else None),
+                    )
+                else:
+                    layer_outputs = encoder_layer(
+                        hidden_states,
+                        attention_mask,
+                        layer_head_mask=(head_mask[idx] if head_mask is not None else None),
+                        output_attentions=output_attentions,
+                    )
 
-        return x, encoder_states, all_attentions
+                hidden_states = layer_outputs[0]
+
+            if output_attentions:
+                all_attentions = all_attentions + (layer_outputs[1],)
+
+        if output_hidden_states:
+            encoder_states = encoder_states + (hidden_states,)
+
+        if not return_dict:
+            return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
+        return BaseModelOutput(
+            last_hidden_state=hidden_states, hidden_states=encoder_states, attentions=all_attentions
+        )
 
 
-class AMRBartDecoder(nn.Module):
+class AMRBartDecoder(BartDecoder):
+    """Adapted from https://github.com/huggingface/transformers/blob/da02b4035c3cd972ce6dd67de47a88434a105550/src/transformers/models/bart/modeling_py
+    Changes:
+     - the embedding layer `embed_tokens` is required
+
     """
-    Transformer decoder consisting of *config.decoder_layers* layers. Each layer
-    is a :class:`DecoderLayer`.
-    Args:
-        config: BartConfig
-        embed_tokens (torch.nn.Embedding): output embedding
-    """
 
-    def __init__(self, config: bart.BartConfig, embed_tokens: nn.Embedding, backpointer_idx, amr_mode=True):
-        super().__init__()
-        self.output_attentions = config.output_attentions
-        self.output_hidden_states = config.output_hidden_states
-        self.dropout = config.dropout
-        self.layerdrop = config.decoder_layerdrop
+    def __init__(self, config: BartConfig, embed_tokens: nn.Embedding, backpointer_idx, amr_mode=True):
+        super().__init__(config, embed_tokens)
         self.padding_idx = embed_tokens.padding_idx
-        self.max_target_positions = config.max_position_embeddings
-        self.embed_scale = math.sqrt(config.d_model) if config.scale_embedding else 1.0
         self.backpointer_idx = backpointer_idx
-
-        embed_dim = embed_tokens.embedding_dim
-
-        self.embed_tokens = embed_tokens
-        if config.static_position_embeddings:
-            self.embed_positions = bart.SinusoidalPositionalEmbedding(
-                config.max_position_embeddings, embed_dim, self.padding_idx
-            )
-        else:
-            self.embed_positions = bart.LearnedPositionalEmbedding(
-                config.max_position_embeddings,
-                embed_dim,
-                self.padding_idx,  # config.extra_pos_embeddings,
-            )
-
-        self.layers = nn.ModuleList(
-            [bart.DecoderLayer(config) for _ in range(config.decoder_layers)]
-        )  # type: List[DecoderLayer]
-        self.layernorm_embedding = bart.LayerNorm(config.d_model) if config.normalize_embedding else nn.Identity()
-        self.layer_norm = bart.LayerNorm(config.d_model) if config.add_final_layer_norm else None
+        self.amr_mode = amr_mode
 
         self.pointer_k = nn.Linear(config.d_model, config.d_model)
-        # self.pointer_k.weight.data = self.layers[-1].self_attn.k_proj.weight.data.clone()
-
         self.pointer_q = nn.Linear(config.d_model, config.d_model)
-        # self.pointer_q.weight.data = self.layers[-1].self_attn.q_proj.weight.data.clone()
-
-        # self.pointer_k = nn.Sequential(
-        #     nn.Linear(config.d_model, config.decoder_ffn_dim),
-        #     nn.GELU(),
-        #     nn.Linear(config.decoder_ffn_dim, config.d_model),
-        # )
-        # self.pointer_q = nn.Sequential(
-        #     nn.Linear(config.d_model, config.decoder_ffn_dim),
-        #     nn.GELU(),
-        #     nn.Linear(config.decoder_ffn_dim, config.d_model),
-        # )
-
-        self.amr_mode = amr_mode
 
     def forward(
         self,
-        input_ids,
-        encoder_hidden_states,
-        encoder_padding_mask,
-        decoder_padding_mask,
-        decoder_causal_mask,
-        decoder_cached_states=None,
-        use_cache=False,
-        **unused,
-    ):
-        """
-        Includes several features from "Jointly Learning to Align and
-        Translate with Transformer Models" (Garg et al., EMNLP 2019).
-
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        encoder_hidden_states: Optional[torch.FloatTensor] = None,
+        encoder_attention_mask: Optional[torch.LongTensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        cross_attn_head_mask: Optional[torch.Tensor] = None,
+        past_key_values: Optional[Tuple] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        **kwargs,
+    ) -> Union[Tuple, BaseModelOutputWithPastAndCrossAttentions]:
+        r"""
         Args:
-            input_ids (LongTensor): previous decoder outputs of shape
-                `(batch, tgt_len)`, for teacher forcing
-            encoder_hidden_states: output from the encoder, used for
-                encoder-side attention
-            encoder_padding_mask: for ignoring pad tokens
-            decoder_cached_states (dict or None): dictionary used for storing state during generation
-
-        Returns:
-            tuple:
-                - the decoder's features of shape `(batch, tgt_len, embed_dim)`
-                - hidden states
-                - attentions
+            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
+                Indices of input sequence tokens in the vocabulary. Padding will be ignored by default should you
+                provide it.
+                Indices can be obtained using [`BartTokenizer`]. See [`PreTrainedTokenizer.encode`] and
+                [`PreTrainedTokenizer.__call__`] for details.
+                [What are input IDs?](../glossary#input-ids)
+            attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
+                Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
+                - 1 for tokens that are **not masked**,
+                - 0 for tokens that are **masked**.
+                [What are attention masks?](../glossary#attention-mask)
+            encoder_hidden_states (`torch.FloatTensor` of shape `(batch_size, encoder_sequence_length, hidden_size)`, *optional*):
+                Sequence of hidden-states at the output of the last layer of the encoder. Used in the cross-attention
+                of the decoder.
+            encoder_attention_mask (`torch.LongTensor` of shape `(batch_size, encoder_sequence_length)`, *optional*):
+                Mask to avoid performing cross-attention on padding tokens indices of encoder input_ids. Mask values
+                selected in `[0, 1]`:
+                - 1 for tokens that are **not masked**,
+                - 0 for tokens that are **masked**.
+                [What are attention masks?](../glossary#attention-mask)
+            head_mask (`torch.Tensor` of shape `(decoder_layers, decoder_attention_heads)`, *optional*):
+                Mask to nullify selected heads of the attention modules. Mask values selected in `[0, 1]`:
+                - 1 indicates the head is **not masked**,
+                - 0 indicates the head is **masked**.
+            cross_attn_head_mask (`torch.Tensor` of shape `(decoder_layers, decoder_attention_heads)`, *optional*):
+                Mask to nullify selected heads of the cross-attention modules in the decoder to avoid performing
+                cross-attention on hidden heads. Mask values selected in `[0, 1]`:
+                - 1 indicates the head is **not masked**,
+                - 0 indicates the head is **masked**.
+            past_key_values (`tuple(tuple(torch.FloatTensor))`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
+                Tuple of `tuple(torch.FloatTensor)` of length `config.n_layers`, with each tuple having 2 tensors of
+                shape `(batch_size, num_heads, sequence_length, embed_size_per_head)`) and 2 additional tensors of
+                shape `(batch_size, num_heads, encoder_sequence_length, embed_size_per_head)`.
+                Contains pre-computed hidden-states (key and values in the self-attention blocks and in the
+                cross-attention blocks) that can be used (see `past_key_values` input) to speed up sequential decoding.
+                If `past_key_values` are used, the user can optionally input only the last `decoder_input_ids` (those
+                that don't have their past key value states given to this model) of shape `(batch_size, 1)` instead of
+                all `decoder_input_ids` of shape `(batch_size, sequence_length)`. inputs_embeds (`torch.FloatTensor` of
+                shape `(batch_size, sequence_length, hidden_size)`, *optional*): Optionally, instead of passing
+                `input_ids` you can choose to directly pass an embedded representation. This is useful if you want more
+                control over how to convert `input_ids` indices into associated vectors than the model's internal
+                embedding lookup matrix.
+            output_attentions (`bool`, *optional*):
+                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
+                returned tensors for more detail.
+            output_hidden_states (`bool`, *optional*):
+                Whether or not to return the hidden states of all layers. See `hidden_states` under returned tensors
+                for more detail.
         """
-
-        # check attention mask and invert
-        if encoder_padding_mask is not None:
-            encoder_padding_mask = bart.invert_mask(encoder_padding_mask)
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+        use_cache = use_cache if use_cache is not None else self.config.use_cache
 
         input_ids, backreferences = extract_backreferences(
             input_ids, self.embed_tokens.num_embeddings, self.backpointer_idx
         )
+
+        # retrieve input_ids and inputs_embeds
+        if input_ids is not None and inputs_embeds is not None:
+            raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
+        elif input_ids is not None:
+            input = input_ids
+            input_shape = input.shape
+            input_ids = input_ids.view(-1, input_shape[-1])
+        elif inputs_embeds is not None:
+            input_shape = inputs_embeds.size()[:-1]
+            input = inputs_embeds[:, :, -1]
+        else:
+            raise ValueError("You have to specify either decoder_input_ids or decoder_inputs_embeds")
+
+        # past_key_values_length
+        past_key_values_length = past_key_values[0][0].shape[2] if past_key_values is not None else 0
+
+        if inputs_embeds is None:
+            inputs_embeds = self.embed_tokens(input) * self.embed_scale
+
+        attention_mask = self._prepare_decoder_attention_mask(
+            attention_mask, input_shape, inputs_embeds, past_key_values_length
+        )
+
+        # expand encoder attention mask
+        if encoder_hidden_states is not None and encoder_attention_mask is not None:
+            # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
+            encoder_attention_mask = _expand_mask(encoder_attention_mask, inputs_embeds.dtype, tgt_len=input_shape[-1])
+
         # embed positions
-        embed_pos = self.embed_positions(input_ids, use_cache=use_cache)
-        positions = embed_pos
+        positions = self.embed_positions(input, past_key_values_length)
 
-        # to do this during prediction the old positions should be removed
-        if use_cache:
-            input_ids = input_ids[:, -1:]
-            positions = positions[:, -1:]  # happens after we embed them
-            # assert input_ids.ne(self.padding_idx).any()
+        hidden_states = inputs_embeds + positions
+        hidden_states = self.layernorm_embedding(hidden_states)
 
-        x = self.embed_tokens(input_ids) * self.embed_scale
-        x += positions
-        x = self.layernorm_embedding(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
-
-        # Convert to Bart output format: (seq_len, BS, model_dim) -> (BS, seq_len, model_dim)
-        x = x.transpose(0, 1)
-        encoder_hidden_states = encoder_hidden_states.transpose(0, 1)
+        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
         # decoder layers
-        all_hidden_states = ()
-        all_self_attns = ()
-        next_decoder_cache = []
+        all_hidden_states = () if output_hidden_states else None
+        all_self_attns = () if output_attentions else None
+        all_cross_attentions = () if (output_attentions and encoder_hidden_states is not None) else None
+        next_decoder_cache = () if use_cache else None
+
+        # check if head_mask/cross_attn_head_mask has a correct number of layers specified if desired
+        for attn_mask, mask_name in zip([head_mask, cross_attn_head_mask], ["head_mask", "cross_attn_head_mask"]):
+            if attn_mask is not None:
+                if attn_mask.size()[0] != (len(self.layers)):
+                    raise ValueError(
+                        f"The `{mask_name}` should be specified for {len(self.layers)} layers, but it is for"
+                        f" {head_mask.size()[0]}."
+                    )
+
         for idx, decoder_layer in enumerate(self.layers):
             # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
-            if self.output_hidden_states:
-                all_hidden_states += (x,)
+            if output_hidden_states:
+                all_hidden_states += (hidden_states,)
             dropout_probability = random.uniform(0, 1)
             if self.training and (dropout_probability < self.layerdrop):
                 continue
 
-            layer_state = decoder_cached_states[idx] if decoder_cached_states is not None else None
+            past_key_value = past_key_values[idx] if past_key_values is not None else None
 
-            x, layer_self_attn, layer_past = decoder_layer(
-                x,
-                encoder_hidden_states,
-                encoder_attn_mask=encoder_padding_mask,
-                decoder_padding_mask=decoder_padding_mask,
-                layer_state=layer_state,
-                causal_mask=decoder_causal_mask,
-            )
+            if self.gradient_checkpointing and self.training:
+                if use_cache:
+                    logger.warning(
+                        "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
+                    )
+                    use_cache = False
+
+                def create_custom_forward(module):
+                    def custom_forward(*inputs):
+                        # None for past_key_value
+                        return module(*inputs, output_attentions, use_cache)
+
+                    return custom_forward
+
+                layer_outputs = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(decoder_layer),
+                    hidden_states,
+                    attention_mask,
+                    encoder_hidden_states,
+                    encoder_attention_mask,
+                    head_mask[idx] if head_mask is not None else None,
+                    cross_attn_head_mask[idx] if cross_attn_head_mask is not None else None,
+                    None,
+                )
+            else:
+                layer_outputs = decoder_layer(
+                    hidden_states,
+                    attention_mask=attention_mask,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
+                    layer_head_mask=(head_mask[idx] if head_mask is not None else None),
+                    cross_attn_layer_head_mask=(
+                        cross_attn_head_mask[idx] if cross_attn_head_mask is not None else None
+                    ),
+                    past_key_value=past_key_value,
+                    output_attentions=output_attentions,
+                    use_cache=use_cache,
+                )
+            hidden_states = layer_outputs[0]
 
             if use_cache:
-                next_decoder_cache.append(layer_past.copy())
+                next_decoder_cache += (layer_outputs[3 if output_attentions else 1],)
 
-            if self.layer_norm and (idx == len(self.layers) - 1):  # last layer of mbart
-                x = self.layer_norm(x)
-            if self.output_attentions:
-                all_self_attns += (layer_self_attn,)
+            if output_attentions:
+                all_self_attns += (layer_outputs[1],)
 
-        # Convert to standard output format: (seq_len, BS, model_dim) -> (BS, seq_len, model_dim)
-        all_hidden_states = [hidden_state.transpose(0, 1) for hidden_state in all_hidden_states]
-        x = x.transpose(0, 1)
-        encoder_hidden_states = encoder_hidden_states.transpose(0, 1)
+                if encoder_hidden_states is not None:
+                    all_cross_attentions += (layer_outputs[2],)
 
-        xq = self.pointer_q(x)
-        xk = self.pointer_k(x)
+        # add hidden states from the last decoder layer
+        if output_hidden_states:
+            all_hidden_states += (hidden_states,)
 
-        if decoder_cached_states is not None:
-            if "prev_key" in decoder_cached_states[-1].get("pointer", {}):
-                last_state = decoder_cached_states[-1]["pointer"]
+        xq = self.pointer_q(hidden_states)
+        xk = self.pointer_k(hidden_states)
+
+        if past_key_values is not None:
+            if "prev_key" in past_key_values[-1].get("pointer", {}):
+                last_state = past_key_values[-1]["pointer"]
                 xk = torch.cat([last_state["prev_key"], xk], dim=1)
 
         next_state = {"pointer": {"prev_key": xk}}
 
         if use_cache:
-            next_decoder_cache.append(next_state)
+            next_decoder_cache += (next_state,)
 
         if self.amr_mode:
             scores = torch.einsum("bqh,bkh->bqk", xq, xk)
 
-            if decoder_cached_states:
+            if past_key_values:
                 mask = torch.full_like(scores[0], float("-inf"))
                 mask = mask.triu(diagonal=xk.size(1) - 1)
             else:
@@ -310,14 +401,15 @@ class AMRBartDecoder(nn.Module):
             scores = torch.full((xq.size(0), xq.size(1), xk.size(1)), float("-inf"), device=xq.device)
 
         if use_cache:
-            next_cache = ((encoder_hidden_states, encoder_padding_mask), next_decoder_cache)
+            next_cache = ((encoder_hidden_states, encoder_attention_mask), next_decoder_cache)
         else:
             next_cache = None
-        return (x, scores), next_cache, all_hidden_states, list(all_self_attns)
+
+        return (hidden_states, scores), next_cache, all_hidden_states, all_self_attns, all_cross_attentions
 
 
-class AMRBartModel(bart.PretrainedBartModel):
-    def __init__(self, config: bart.BartConfig, backpointer_idx=None):
+class AMRBartModel(PretrainedBartModel):
+    def __init__(self, config: BartConfig, backpointer_idx=None):
         super().__init__(config)
         self.output_attentions = True
         self.output_hidden_states = config.output_hidden_states
@@ -357,7 +449,7 @@ class AMRBartModel(bart.PretrainedBartModel):
 
         # make masks if user doesn't supply
         if not use_cache:
-            decoder_input_ids, decoder_padding_mask, causal_mask = bart._prepare_bart_decoder_inputs(
+            decoder_input_ids, decoder_padding_mask, causal_mask = _prepare_bart_decoder_inputs(
                 self.config,
                 input_ids,
                 decoder_input_ids=decoder_input_ids,
@@ -382,10 +474,10 @@ class AMRBartModel(bart.PretrainedBartModel):
             use_cache=use_cache,
         )
         # Attention and hidden_states will be [] or None if they aren't needed
-        # decoder_outputs: Tuple = bart._filter_out_falsey_values(decoder_outputs)
+        # decoder_outputs: Tuple = _filter_out_falsey_values(decoder_outputs)
         assert isinstance(decoder_outputs[0][0], torch.Tensor)
         assert isinstance(decoder_outputs[0][1], torch.Tensor)
-        encoder_outputs: Tuple = bart._filter_out_falsey_values(encoder_outputs)
+        encoder_outputs: Tuple = _filter_out_falsey_values(encoder_outputs)
         return decoder_outputs + encoder_outputs
 
     def get_input_embeddings(self):
@@ -397,13 +489,13 @@ class AMRBartModel(bart.PretrainedBartModel):
         self.decoder.embed_tokens = self.shared
 
     def get_output_embeddings(self):
-        return bart._make_linear_from_emb(self.shared)  # make it on the fly
+        return _make_linear_from_emb(self.shared)  # make it on the fly
 
 
-class AMRBartForConditionalGeneration(bart.PretrainedBartModel):
+class AMRBartForConditionalGeneration(PretrainedBartModel):
     base_model_prefix = "model"
 
-    def __init__(self, config: bart.BartConfig, backpointer_idx=None):
+    def __init__(self, config: BartConfig, backpointer_idx=None):
         super().__init__(config)
         base_model = AMRBartModel(config, backpointer_idx)
         self.model = base_model
@@ -981,8 +1073,7 @@ class AMRBartForConditionalGeneration(bart.PretrainedBartModel):
 
         # generated hypotheses
         generated_hyps = [
-            BeamHypotheses(num_beams, max_length, length_penalty, early_stopping=early_stopping)
-            for _ in range(batch_size)
+            BeamHypotheses(num_beams, length_penalty, early_stopping=early_stopping) for _ in range(batch_size)
         ]
 
         # scores for each sentence in the beam
@@ -1291,7 +1382,7 @@ class AMRBartForConditionalGeneration(bart.PretrainedBartModel):
         for layer_past in decoder_cached_states:
             # get the correct batch idx from decoder layer's batch dim for cross and self-attn
             layer_past_new = {
-                attn_key: bart._reorder_buffer(attn_cache, beam_idx) for attn_key, attn_cache in layer_past.items()
+                attn_key: _reorder_buffer(attn_cache, beam_idx) for attn_key, attn_cache in layer_past.items()
             }
             reordered_past.append(layer_past_new)
 
@@ -1305,4 +1396,4 @@ class AMRBartForConditionalGeneration(bart.PretrainedBartModel):
         return self.model.encoder
 
     def get_output_embeddings(self):
-        return bart._make_linear_from_emb(self.model.shared)  # make it on the fly
+        return _make_linear_from_emb(self.model.shared)  # make it on the fly
