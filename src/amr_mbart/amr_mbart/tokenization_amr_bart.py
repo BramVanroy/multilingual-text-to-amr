@@ -24,7 +24,7 @@ class AMRBartTokenizer(BartTokenizer):
     def __init__(self, *args, use_pointer_tokens=False, collapse_name_ops=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.patterns = re.compile(
-            r""" ?<[a-z]+:?\d*>| ?:[^\s]+|'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+            r" ?<[a-z]+:?\d*>| ?:[^\s]+|'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
         )
         self.linearizer = AMRLinearizer(use_pointer_tokens=use_pointer_tokens, collapse_name_ops=collapse_name_ops)
         self.use_pointer_tokens = use_pointer_tokens
