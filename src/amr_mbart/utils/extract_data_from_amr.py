@@ -43,10 +43,11 @@ def main(*indirs: Union[str, PathLike], dout: Union[str, PathLike]):
         pdout.joinpath(f"merged-{split_name}.txt").write_text(text, encoding="utf-8")
 
 
-
 if __name__ == "__main__":
-    main(r"D:\corpora\amr_annotation_3.0\data\amrs\split",
-         r"D:\corpora\amr_annotation_3.0\data\amrs_nl\split",
-         r"D:\corpora\amr_annotation_3.0\data\amrs_es\split",
-         r"D:\corpora\amr_annotation_3.0\data\amrs_ga\split",
-         dout=r"D:\corpora\amr_annotation_3.0\data\text")
+    main(
+        r"D:\corpora\amr_annotation_3.0\data\amrs\split",
+        r"D:\corpora\amr_annotation_3.0\data\amrs_nl\split",
+        r"D:\corpora\amr_annotation_3.0\data\amrs_es\split",
+        r"D:\corpora\amr_annotation_3.0\data\amrs_ga\split",
+        dout=r"D:\corpora\amr_annotation_3.0\data\text",
+    )

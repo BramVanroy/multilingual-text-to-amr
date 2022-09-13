@@ -1,21 +1,21 @@
 import torch
-from transformers import AutoConfig
-
-from amr_mbart.amr_mbart.modeling_amr_bart import AMRBartForConditionalGeneration
+from amr_mbart.amr_mbart.modeling_amr_bart import \
+    AMRBartForConditionalGeneration
 from amr_mbart.amr_mbart.tokenization_amr_bart import AMRBartTokenizer
+from transformers import AutoConfig
 
 
 def instantiate_model_and_tokenizer(
-        model_name_or_path,
-        config_name_or_path,
-        tokenizer_name_or_path,
-        additional_tokens_smart_init=True,
-        dropout=0.15,
-        attention_dropout=0.15,
-        from_pretrained=True,
-        init_reverse=False,
-        collapse_name_ops=False,
-        use_pointer_tokens=False,
+    model_name_or_path,
+    config_name_or_path,
+    tokenizer_name_or_path,
+    additional_tokens_smart_init=True,
+    dropout=0.15,
+    attention_dropout=0.15,
+    from_pretrained=True,
+    init_reverse=False,
+    collapse_name_ops=False,
+    use_pointer_tokens=False,
 ):
     config = AutoConfig.from_pretrained(config_name_or_path)
     config.output_past = False
@@ -47,27 +47,27 @@ def instantiate_model_and_tokenizer(
             if idx < tokenizer.old_enc_size:
                 continue
 
-            elif tok.startswith('<pointer:') and tok.endswith('>'):
-                tok_split = ['pointer', str(tok.split(':')[1].strip('>'))]
+            elif tok.startswith("<pointer:") and tok.endswith(">"):
+                tok_split = ["pointer", str(tok.split(":")[1].strip(">"))]
 
-            elif tok.startswith('<'):
+            elif tok.startswith("<"):
                 continue
 
-            elif tok.startswith(':'):
-                if tok.startswith(':op'):
-                    tok_split = ['relation', 'operator', str(int(tok[3:]))]
+            elif tok.startswith(":"):
+                if tok.startswith(":op"):
+                    tok_split = ["relation", "operator", str(int(tok[3:]))]
 
-                elif tok.startswith(':snt'):
-                    tok_split = ['relation', 'sentence', str(int(tok[4:]))]
+                elif tok.startswith(":snt"):
+                    tok_split = ["relation", "sentence", str(int(tok[4:]))]
 
-                elif tok.startswith(':ARG'):
-                    tok_split = ['relation', 'argument', str(int(tok[4:]))]
+                elif tok.startswith(":ARG"):
+                    tok_split = ["relation", "argument", str(int(tok[4:]))]
 
                 else:
-                    tok_split = ['relation'] + tok.lstrip(':').split('-')
+                    tok_split = ["relation"] + tok.lstrip(":").split("-")
 
             else:
-                tok_split = tok.split('-')
+                tok_split = tok.split("-")
 
             tok_split_ = tok_split
             tok_split = []

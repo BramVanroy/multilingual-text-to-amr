@@ -1,13 +1,13 @@
 import contextlib
 import math
 from dataclasses import dataclass
-from typing import  Optional
+from typing import Optional
 
 import numpy as np
 import torch
+from datasets import Dataset as HfDataset
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
-from datasets import Dataset as HfDataset
 
 
 @contextlib.contextmanager
@@ -60,8 +60,9 @@ class DenoisingDataset(Dataset):
         if self.replace_length not in [-1, 0, 1]:
             raise ValueError(f"invalid arg: replace_length={self.replace_length}. Has to be {{-1, 0, 1}}")
         if self.mask_length not in ["subword", "word", "span-poisson"]:
-            raise ValueError(f"invalid arg: mask-length={self.mask_length}. Has to be {{'subword', 'word',"
-                             f" 'span-poisson'}}")
+            raise ValueError(
+                f"invalid arg: mask-length={self.mask_length}. Has to be {{'subword', 'word'," f" 'span-poisson'}}"
+            )
         if self.mask_length == "subword" and self.replace_length not in [0, 1]:
             raise ValueError("if using subwords, use replace-length=1 or 0")
 
@@ -82,8 +83,9 @@ class DenoisingDataset(Dataset):
             ps = torch.FloatTensor(ps)
             self.mask_span_distribution = torch.distributions.Categorical(ps)
 
-        self.full_stop_index = (self.full_stop_index if self.full_stop_index is not None
-                                else self.tokenizer.eos_token_id)
+        self.full_stop_index = (
+            self.full_stop_index if self.full_stop_index is not None else self.tokenizer.eos_token_id
+        )
 
     def __getitem__(self, index):
         with fixed_seed(self.seed, index):
@@ -114,10 +116,7 @@ class DenoisingDataset(Dataset):
 
         input_ids = input_ids
 
-        return {
-            "input_ids": input_ids,
-            "labels": labels
-        }
+        return {"input_ids": input_ids, "labels": labels}
 
     def __len__(self):
         return len(self.dataset)
@@ -138,8 +137,8 @@ class DenoisingDataset(Dataset):
 
         index = 0
         for i in ordering:
-            sentence = source[(sentence_ends[i - 1] if i > 0 else 0): sentence_ends[i]]
-            result[index: index + sentence.size(0)] = sentence
+            sentence = source[(sentence_ends[i - 1] if i > 0 else 0) : sentence_ends[i]]
+            result[index : index + sentence.size(0)] = sentence
             index += sentence.size(0)
 
         return result
@@ -195,25 +194,19 @@ class DenoisingDataset(Dataset):
             lengths = torch.ones((num_to_mask,)).long()
         assert is_word_start[-1] == 0
         word_starts = is_word_start.nonzero()
-        indices = word_starts[
-            torch.randperm(word_starts.size(0))[:num_to_mask]
-        ].squeeze(1)
+        indices = word_starts[torch.randperm(word_starts.size(0))[:num_to_mask]].squeeze(1)
         mask_random = torch.FloatTensor(num_to_mask).uniform_() < self.random_ratio
 
         source_length = source.size(0)
         assert source_length - 1 not in indices
         to_keep = torch.ones(source_length, dtype=torch.bool)
-        is_word_start[
-            -1
-        ] = 255  # acts as a long length, so spans don't go over the end of doc
+        is_word_start[-1] = 255  # acts as a long length, so spans don't go over the end of doc
         if self.replace_length == 0:
             to_keep[indices] = 0
         else:
             # keep index, but replace it with [MASK]
             source[indices] = self.tokenizer.mask_token_id
-            source[indices[mask_random]] = torch.randint(
-                1, len(self.tokenizer), size=(mask_random.sum(),)
-            )
+            source[indices[mask_random]] = torch.randint(1, len(self.tokenizer), size=(mask_random.sum(),))
 
         if self.mask_span_distribution is not None:
             assert len(lengths.size()) == 1
@@ -232,9 +225,7 @@ class DenoisingDataset(Dataset):
                 else:
                     # keep index, but replace it with [MASK]
                     source[indices] = self.tokenizer.mask_token_id
-                    source[indices[mask_random]] = torch.randint(
-                        1, len(self.tokenizer), size=(mask_random.sum(),)
-                    )
+                    source[indices[mask_random]] = torch.randint(1, len(self.tokenizer), size=(mask_random.sum(),))
         else:
             # A bit faster when all lengths are 1
             while indices.size(0) > 0:
@@ -247,9 +238,7 @@ class DenoisingDataset(Dataset):
                 else:
                     # keep index, but replace it with [MASK]
                     source[indices] = self.tokenizer.mask_token_id
-                    source[indices[mask_random]] = torch.randint(
-                        1, len(self.tokenizer), size=(mask_random.sum(),)
-                    )
+                    source[indices[mask_random]] = torch.randint(1, len(self.tokenizer), size=(mask_random.sum(),))
 
                 assert source_length - 1 not in indices
 
@@ -289,13 +278,9 @@ class DenoisingDataset(Dataset):
 
         num_random = int(math.ceil(n * self.random_ratio))
         result[noise_indices[num_random:]] = self.tokenizer.mask_token_id
-        result[noise_indices[:num_random]] = torch.randint(
-            low=1, high=len(self.tokenizer), size=(num_random,)
-        )
+        result[noise_indices[:num_random]] = torch.randint(low=1, high=len(self.tokenizer), size=(num_random,))
 
         result[~noise_mask] = tokens
 
         assert (result >= 0).all()
         return result
-
-

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Union
 
 from datasets import load_dataset
-
 from transformers import AutoTokenizer
 
 
@@ -26,7 +25,7 @@ def train_tokenizer(
 
     def batch_iterator(batch_size=1024):
         for i in range(0, len(dataset), batch_size):
-            yield dataset[i: i + batch_size][dataset_textcol]
+            yield dataset[i : i + batch_size][dataset_textcol]
 
     # Customized training
     tokenizer = old_tokenizer.train_new_from_iterator(batch_iterator(), vocab_size=vocab_size)

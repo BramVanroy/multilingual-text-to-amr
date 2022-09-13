@@ -1,11 +1,11 @@
 import abc
 import itertools
-from collections import deque, defaultdict
 import re
-from functools import cached_property
-from typing import List, Optional, Dict, Any, Set, TypeVar
-
+from collections import defaultdict, deque
 from dataclasses import dataclass
+from functools import cached_property
+from typing import Any, Dict, List, Optional, Set, TypeVar
+
 import networkx as nx
 from amr_mbart.data import penman
 
@@ -37,7 +37,7 @@ class SemanticGraph:
     @cached_property
     def variables(self) -> Set[str]:
         """Set of variables in this semantic graph"""
-        variables = {v for v in self.nodes_var if not v.startswith('<')}
+        variables = {v for v in self.nodes_var if not v.startswith("<")}
         return variables
 
     @property
@@ -58,46 +58,44 @@ class SemanticGraph:
 
 
 class BaseLinearizer(metaclass=abc.ABCMeta):
-
     @abc.abstractmethod
     def linearize(self, *args, **kwargs) -> SemanticGraph:
         pass
 
+
 class AMRTokens:
 
-    START, END = '<', '>'
-    _TEMPL = START + '{}' + END
+    START, END = "<", ">"
+    _TEMPL = START + "{}" + END
 
-    BOS_N   = _TEMPL.format('s')
-    EOS_N   = _TEMPL.format('/s')
-    START_N = _TEMPL.format('start')
-    STOP_N  = _TEMPL.format('stop')
-    PNTR_N  = _TEMPL.format('pointer')
+    BOS_N = _TEMPL.format("s")
+    EOS_N = _TEMPL.format("/s")
+    START_N = _TEMPL.format("start")
+    STOP_N = _TEMPL.format("stop")
+    PNTR_N = _TEMPL.format("pointer")
 
-    LIT_START = _TEMPL.format( 'lit')
-    LIT_END   = _TEMPL.format('/lit')
+    LIT_START = _TEMPL.format("lit")
+    LIT_END = _TEMPL.format("/lit")
 
-    BACKR_SRC_N = _TEMPL.format('backr:src:XXX')
-    BACKR_TRG_N = _TEMPL.format('backr:trg:XXX')
+    BACKR_SRC_N = _TEMPL.format("backr:src:XXX")
+    BACKR_TRG_N = _TEMPL.format("backr:trg:XXX")
 
-    BOS_E   = _TEMPL.format('s')
-    EOS_E   = _TEMPL.format('/s')
-    START_E = _TEMPL.format('start')
-    STOP_E  = _TEMPL.format('stop')
+    BOS_E = _TEMPL.format("s")
+    EOS_E = _TEMPL.format("/s")
+    START_E = _TEMPL.format("start")
+    STOP_E = _TEMPL.format("stop")
 
-    _FIXED_SPECIAL_TOKENS_N = {
-        BOS_N, EOS_N, START_N, STOP_N}
-    _FIXED_SPECIAL_TOKENS_E = {
-        BOS_E, EOS_E, START_E, STOP_E}
+    _FIXED_SPECIAL_TOKENS_N = {BOS_N, EOS_N, START_N, STOP_N}
+    _FIXED_SPECIAL_TOKENS_E = {BOS_E, EOS_E, START_E, STOP_E}
     _FIXED_SPECIAL_TOKENS = _FIXED_SPECIAL_TOKENS_N | _FIXED_SPECIAL_TOKENS_E
 
     # match and read backreferences
-    _re_BACKR_SRC_N = re.compile(BACKR_SRC_N.replace('XXX', r'([0-9]+)'))
-    _re_BACKR_TRG_N = re.compile(BACKR_TRG_N.replace('XXX', r'([0-9]+)'))
+    _re_BACKR_SRC_N = re.compile(BACKR_SRC_N.replace("XXX", r"([0-9]+)"))
+    _re_BACKR_TRG_N = re.compile(BACKR_TRG_N.replace("XXX", r"([0-9]+)"))
 
     @classmethod
     def is_node(cls, string: str) -> bool:
-        if isinstance(string, str) and string.startswith(':'):
+        if isinstance(string, str) and string.startswith(":"):
             return False
         elif string in cls._FIXED_SPECIAL_TOKENS_E:
             return False
@@ -114,14 +112,11 @@ class AMRTokens:
         return None
 
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 def index_default(
-        item: T, list_: List[T],
-        start: Optional[int] = None,
-        stop: Optional[int] = None,
-        default: Optional[int] = None
+    item: T, list_: List[T], start: Optional[int] = None, stop: Optional[int] = None, default: Optional[int] = None
 ):
     if start is None:
         start = 0
@@ -129,12 +124,12 @@ def index_default(
         stop = len(list_)
     return next((i for i, x in enumerate(list_[start:stop], start=start) if x == item), default)
 
-class AMRLinearizer(BaseLinearizer):
 
+class AMRLinearizer(BaseLinearizer):
     def __init__(
-            self,
-            use_pointer_tokens: bool = True,
-            collapse_name_ops: bool = False,
+        self,
+        use_pointer_tokens: bool = True,
+        collapse_name_ops: bool = False,
     ):
         self.collapse_name_ops = collapse_name_ops
         self.interleave_edges = False
@@ -144,13 +139,13 @@ class AMRLinearizer(BaseLinearizer):
         # identify name triples
         name_vars = {}
         for i, (v1, rel, v2) in enumerate(amr.triples):
-            if rel == ':instance' and v2 == 'name':
+            if rel == ":instance" and v2 == "name":
                 name_vars[v1] = 1
 
         # check if they have ops
         name_vars_to_ops = defaultdict(list)
         for i, (v1, rel, v2) in enumerate(amr.triples):
-            if v1 in name_vars and rel.startswith(':op'):
+            if v1 in name_vars and rel.startswith(":op"):
                 name_vars_to_ops[v1].append((i, rel, v2.strip('"')))
 
         triples = amr.triples.copy()
@@ -159,14 +154,13 @@ class AMRLinearizer(BaseLinearizer):
             idx, _, lits = zip(*ops)
             for i in idx:
                 triples[i] = None
-            lit = '"' + '_'.join(lits) + '"'
-            triples[min(idx)] = penman.Triple(nv, ':op1', lit)
+            lit = '"' + "_".join(lits) + '"'
+            triples[min(idx)] = penman.Triple(nv, ":op1", lit)
 
         triples = [t for t in triples if t is not None]
         amr_ = penman.Graph(triples)
         amr_.metadata = amr.metadata
         return amr_
-
 
     def linearize(self, amr: penman.Graph) -> SemanticGraph:
         if self.collapse_name_ops:
@@ -179,7 +173,7 @@ class AMRLinearizer(BaseLinearizer):
 
     def _linearize(self, amr: penman.Graph) -> SemanticGraph:
         variables = set(amr.variables())
-        variables = {'var:' + v for v in variables}
+        variables = {"var:" + v for v in variables}
         var2instance = {}
 
         graph = nx.MultiDiGraph()
@@ -189,7 +183,7 @@ class AMRLinearizer(BaseLinearizer):
         for triple in amr.triples:
             var, rel, instance = triple
             order = triples2order[triple]
-            if rel != ':instance':
+            if rel != ":instance":
                 continue
             for expansion_candidate in itertools.chain(range(order - 1, -1), range(order + 1, len(amr.triples))):
                 if var == amr.triples[expansion_candidate][2]:
@@ -197,32 +191,32 @@ class AMRLinearizer(BaseLinearizer):
                     break
             else:
                 expansion = 0
-            var = 'var:' + var
+            var = "var:" + var
             var2instance[var] = instance
             graph.add_node(var, instance=instance, order=order, expansion=expansion)
 
         for triple in amr.edges():
             var1, rel, var2 = triple
             order = triples2order[triple]
-            if rel == ':instance':
+            if rel == ":instance":
                 continue
-            var1 = 'var:' + var1
-            var2 = 'var:' + var2
+            var1 = "var:" + var1
+            var2 = "var:" + var2
             graph.add_edge(var1, var2, rel=rel, order=order)
 
         for triple in amr.attributes():
             var, rel, attr = triple
             order = triples2order[triple]
-            if rel == ':instance':
+            if rel == ":instance":
                 continue
-            var = 'var:' + var
+            var = "var:" + var
             graph.add_edge(var, attr, rel=rel, order=order)
 
         # nodes that are not reachable from the root (e.g. because of reification)
         # will be present in the not_explored queue
         # undirected_graph = graph.to_undirected()
         # print(amr.variables())
-        not_explored = deque(sorted(variables, key=lambda x: nx.get_node_attributes(graph, 'order')[x]))
+        not_explored = deque(sorted(variables, key=lambda x: nx.get_node_attributes(graph, "order")[x]))
         # (
         #     len(nx.shortest_path(undirected_graph, 'var:' + amr.top, x)),
         #     -graph.out_degree(x),
@@ -235,7 +229,7 @@ class AMRLinearizer(BaseLinearizer):
         edges_visit = [AMRTokens.BOS_E]
         backreferences = [0]
         queue = deque()
-        queue.append('var:' + amr.top)
+        queue.append("var:" + amr.top)
 
         while queue or not_explored:
 
@@ -263,8 +257,8 @@ class AMRLinearizer(BaseLinearizer):
                 successors = []
                 for node2 in graph.successors(node1):
                     for edge_data in graph.get_edge_data(node1, node2).values():
-                        rel = edge_data['rel']
-                        order = edge_data['order']
+                        rel = edge_data["rel"]
+                        order = edge_data["order"]
                         successors.append((order, rel, node2))
                 successors = sorted(successors)
 
@@ -287,7 +281,11 @@ class AMRLinearizer(BaseLinearizer):
                         # 1) not already in Q
                         # 2) has children
                         # 3) the edge right before its expansion has been encountered
-                        if (node2 not in added_to_queue) and list(graph.successors(node2)) and (nx.get_node_attributes(graph, 'expansion')[node2] <= order):
+                        if (
+                            (node2 not in added_to_queue)
+                            and list(graph.successors(node2))
+                            and (nx.get_node_attributes(graph, "expansion")[node2] <= order)
+                        ):
                             queue.append(node2)
                             added_to_queue.add(node2)
 
@@ -311,11 +309,7 @@ class AMRLinearizer(BaseLinearizer):
         edges_visit.append(AMRTokens.EOS_E)
         assert len(nodes_visit) == len(edges_visit) == len(backreferences)
         return SemanticGraph(
-            nodes_visit,
-            edges_visit,
-            backreferences,
-            var2instance,
-            extra={'graph': graph, 'amr': amr}
+            nodes_visit, edges_visit, backreferences, var2instance, extra={"graph": graph, "amr": amr}
         )
 
     def _interleave(self, graph: SemanticGraph) -> SemanticGraph:
@@ -329,7 +323,7 @@ class AMRLinearizer(BaseLinearizer):
         start_i = 1
         end_i = index_default(AMRTokens.STOP_N, graph.nodes_var, start_i, -1, -1)
 
-        def add_node(node, backr = None):
+        def add_node(node, backr=None):
             old_n_node = len(new_backreferences_map)
             new_n_node = len(new_nodes)
 
@@ -355,9 +349,9 @@ class AMRLinearizer(BaseLinearizer):
             add_node(graph.nodes_var[start_i], graph.backreferences[start_i])
 
             # edges and trg nodes, interleaved
-            nodes = graph.nodes_var[start_i+1:end_i]
-            edges = graph.edges[start_i+1:end_i]
-            backr = graph.backreferences[start_i+1:end_i]
+            nodes = graph.nodes_var[start_i + 1 : end_i]
+            edges = graph.edges[start_i + 1 : end_i]
+            backr = graph.backreferences[start_i + 1 : end_i]
             for n, e, b in zip(nodes, edges, backr):
                 add_edge(e)
                 add_node(n, b)

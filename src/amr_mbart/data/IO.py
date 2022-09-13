@@ -1,14 +1,15 @@
 import glob
-from typing import List, Union, Iterable
 from pathlib import Path
+from typing import Iterable, List, Union
+
 from .penman import load as pm_load
 
 
 def read_raw_amr_data(
-        paths: List[Union[str, Path]],
-        use_recategorization=False,
-        dereify=True,
-        remove_wiki=False,
+    paths: List[Union[str, Path]],
+    use_recategorization=False,
+    dereify=True,
+    remove_wiki=False,
 ):
     assert paths
 
@@ -26,9 +27,10 @@ def read_raw_amr_data(
     if use_recategorization:
         for g in graphs:
             metadata = g.metadata
-            metadata['snt_orig'] = metadata['snt']
-            tokens = eval(metadata['tokens'])
-            metadata['snt'] = ' '.join(
-                [t for t in tokens if not ((t.startswith('-L') or t.startswith('-R')) and t.endswith('-'))])
+            metadata["snt_orig"] = metadata["snt"]
+            tokens = eval(metadata["tokens"])
+            metadata["snt"] = " ".join(
+                [t for t in tokens if not ((t.startswith("-L") or t.startswith("-R")) and t.endswith("-"))]
+            )
 
     return graphs

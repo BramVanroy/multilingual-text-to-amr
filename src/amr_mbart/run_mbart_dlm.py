@@ -26,21 +26,13 @@ from itertools import chain
 from typing import Optional, Union
 
 import datasets
-from datasets import load_dataset
-
 import evaluate
 import transformers
+from datasets import load_dataset
 from denoising_collator import DataCollatorForBartDenoisingLM
-from transformers import (
-    BartConfig,
-    BartForConditionalGeneration,
-    BartTokenizer,
-    HfArgumentParser,
-    Trainer,
-    TrainingArguments,
-    is_torch_tpu_available,
-    set_seed,
-)
+from transformers import (BartConfig, BartForConditionalGeneration,
+                          BartTokenizer, HfArgumentParser, Trainer,
+                          TrainingArguments, is_torch_tpu_available, set_seed)
 from transformers.trainer_utils import get_last_checkpoint
 
 

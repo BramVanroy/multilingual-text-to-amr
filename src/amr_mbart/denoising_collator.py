@@ -8,6 +8,7 @@ from transformers import BatchEncoding, PreTrainedTokenizer
 @dataclass
 class DenoisingCollator:
     """"""
+
     tokenizer: PreTrainedTokenizer
     decoder_start_token_id: Optional[int] = None
     shift_func: Callable = field(default=None, init=False)
@@ -17,16 +18,18 @@ class DenoisingCollator:
         # input_ids may be shortened due to span masking, so instead get max_length from the labels
         max_length = max(len(ex["labels"]) for ex in examples) if self.max_length is None else self.max_length
 
-        batch = self.tokenizer.pad([{"input_ids": ex["input_ids"]} for ex in examples],
-                                   return_tensors="pt",
-                                   return_attention_mask=False,
-                                   padding="max_length",
-                                   max_length=max_length)
+        batch = self.tokenizer.pad(
+            [{"input_ids": ex["input_ids"]} for ex in examples],
+            return_tensors="pt",
+            return_attention_mask=False,
+            padding="max_length",
+            max_length=max_length,
+        )
 
         # Labels must be -100 for padding so crossentropyloss can ignore them
         batch["labels"] = torch.full_like(batch["input_ids"], fill_value=-100, dtype=torch.long)
         for ex_idx, ex in enumerate(examples):
-            batch["labels"][ex_idx, :ex["labels"].size(0)] = ex["labels"]
+            batch["labels"][ex_idx, : ex["labels"].size(0)] = ex["labels"]
 
         batch["decoder_input_ids"] = shift_tokens_right(batch["labels"], self.tokenizer.pad_token_id)
 
@@ -55,7 +58,7 @@ def shift_tokens_right(input_ids: torch.LongTensor, pad_token_id: int):
 
     shifted = torch.full_like(input_ids, pad_token_id)
     for b_idx in range(input_ids.size(0)):
-        shifted[b_idx, 1:index_of_eos[b_idx]+1] = prev_output_tokens[b_idx, :index_of_eos[b_idx]].clone()
+        shifted[b_idx, 1 : index_of_eos[b_idx] + 1] = prev_output_tokens[b_idx, : index_of_eos[b_idx]].clone()
 
     shifted[:, 0] = decoder_start_tokens
 

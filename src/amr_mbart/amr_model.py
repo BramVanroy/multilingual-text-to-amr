@@ -23,24 +23,24 @@ def get_model(model_name_or_path, from_pretrained=True):
 
             if idx < tokenizer.old_enc_size:
                 continue
-            elif tok.startswith('<pointer:') and tok.endswith('>'):
-                tok_split = ['pointer', str(tok.split(':')[1].strip('>'))]
-            elif tok.startswith('<'):
+            elif tok.startswith("<pointer:") and tok.endswith(">"):
+                tok_split = ["pointer", str(tok.split(":")[1].strip(">"))]
+            elif tok.startswith("<"):
                 continue
-            elif tok.startswith(':'):
-                if tok.startswith(':op'):
-                    tok_split = ['relation', 'operator', str(int(tok[3:]))]
+            elif tok.startswith(":"):
+                if tok.startswith(":op"):
+                    tok_split = ["relation", "operator", str(int(tok[3:]))]
 
-                elif tok.startswith(':snt'):
-                    tok_split = ['relation', 'sentence', str(int(tok[4:]))]
+                elif tok.startswith(":snt"):
+                    tok_split = ["relation", "sentence", str(int(tok[4:]))]
 
-                elif tok.startswith(':ARG'):
-                    tok_split = ['relation', 'argument', str(int(tok[4:]))]
+                elif tok.startswith(":ARG"):
+                    tok_split = ["relation", "argument", str(int(tok[4:]))]
 
                 else:
-                    tok_split = ['relation'] + tok.lstrip(':').split('-')
+                    tok_split = ["relation"] + tok.lstrip(":").split("-")
             else:
-                tok_split = tok.split('-')
+                tok_split = tok.split("-")
 
             tok_split_ = tok_split
             tok_split = []
