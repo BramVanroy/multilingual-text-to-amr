@@ -43,7 +43,6 @@ def main(*indirs: Union[str, PathLike], dout: Union[str, PathLike]):
                     fhout.write("\n".join(sentences) + "\n")
                     ft_datasets[split_name].extend(sentences)
 
-
     for split_name, sentences in ft_datasets.items():
         text = "\n".join(sentences) + "\n"
         pdout.joinpath(f"merged-{split_name}.txt").write_text(text, encoding="utf-8")
