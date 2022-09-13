@@ -20,7 +20,7 @@ setup(
     author_email="bramvanroy@hotmail.com",
     license="GPLv3",
     classifiers=[
-        "Development Status :: 5 - Production/Stable",
+        "Development Status :: 1 - Planning",
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
         "Topic :: Scientific/Engineering",
