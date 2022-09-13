@@ -25,7 +25,6 @@ setup(
         "Intended Audience :: Science/Research",
         "Topic :: Scientific/Engineering",
         "Topic :: Text Processing",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
@@ -42,7 +41,10 @@ setup(
         "scikit-learn",
         "datasets",
         "penman>=1.2.2"
-        "dataclasses;python_version<'3.7'"
+        "dataclasses;python_version<'3.7'",
+        "networkx",
+        "tqdm",
+        "torch"
     ],
     extras_require=extras,
 )
