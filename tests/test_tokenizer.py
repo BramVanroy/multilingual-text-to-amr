@@ -1,5 +1,5 @@
-from amr_mbart.amr_mbart.tokenization_amr_bart import AMRBartTokenizer
-from amr_mbart.data.dataset_amr_mbart import AMRDataset, AMRDatasetTokenBatcherAndLoader
+from amr_bart.amr_bart.tokenization_amr_bart import AMRBartTokenizer
+from amr_bart.data.dataset_amr_bart import AMRDataset, AMRDatasetTokenBatcherAndLoader
 
 
 def main():

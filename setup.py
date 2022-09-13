@@ -1,18 +1,18 @@
 from pathlib import Path
 from setuptools import find_packages, setup
 
-from src.amr_mbart import __version__
+from src.amr_bart import __version__
 
 
 extras = {"style": ["flake8", "isort", "black", "pygments"]}
 
 setup(
-    name="amr_mbart",
+    name="amr_bart",
     version=__version__,
     description="",
     long_description=Path("README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
-    keywords="nlp amr parsing semantic-parsing multilingual bart mbart",
+    keywords="nlp amr parsing semantic-parsing bart",
     package_dir={"": "src"},
     packages=find_packages("src"),
     url="https://github.com/BramVanroy/multilingual-text-to-amr",

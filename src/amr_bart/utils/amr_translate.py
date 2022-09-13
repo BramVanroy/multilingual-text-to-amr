@@ -148,5 +148,5 @@ if __name__ == "__main__":
     main()
 
 """
-CUDA_VISIBLE_DEVICES=0 python src/amr_mbart/utils/amr_translate.py data/amr_annotation_3.0/data/amrs/ data/amr_annotation_3.0/data/amrs_nl -m facebook/m2m100_1.2B --src_lang en --tgt_lang nl --batch_size 8
+CUDA_VISIBLE_DEVICES=0 python src/amr_bart/utils/amr_translate.py data/amr_annotation_3.0/data/amrs/ data/amr_annotation_3.0/data/amrs_nl -m facebook/m2m100_1.2B --src_lang en --tgt_lang nl --batch_size 8
 """

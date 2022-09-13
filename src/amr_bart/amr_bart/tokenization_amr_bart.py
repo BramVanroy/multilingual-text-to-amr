@@ -3,7 +3,7 @@ from pathlib import Path
 
 import regex as re
 import torch
-from amr_mbart.data.linearization import AMRLinearizer, AMRTokens
+from amr_bart.data.linearization import AMRLinearizer, AMRTokens
 from transformers import BartTokenizer
 
 from ..data import postprocessing

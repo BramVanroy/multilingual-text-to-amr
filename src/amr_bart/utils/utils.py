@@ -1,7 +1,7 @@
 import torch
-from amr_mbart.amr_mbart.modeling_amr_bart import \
+from amr_bart.amr_bart.modeling_amr_bart import \
     AMRBartForConditionalGeneration
-from amr_mbart.amr_mbart.tokenization_amr_bart import AMRBartTokenizer
+from amr_bart.amr_bart.tokenization_amr_bart import AMRBartTokenizer
 from transformers import AutoConfig
 
 

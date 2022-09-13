@@ -3,8 +3,8 @@ import re
 from collections import Counter, defaultdict
 
 import networkx as nx
-from amr_mbart.data import penman
-from amr_mbart.data.penman import encode
+from amr_bart.data import penman
+from amr_bart.data.penman import encode
 
 
 BACKOFF = penman.Graph(

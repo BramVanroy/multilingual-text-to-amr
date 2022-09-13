@@ -7,7 +7,7 @@ from functools import cached_property
 from typing import Any, Dict, List, Optional, Set, TypeVar
 
 import networkx as nx
-from amr_mbart.data import penman
+from amr_bart.data import penman
 
 
 @dataclass
