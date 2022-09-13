@@ -31,6 +31,7 @@ class AMRBartTokenizer(BartTokenizer):
         self.collapse_name_ops = collapse_name_ops
         self.recategorizations = set()
         self.modified = 0
+        self.old_enc_size = None
 
     @classmethod
     def from_pretrained(cls, pretrained_model_path, pred_min=5, *args, **kwargs):
@@ -97,9 +98,10 @@ class AMRBartTokenizer(BartTokenizer):
                 bpe_tokens.extend([self.INIT + recats[0], "_" + recats[1]])
             else:
                 for token in re.findall(self.pat, " " + tok_span):
+                    # Maps all our bytes to unicode strings, avoiding controle tokens of the BPE (spaces in our case)
                     token = "".join(
                         self.byte_encoder[b] for b in token.encode("utf-8")
-                    )  # Maps all our bytes to unicode strings, avoiding controle tokens of the BPE (spaces in our case)
+                    )
                     bpe_tokens.extend(bpe_token for bpe_token in self.bpe(token).split(" "))
 
         return bpe_tokens
