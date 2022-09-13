@@ -2,8 +2,8 @@ import torch
 from datasets import Dataset
 from transformers import MBartTokenizer
 
-from src.text_to_amr.denoising_collator import DenoisingCollator
-from src.text_to_amr.denoising_dataset import DenoisingDataset
+from amr_mbart.denoising_collator import DenoisingCollator
+from amr_mbart.denoising_dataset import DenoisingDataset
 
 
 def test_dataset_and_collator():

@@ -54,7 +54,7 @@ class ModelArguments:
     """
 
     model_name_or_path: Optional[str] = field(
-        default=None,
+        default="facebook/mbart-large-cc25",
         metadata={
             "help": (
                 "The model checkpoint for weights initialization.Don't set if you want to train a model from scratch."
@@ -87,6 +87,10 @@ class ModelArguments:
                 "with private models)."
             )
         },
+    )
+    from_pretrained: bool = field(
+        default=True,
+        metadata={"help": "Whether to finetune a pretrained model or train from scratch."},
     )
 
 
