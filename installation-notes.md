@@ -1,5 +1,7 @@
-
 # Spring installation
+
+In earlier iterations, I attempted to reproduce SPRING results and needed a full installation for that. In the current version,
+this is not necessary anymore. This note serves as a reminder for myself and a future audience who experience issues installing SPRING.
 
 Installation of Spring on our cluster was a hassle due to the old dependency on Transformers v2 which in turn relies on tokenizers v0.7.0.
 This was not easy to install because it doesn't come with prebuilt wheels and relies on an old, nightly Rust build. So to solve this
