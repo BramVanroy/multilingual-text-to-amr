@@ -15,8 +15,13 @@ def instantiate_model_and_tokenizer(
     init_reverse=False,
     collapse_name_ops=False,
     use_pointer_tokens=False,
+    tokenizer_kwargs=None,
+    config_kwargs=None,
 ):
-    config = AutoConfig.from_pretrained(config_name_or_path)
+    tokenizer_kwargs = {} if tokenizer_kwargs is None else tokenizer_kwargs
+    config_kwargs = {} if config_kwargs is None else config_kwargs
+
+    config = AutoConfig.from_pretrained(config_name_or_path, **config_kwargs)
     config.output_past = False
     config.no_repeat_ngram_size = 0
     config.prefix = " "
@@ -29,11 +34,13 @@ def instantiate_model_and_tokenizer(
         collapse_name_ops=collapse_name_ops,
         use_pointer_tokens=use_pointer_tokens,
         config=config,
+        **tokenizer_kwargs,
     )
 
     if from_pretrained:
         model = AMRBartForConditionalGeneration.from_pretrained(model_name_or_path, config=config)
     else:
+        config.vocab_size = len(tokenizer)
         model = AMRBartForConditionalGeneration(config)
 
     model.resize_token_embeddings(len(tokenizer.encoder))
