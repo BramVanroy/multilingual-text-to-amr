@@ -11,10 +11,10 @@ from transformers.generation_tf_utils import (calc_banned_bad_words_ids,
                                               calc_banned_ngram_tokens)
 from transformers.generation_utils import top_k_top_p_filtering
 from transformers.modeling_outputs import (
-    BaseModelOutput, BaseModelOutputWithPastAndCrossAttentions)
+    BaseModelOutput, BaseModelOutputWithPastAndCrossAttentions, Seq2SeqModelOutput)
 from transformers.models.bart.modeling_bart import (
     BartDecoder, BartDecoderLayer, BartEncoder, BartLearnedPositionalEmbedding,
-    _expand_mask)
+    _expand_mask, BartModel, shift_tokens_right, BartPretrainedModel, BartForConditionalGeneration)
 
 
 logger = logging.get_logger(__name__)
@@ -43,6 +43,8 @@ class AMRBartEncoder(BartEncoder):
         super().__init__(config, embed_tokens)
         self.backpointer_idx = backpointer_idx
 
+        self.post_init()
+
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -50,7 +52,6 @@ class AMRBartEncoder(BartEncoder):
         head_mask: Optional[torch.Tensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
         embedded: Optional[torch.Tensor] = None,
     ):
         r"""
@@ -76,8 +77,6 @@ class AMRBartEncoder(BartEncoder):
             output_hidden_states (`bool`, *optional*):
                 Whether or not to return the hidden states of all layers. See `hidden_states` under returned tensors
                 for more detail.
-            return_dict (`bool`, *optional*):
-                Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
             embedded (`torch.Tensor`, *optional*):
                 An embedding to add to positional embeddings
         """
@@ -85,8 +84,6 @@ class AMRBartEncoder(BartEncoder):
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
         input_ids, backreferences = extract_backreferences(
             input_ids, self.embed_tokens.num_embeddings, self.backpointer_idx
         )
@@ -122,7 +119,6 @@ class AMRBartEncoder(BartEncoder):
 
         # B x T x C -> T x B x C: from spring
         # x = x.transpose(0, 1)
-
         for idx, encoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 encoder_states = encoder_states + (hidden_states,)
@@ -161,11 +157,7 @@ class AMRBartEncoder(BartEncoder):
         if output_hidden_states:
             encoder_states = encoder_states + (hidden_states,)
 
-        if not return_dict:
-            return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
-        return BaseModelOutput(
-            last_hidden_state=hidden_states, hidden_states=encoder_states, attentions=all_attentions
-        )
+        return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
 
 
 class AMRBartDecoder(BartDecoder):
@@ -183,6 +175,8 @@ class AMRBartDecoder(BartDecoder):
 
         self.pointer_k = nn.Linear(config.d_model, config.d_model)
         self.pointer_q = nn.Linear(config.d_model, config.d_model)
+
+        self.post_init()
 
     def forward(
         self,
@@ -408,14 +402,11 @@ class AMRBartDecoder(BartDecoder):
         return (hidden_states, scores), next_cache, all_hidden_states, all_self_attns, all_cross_attentions
 
 
-class AMRBartModel(PretrainedBartModel):
+class AMRBartModel(BartModel):
     def __init__(self, config: BartConfig, backpointer_idx=None):
         super().__init__(config)
-        self.output_attentions = True
-        self.output_hidden_states = config.output_hidden_states
 
-        self.padding_idx, vocab_size = config.pad_token_id, config.vocab_size
-        self.shared = nn.Embedding(vocab_size, config.d_model, self.padding_idx)
+        self.shared = nn.Embedding(config.vocab_size, config.d_model, self.padding_idx)
 
         if backpointer_idx is not None:
             self.backpointer_idx = backpointer_idx
@@ -425,7 +416,7 @@ class AMRBartModel(PretrainedBartModel):
         self.encoder = AMRBartEncoder(config, self.shared, backpointer_idx=self.backpointer_idx)
         self.decoder = AMRBartDecoder(config, self.shared, backpointer_idx=self.backpointer_idx)
 
-        self.init_weights()
+        self.post_init()
 
     @property
     def sentence_mode(self):
@@ -437,89 +428,88 @@ class AMRBartModel(PretrainedBartModel):
         self.decoder.amr_mode = value
 
     def forward(
-        self,
-        input_ids,
-        attention_mask=None,
-        decoder_input_ids=None,
-        encoder_outputs: Optional[Tuple] = None,
-        decoder_attention_mask=None,
-        decoder_cached_states=None,
-        use_cache=False,
-    ):
+            self,
+            input_ids: torch.LongTensor = None,
+            attention_mask: Optional[torch.Tensor] = None,
+            decoder_input_ids: Optional[torch.LongTensor] = None,
+            decoder_attention_mask: Optional[torch.LongTensor] = None,
+            head_mask: Optional[torch.Tensor] = None,
+            decoder_head_mask: Optional[torch.Tensor] = None,
+            cross_attn_head_mask: Optional[torch.Tensor] = None,
+            encoder_outputs: Optional[List[torch.FloatTensor]] = None,
+            past_key_values: Optional[List[torch.FloatTensor]] = None,
+            inputs_embeds: Optional[torch.FloatTensor] = None,
+            decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
+            use_cache: Optional[bool] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+    ) -> Union[Tuple, Seq2SeqModelOutput]:
 
-        # make masks if user doesn't supply
-        if not use_cache:
-            decoder_input_ids, decoder_padding_mask, causal_mask = _prepare_bart_decoder_inputs(
-                self.config,
-                input_ids,
-                decoder_input_ids=decoder_input_ids,
-                decoder_padding_mask=decoder_attention_mask,
-                causal_mask_dtype=self.shared.weight.dtype,
+        # different to other models, Bart automatically creates decoder_input_ids from
+        # input_ids if no decoder_input_ids are provided
+        if decoder_input_ids is None and decoder_inputs_embeds is None:
+            if input_ids is None:
+                raise ValueError(
+                    "If no `decoder_input_ids` or `decoder_inputs_embeds` are "
+                    "passed, `input_ids` cannot be `None`. Please pass either "
+                    "`input_ids` or `decoder_input_ids` or `decoder_inputs_embeds`."
+                )
+
+            decoder_input_ids = shift_tokens_right(
+                input_ids, self.config.pad_token_id, self.config.decoder_start_token_id
             )
-        else:
-            decoder_padding_mask, causal_mask = None, None
 
-        assert decoder_input_ids is not None
-        if encoder_outputs is None:
-            encoder_outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        assert isinstance(encoder_outputs, tuple)
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
-        decoder_outputs = self.decoder(
-            decoder_input_ids,
-            encoder_outputs[0],
-            attention_mask,
-            decoder_padding_mask,
-            decoder_causal_mask=causal_mask,
-            decoder_cached_states=decoder_cached_states,
-            use_cache=use_cache,
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        # Attention and hidden_states will be [] or None if they aren't needed
-        # decoder_outputs: Tuple = _filter_out_falsey_values(decoder_outputs)
-        assert isinstance(decoder_outputs[0][0], torch.Tensor)
-        assert isinstance(decoder_outputs[0][1], torch.Tensor)
-        encoder_outputs: Tuple = _filter_out_falsey_values(encoder_outputs)
+        use_cache = use_cache if use_cache is not None else self.config.use_cache
+
+        if encoder_outputs is None:
+            encoder_outputs = self.encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                head_mask=head_mask,
+                inputs_embeds=inputs_embeds,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+            )
+
+        # decoder outputs consists of (dec_features, past_key_value, dec_hidden, dec_attn)
+        decoder_outputs = self.decoder(
+            input_ids=decoder_input_ids,
+            attention_mask=decoder_attention_mask,
+            encoder_hidden_states=encoder_outputs[0],
+            encoder_attention_mask=attention_mask,
+            head_mask=decoder_head_mask,
+            cross_attn_head_mask=cross_attn_head_mask,
+            past_key_values=past_key_values,
+            inputs_embeds=decoder_inputs_embeds,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+        )
+
         return decoder_outputs + encoder_outputs
 
-    def get_input_embeddings(self):
-        return self.shared
-
-    def set_input_embeddings(self, value):
-        self.shared = value
-        self.encoder.embed_tokens = self.shared
-        self.decoder.embed_tokens = self.shared
-
-    def get_output_embeddings(self):
-        return _make_linear_from_emb(self.shared)  # make it on the fly
+    # def get_output_embeddings(self):
+    #     return _make_linear_from_emb(self.shared)  # make it on the fly
 
 
-class AMRBartForConditionalGeneration(PretrainedBartModel):
+class AMRBartForConditionalGeneration(BartForConditionalGeneration):
     base_model_prefix = "model"
+    _keys_to_ignore_on_load_missing = [r"final_logits_bias", r"lm_head.weight"]
 
     def __init__(self, config: BartConfig, backpointer_idx=None):
         super().__init__(config)
         base_model = AMRBartModel(config, backpointer_idx)
         self.model = base_model
-        self.pad_index = base_model.shared.padding_idx
         self.register_buffer("final_logits_bias", torch.zeros((1, self.model.shared.num_embeddings)))
+
+        self.pad_index = base_model.shared.padding_idx
         self.backpointer_idx = backpointer_idx
-        self._rev = None
 
-    def init_reverse_model(self):
-        rev = AMRBartForConditionalGeneration(self.model.config, self.backpointer_idx)
-        rev.model.shared = self.model.shared
-        rev.model.encoder = self.model.encoder
-        rev.model.decoder.embed_tokens = self.model.decoder.embed_tokens
-        rev.model.decoder.embed_positions = self.model.decoder.embed_positions
-        self.amr_mode = True
-        rev.amr_mode = False
-        self._rev = rev
-
-    @property
-    def rev(self):
-        if self._rev is None:
-            return self
-        else:
-            return self._rev
+        self.post_init()
 
     @property
     def amr_mode(self):
@@ -1320,42 +1310,6 @@ class AMRBartForConditionalGeneration(PretrainedBartModel):
 
         return decoded
 
-    @staticmethod
-    def _reorder_cache(past: Tuple, beam_idx: Tensor) -> Tuple[Tensor]:
-        return tuple(layer_past.index_select(1, beam_idx) for layer_past in past)
-
-    def resize_token_embeddings(self, new_num_tokens: int) -> nn.Embedding:
-        old_num_tokens = self.model.shared.num_embeddings
-        new_embeddings = super().resize_token_embeddings(new_num_tokens)
-        self.model.shared = new_embeddings
-        self._resize_final_logits_bias(new_num_tokens, old_num_tokens)
-        return new_embeddings
-
-    def _resize_final_logits_bias(self, new_num_tokens: int, old_num_tokens: int) -> None:
-        if new_num_tokens <= old_num_tokens:
-            new_bias = self.final_logits_bias[:, :new_num_tokens]
-        else:
-            extra_bias = torch.zeros((1, new_num_tokens - old_num_tokens), device=self.final_logits_bias.device)
-            new_bias = torch.cat([self.final_logits_bias, extra_bias], dim=1)
-        self.register_buffer("final_logits_bias", new_bias)
-
-    def prepare_inputs_for_generation(self, decoder_input_ids, past, attention_mask, use_cache, **kwargs):
-        assert past is not None, "past has to be defined for encoder_outputs"
-
-        # first step, decoder_cached_states are empty
-        if not past[1]:
-            encoder_outputs, decoder_cached_states = past, None
-        else:
-            encoder_outputs, decoder_cached_states = past
-        return {
-            "input_ids": None,  # encoder_outputs is defined. input_ids not needed
-            "encoder_outputs": encoder_outputs,
-            "decoder_cached_states": decoder_cached_states,
-            "decoder_input_ids": decoder_input_ids,
-            "attention_mask": attention_mask,
-            "use_cache": use_cache,  # change this to avoid caching (presumably for debugging)
-        }
-
     def prepare_logits_for_generation(self, logits, cur_len, max_length):
         # if cur_len == 1:
         #    self._force_token_ids_generation(logits, self.config.bos_token_id)
@@ -1375,25 +1329,3 @@ class AMRBartForConditionalGeneration(PretrainedBartModel):
         assert len(scores.shape) == 2, "scores should be of rank 2 with shape: [batch_size, vocab_size]"
         scores[:, all_but_token_ids_mask] = -float("inf")
 
-    @staticmethod
-    def _reorder_cache(past, beam_idx):
-        ((enc_out, enc_mask), decoder_cached_states) = past
-        reordered_past = []
-        for layer_past in decoder_cached_states:
-            # get the correct batch idx from decoder layer's batch dim for cross and self-attn
-            layer_past_new = {
-                attn_key: _reorder_buffer(attn_cache, beam_idx) for attn_key, attn_cache in layer_past.items()
-            }
-            reordered_past.append(layer_past_new)
-
-        new_enc_out = enc_out if enc_out is None else enc_out.index_select(0, beam_idx)
-        new_enc_mask = enc_mask if enc_mask is None else enc_mask.index_select(0, beam_idx)
-
-        past = ((new_enc_out, new_enc_mask), reordered_past)
-        return past
-
-    def get_encoder(self):
-        return self.model.encoder
-
-    def get_output_embeddings(self):
-        return _make_linear_from_emb(self.model.shared)  # make it on the fly
