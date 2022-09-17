@@ -1,0 +1,5 @@
+{
+  "train_directory": "D:\\corpora\\amr_annotation_3.0\\data\\amrs\\split\\dev",
+  "validation_directory": "D:\\corpora\\amr_annotation_3.0\\data\\amrs\\split\\dev",
+  "output_dir": "C:\\dev\\python\\multilingual-text-to-amr\\runs"
+}
