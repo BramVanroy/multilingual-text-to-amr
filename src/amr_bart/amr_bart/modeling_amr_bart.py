@@ -11,10 +11,12 @@ from transformers.generation_tf_utils import (calc_banned_bad_words_ids,
                                               calc_banned_ngram_tokens)
 from transformers.generation_utils import top_k_top_p_filtering
 from transformers.modeling_outputs import (
-    BaseModelOutput, BaseModelOutputWithPastAndCrossAttentions, Seq2SeqModelOutput)
+    BaseModelOutput, BaseModelOutputWithPastAndCrossAttentions,
+    Seq2SeqModelOutput)
 from transformers.models.bart.modeling_bart import (
-    BartDecoder, BartDecoderLayer, BartEncoder, BartLearnedPositionalEmbedding,
-    _expand_mask, BartModel, shift_tokens_right, BartPretrainedModel, BartForConditionalGeneration)
+    BartDecoder, BartDecoderLayer, BartEncoder, BartForConditionalGeneration,
+    BartLearnedPositionalEmbedding, BartModel, BartPretrainedModel,
+    _expand_mask, shift_tokens_right)
 
 
 logger = logging.get_logger(__name__)
@@ -428,21 +430,21 @@ class AMRBartModel(BartModel):
         self.decoder.amr_mode = value
 
     def forward(
-            self,
-            input_ids: torch.LongTensor = None,
-            attention_mask: Optional[torch.Tensor] = None,
-            decoder_input_ids: Optional[torch.LongTensor] = None,
-            decoder_attention_mask: Optional[torch.LongTensor] = None,
-            head_mask: Optional[torch.Tensor] = None,
-            decoder_head_mask: Optional[torch.Tensor] = None,
-            cross_attn_head_mask: Optional[torch.Tensor] = None,
-            encoder_outputs: Optional[List[torch.FloatTensor]] = None,
-            past_key_values: Optional[List[torch.FloatTensor]] = None,
-            inputs_embeds: Optional[torch.FloatTensor] = None,
-            decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
-            use_cache: Optional[bool] = None,
-            output_attentions: Optional[bool] = None,
-            output_hidden_states: Optional[bool] = None,
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        decoder_input_ids: Optional[torch.LongTensor] = None,
+        decoder_attention_mask: Optional[torch.LongTensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        decoder_head_mask: Optional[torch.Tensor] = None,
+        cross_attn_head_mask: Optional[torch.Tensor] = None,
+        encoder_outputs: Optional[List[torch.FloatTensor]] = None,
+        past_key_values: Optional[List[torch.FloatTensor]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
     ) -> Union[Tuple, Seq2SeqModelOutput]:
 
         # different to other models, Bart automatically creates decoder_input_ids from
@@ -1328,4 +1330,3 @@ class AMRBartForConditionalGeneration(BartForConditionalGeneration):
         )
         assert len(scores.shape) == 2, "scores should be of rank 2 with shape: [batch_size, vocab_size]"
         scores[:, all_but_token_ids_mask] = -float("inf")
-
