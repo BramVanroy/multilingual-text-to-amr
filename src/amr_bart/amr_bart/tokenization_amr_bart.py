@@ -209,17 +209,18 @@ class AMRBartTokenizer(BartTokenizer):
                 batch_extra["linearized_graphs"].append(extra["linearized_graphs"])
         else:
             batch_extra = {}
-        maxlen = 0
-        batch = []
-        for token_uni_ids in linearized:
-            maxlen = max(len(token_uni_ids), maxlen)
-            batch.append(token_uni_ids)
-        batch = [x + [self.pad_token_id] * (maxlen - len(x)) for x in batch]
-        batch = torch.tensor(batch)
+
+        # TODO: (BV) check if we shouldn't set padded labels to -100 for CE
+        batch = self.pad({"input_ids": linearized}, return_tensors="pt")["input_ids"]
         batch = {"decoder_input_ids": batch[:, :-1], "labels": batch[:, 1:]}
+        batch["decoder_attention_mask"] = (batch["decoder_input_ids"] != self.pad_token_id).long()
+
         return batch, batch_extra
 
     def decode_amr(self, tokens, restore_name_ops=False):
+        if isinstance(tokens, torch.Tensor):
+            tokens = tokens.tolist()
+
         try:
             nodes, backreferences = postprocessing.decode_into_node_and_backreferences(tokens, self)
         except Exception as e:
