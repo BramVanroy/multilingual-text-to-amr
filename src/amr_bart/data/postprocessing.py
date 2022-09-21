@@ -413,11 +413,10 @@ class ParsedStatus(enum.Enum):
 
 
 def connect_graph_if_not_connected(graph):
-
     try:
         encoded = encode(graph)
         return graph, ParsedStatus.OK
-    except:
+    except Exception:
         pass
 
     nxgraph = nx.MultiGraph()

@@ -44,7 +44,7 @@ class AMRDataset(Dataset):
 
             try:
                 self.tokenizer.batch_encode_sentences([g.metadata["snt"]])
-            except:
+            except Exception:
                 logging.warning("Invalid sentence!")
                 continue
 

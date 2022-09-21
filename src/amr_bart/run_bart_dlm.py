@@ -15,23 +15,19 @@
 # limitations under the License.
 """Pretraining models for denoising multilingual language modeling on a text file or a dataset.
 """
-import hashlib
 import logging
 import math
 import os
-import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
-import datasets
 import evaluate
 import transformers
 from amr_bart.data.dataset_amr_bart import AMRDataset
 from amr_bart.utils.utils import instantiate_model_and_tokenizer
-from transformers import (BartConfig, BartForConditionalGeneration,
-                          BartTokenizer, HfArgumentParser, Trainer,
+from transformers import (HfArgumentParser,
                           TrainingArguments, is_torch_tpu_available, set_seed)
 from transformers.trainer_utils import get_last_checkpoint
 
@@ -322,8 +318,8 @@ def main():
 
         metrics = trainer.evaluate()
 
-        max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
-        metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
+        max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(validation_dataset)
+        metrics["eval_samples"] = min(max_eval_samples, len(validation_dataset))
         try:
             perplexity = math.exp(metrics["eval_loss"])
         except OverflowError:
