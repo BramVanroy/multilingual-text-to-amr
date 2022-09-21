@@ -5,8 +5,8 @@ from functools import cached_property
 import torch
 from torch.utils.data import Dataset
 
-from .IO import read_raw_amr_data
 from ..amr_bart.tokenization_amr_bart import AMRBartTokenizer
+from .IO import read_raw_amr_data
 
 
 def reverse_direction(x, y, pad_token_id=1):
@@ -75,10 +75,7 @@ class AMRDataset(Dataset):
         return len(self.sentences)
 
     def __getitem__(self, idx):
-        sample = {
-            "id": idx,
-            "sentences": self.sentences[idx]
-        }
+        sample = {"id": idx, "sentences": self.sentences[idx]}
 
         if self.linearized is not None:
             sample["linearized_graphs_ids"] = self.linearized[idx]
@@ -90,8 +87,10 @@ class AMRDataset(Dataset):
     def size(sample):
         return len(sample["linearized_graphs_ids"])
 
+
 class AMRDatasetTokenBatcherAndLoader:
     """TODO: (BV) rework for distributed mode"""
+
     def __init__(self, dataset, batch_size=800, shuffle=False, sort=False):
         assert not (shuffle and sort)
         self.batch_size = batch_size

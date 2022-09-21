@@ -6,7 +6,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from transformers import BartConfig
-
 from transformers.modeling_outputs import (
     BaseModelOutputWithPastAndCrossAttentions, Seq2SeqModelOutput)
 from transformers.models.bart.modeling_bart import (
@@ -50,7 +49,7 @@ class AMRBartEncoder(BartEncoder):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         embedded: Optional[torch.Tensor] = None,
-            **kwargs
+        **kwargs,
     ):
         r"""
         Args:
@@ -441,7 +440,7 @@ class AMRBartModel(BartModel):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        **kwargs
+        **kwargs,
     ) -> Union[Tuple, Seq2SeqModelOutput]:
 
         # different to other models, Bart automatically creates decoder_input_ids from
@@ -571,7 +570,8 @@ class AMRBartForConditionalGeneration(BartForConditionalGeneration):
             masked_lm_loss = F.nll_loss(
                 uni_logits.log_softmax(-1).contiguous().view(-1, uni_logits.size(-1)),
                 labels.contiguous().view(-1),
-                ignore_index=self.pad_index)
+                ignore_index=self.pad_index,
+            )
             outputs = (masked_lm_loss,) + outputs
 
         return outputs
