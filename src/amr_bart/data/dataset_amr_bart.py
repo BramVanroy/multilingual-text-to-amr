@@ -24,7 +24,6 @@ class AMRDataset(Dataset):
         self,
         paths,
         tokenizer,
-        device=torch.device("cpu"),
         use_recategorization=False,
         remove_longer_than=None,
         remove_wiki=False,
@@ -32,7 +31,6 @@ class AMRDataset(Dataset):
     ):
         self.paths = paths
         self.tokenizer = tokenizer
-        self.device = device
         graphs = read_raw_amr_data(paths, use_recategorization, remove_wiki=remove_wiki, dereify=dereify)
         self.graphs = []
         self.sentences = []
@@ -73,12 +71,12 @@ class AMRDataset(Dataset):
     def size(self, sample):
         return len(sample["linearized_graphs_ids"])
 
-    def collate_fn(self, samples, device=torch.device("cpu")):
+    def collate_fn(self, samples):
         x = [s["sentences"] for s in samples]
-        x, extra = self.tokenizer.batch_encode_sentences(x, device=device)
+        x, extra = self.tokenizer.batch_encode_sentences(x)
         if "linearized_graphs_ids" in samples[0]:
             y = [s["linearized_graphs_ids"] for s in samples]
-            y, extra_y = self.tokenizer.batch_encode_graphs_from_linearized(y, samples, device=device)
+            y, extra_y = self.tokenizer.batch_encode_graphs_from_linearized(y, samples,)
             extra.update(extra_y)
         else:
             y = None
@@ -87,19 +85,18 @@ class AMRDataset(Dataset):
 
 
 class AMRDatasetTokenBatcherAndLoader:
-    def __init__(self, dataset, batch_size=800, device=torch.device("cpu"), shuffle=False, sort=False):
+    def __init__(self, dataset, batch_size=800, shuffle=False, sort=False):
         assert not (shuffle and sort)
         self.batch_size = batch_size
         self.tokenizer = dataset.tokenizer
         self.dataset = dataset
-        self.device = device
         self.shuffle = shuffle
         self.sort = sort
 
     def __iter__(self):
         it = self.sampler()
         it = [[self.dataset[s] for s in b] for b in it]
-        it = (self.dataset.collate_fn(b, device=self.device) for b in it)
+        it = (self.dataset.collate_fn(b) for b in it)
         return it
 
     @cached_property
