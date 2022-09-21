@@ -4,7 +4,7 @@ from setuptools import find_packages, setup
 from src.amr_bart import __version__
 
 
-extras = {"style": ["flake8", "isort", "black", "pygments"]}
+extras = {"style": ["flake8", "isort", "black"]}
 
 setup(
     name="amr_bart",
@@ -41,7 +41,6 @@ setup(
         "scikit-learn",
         "datasets",
         "penman>=1.2.2"
-        "dataclasses;python_version<'3.7'",
         "networkx",
         "tqdm",
         "torch"
