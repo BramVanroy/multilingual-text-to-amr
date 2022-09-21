@@ -555,7 +555,7 @@ class AMRBartForConditionalGeneration(BartForConditionalGeneration):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
         )
-        lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
+        lm_logits = self.lm_head(outputs[0][0]) + self.final_logits_bias
 
         po_logits = outputs[0][1]
         po_padding = torch.full_like(po_logits[:, :, 0:1], float("-inf"))

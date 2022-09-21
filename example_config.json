@@ -1,5 +1,7 @@
 {
   "train_directory": "D:\\corpora\\amr_annotation_3.0\\data\\amrs\\split\\dev",
-  "validation_directory": "D:\\corpora\\amr_annotation_3.0\\data\\amrs\\split\\dev",
-  "output_dir": "C:\\dev\\python\\multilingual-text-to-amr\\runs"
+  "validation_directory": "D:\\corpora\\amr_annotation_3.0\\data\\amrs\\split\\test",
+  "output_dir": "C:\\dev\\python\\multilingual-text-to-amr\\runs",
+  "do_train": true,
+  "do_eval": true
 }
