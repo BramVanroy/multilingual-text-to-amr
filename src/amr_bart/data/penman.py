@@ -37,9 +37,9 @@ def _remove_wiki(graph):
     return graph
 
 
-def load(source, dereify=None, remove_wiki=False):
+def load(source, dereify=None, remove_wiki=False, encoding="utf-8"):
     model = _get_model(dereify)
-    out = load_(source=source, model=model)
+    out = load_(source=source, model=model, encoding=encoding)
     if remove_wiki:
         for i in range(len(out)):
             out[i] = _remove_wiki(out[i])
