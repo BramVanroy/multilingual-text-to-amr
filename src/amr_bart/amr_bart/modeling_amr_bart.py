@@ -1,6 +1,6 @@
 import logging
 import random
-from typing import Optional, List, Tuple, Union, Iterable
+from typing import Iterable, List, Optional, Tuple, Union
 
 import torch
 from torch import nn
@@ -11,8 +11,7 @@ from transformers.generation_tf_utils import (calc_banned_bad_words_ids,
                                               calc_banned_ngram_tokens)
 from transformers.generation_utils import top_k_top_p_filtering
 from transformers.modeling_outputs import (
-    BaseModelOutputWithPastAndCrossAttentions,
-    Seq2SeqModelOutput)
+    BaseModelOutputWithPastAndCrossAttentions, Seq2SeqModelOutput)
 from transformers.models.bart.modeling_bart import (
     BartDecoder, BartEncoder, BartForConditionalGeneration, BartModel,
     _expand_mask, shift_tokens_right)
