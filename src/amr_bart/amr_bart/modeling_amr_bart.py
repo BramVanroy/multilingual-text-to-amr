@@ -1,15 +1,12 @@
 import logging
 import random
-from typing import Iterable, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import torch
 from torch import nn
 from torch.nn import functional as F
 from transformers import BartConfig
-from transformers.generation_beam_search import BeamHypotheses
-from transformers.generation_tf_utils import (calc_banned_bad_words_ids,
-                                              calc_banned_ngram_tokens)
-from transformers.generation_utils import top_k_top_p_filtering
+
 from transformers.modeling_outputs import (
     BaseModelOutputWithPastAndCrossAttentions, Seq2SeqModelOutput)
 from transformers.models.bart.modeling_bart import (
@@ -53,6 +50,7 @@ class AMRBartEncoder(BartEncoder):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         embedded: Optional[torch.Tensor] = None,
+            **kwargs
     ):
         r"""
         Args:
@@ -443,6 +441,7 @@ class AMRBartModel(BartModel):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
+        **kwargs
     ) -> Union[Tuple, Seq2SeqModelOutput]:
 
         # different to other models, Bart automatically creates decoder_input_ids from
