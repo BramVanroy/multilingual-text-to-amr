@@ -492,20 +492,14 @@ class AMRBartModel(BartModel):
 
         return decoder_outputs + encoder_outputs
 
-    # def get_output_embeddings(self):
-    #     return _make_linear_from_emb(self.shared)  # make it on the fly
-
 
 class AMRBartForConditionalGeneration(BartForConditionalGeneration):
-    base_model_prefix = "model"
-    _keys_to_ignore_on_load_missing = [r"final_logits_bias", r"lm_head.weight"]
-
     def __init__(self, config: BartConfig, backpointer_idx=None):
         super().__init__(config)
         base_model = AMRBartModel(config, backpointer_idx)
         self.model = base_model
         self.register_buffer("final_logits_bias", torch.zeros((1, self.model.shared.num_embeddings)))
-
+        # lm_head will be registered in super()
         self.pad_index = base_model.shared.padding_idx
         self.backpointer_idx = backpointer_idx
 
@@ -522,123 +516,65 @@ class AMRBartForConditionalGeneration(BartForConditionalGeneration):
 
     def forward(
         self,
-        input_ids,
-        attention_mask=None,
-        encoder_outputs=None,
-        decoder_input_ids=None,
-        decoder_attention_mask=None,
-        decoder_cached_states=None,
-        lm_labels=None,
-        use_cache=False,
-        **unused,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        decoder_input_ids: Optional[torch.LongTensor] = None,
+        decoder_attention_mask: Optional[torch.LongTensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        decoder_head_mask: Optional[torch.Tensor] = None,
+        cross_attn_head_mask: Optional[torch.Tensor] = None,
+        encoder_outputs: Optional[List[torch.FloatTensor]] = None,
+        past_key_values: Optional[List[torch.FloatTensor]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        **kwargs,
     ):
-        r"""
-            lm_labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
-                Labels for computing the masked language modeling loss.
-                Indices should either be in ``[0, ..., config.vocab_size]`` or -100 (see ``input_ids`` docstring).
-                Tokens with indices set to ``-100`` are ignored (masked), the loss is only computed for the tokens
-                with labels
-                in ``[0, ..., config.vocab_size]``.
+        if labels is not None:
+            if use_cache:
+                logger.warning("The `use_cache` argument is changed to `False` since `labels` is provided.")
+            use_cache = False
+            if decoder_input_ids is None and decoder_inputs_embeds is None:
+                decoder_input_ids = shift_tokens_right(
+                    labels, self.config.pad_token_id, self.config.decoder_start_token_id
+                )
 
-        Returns:
-            :obj:`tuple(torch.FloatTensor)` comprising various elements depending on the configuration (:class:`~transformers.RobertaConfig`) and inputs:
-            masked_lm_loss (`optional`, returned when ``lm_labels`` is provided) ``torch.FloatTensor`` of shape ``(1,)``:
-                Masked language modeling loss.
-            prediction_scores (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, config.vocab_size)`)
-                Prediction scores of the language modeling head (scores for each vocabulary token before SoftMax).
-            hidden_states (:obj:`tuple(torch.FloatTensor)`, `optional`, returned when ``config.output_hidden_states=True``):
-                Tuple of :obj:`torch.FloatTensor` (one for the output of the embeddings + one for the output of each layer)
-                of shape :obj:`(batch_size, sequence_length, hidden_size)`.
-
-                Hidden-states of the model at the output of each layer plus the initial embedding outputs.
-            attentions (:obj:`tuple(torch.FloatTensor)`, `optional`, returned when ``config.output_attentions=True``):
-                Tuple of :obj:`torch.FloatTensor` (one for each layer) of shape
-                :obj:`(batch_size, num_heads, sequence_length, sequence_length)`.
-
-                Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
-                heads.
-
-        Examples::
-
-                # Mask filling only works for bart-large
-                from transformers import BartTokenizer, BartForConditionalGeneration
-                tokenizer = BartTokenizer.from_pretrained('bart-large')
-                TXT = "My friends are <mask> but they eat too many carbs."
-                model = BartForConditionalGeneration.from_pretrained('bart-large')
-                input_ids = tokenizer.batch_encode_plus([TXT], return_tensors='pt')['input_ids']
-                logits = model(input_ids)[0]
-                masked_index = (input_ids[0] == tokenizer.mask_token_id).nonzero().item()
-                probs = logits[0, masked_index].softmax(dim=0)
-                values, predictions = probs.topk(5)
-                tokenizer.decode(predictions).split()
-                # ['good', 'great', 'all', 'really', 'very']
-        """
-        # outputs = self.model(
-        #     input_ids,
-        #     attention_mask=attention_mask,
-        #     decoder_input_ids=decoder_input_ids,
-        #     encoder_outputs=encoder_outputs,
-        #     decoder_attention_mask=decoder_attention_mask,
-        #     decoder_cached_states=decoder_cached_states,
-        #     use_cache=use_cache,
-        # )
-        # lm_logits = F.linear(outputs[0][0], self.model.shared.weight, bias=self.final_logits_bias)
-        # po_logits = outputs[0][1]
-        # po_padding = torch.full_like(po_logits[:, :, 0:1], float('-inf'))
-        # po_padding = po_padding.repeat(1, 1, 1024 - po_logits.size(-1))
-        # po_logits = torch.cat([po_logits, po_padding], -1)
-        # uni_logits = torch.cat([lm_logits, po_logits], -1)
-        #
-        # outputs = (uni_logits,) + outputs[1:]  # Add cache, hidden states and attention if they are here
-
-        outputs = self.compute_logits(
-            input_ids,
-            attention_mask=attention_mask,
-            decoder_input_ids=decoder_input_ids,
-            encoder_outputs=encoder_outputs,
-            decoder_attention_mask=decoder_attention_mask,
-            decoder_cached_states=decoder_cached_states,
-            use_cache=use_cache,
-        )
-
-        if lm_labels is not None:
-            uni_logits = outputs[0]
-            masked_lm_loss = F.nll_loss(
-                uni_logits.log_softmax(-1).contiguous().view(-1, uni_logits.size(-1)),
-                lm_labels.contiguous().view(-1),
-                ignore_index=self.pad_index,
-            )
-            outputs = (masked_lm_loss,) + outputs
-
-        return outputs
-
-    def compute_logits(
-        self,
-        input_ids,
-        attention_mask=None,
-        encoder_outputs=None,
-        decoder_input_ids=None,
-        decoder_attention_mask=None,
-        decoder_cached_states=None,
-        use_cache=False,
-    ):
         outputs = self.model(
             input_ids,
             attention_mask=attention_mask,
             decoder_input_ids=decoder_input_ids,
             encoder_outputs=encoder_outputs,
             decoder_attention_mask=decoder_attention_mask,
-            decoder_cached_states=decoder_cached_states,
+            head_mask=head_mask,
+            decoder_head_mask=decoder_head_mask,
+            cross_attn_head_mask=cross_attn_head_mask,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            decoder_inputs_embeds=decoder_inputs_embeds,
             use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
         )
+        lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
 
-        lm_logits = F.linear(outputs[0][0], self.model.shared.weight, bias=self.final_logits_bias)
         po_logits = outputs[0][1]
         po_padding = torch.full_like(po_logits[:, :, 0:1], float("-inf"))
         po_padding = po_padding.repeat(1, 1, 1024 - po_logits.size(-1))
-        po_logits = torch.cat([po_logits, po_padding], -1)
-        uni_logits = torch.cat([lm_logits, po_logits], -1)
+        po_logits = torch.cat((po_logits, po_padding), -1)
+        uni_logits = torch.cat((lm_logits, po_logits), -1)
         outputs = (uni_logits,) + outputs[1:]  # Add cache, hidden states and attention if they are here
+
+        if labels is not None:
+            uni_logits = outputs[0]
+            masked_lm_loss = F.nll_loss(
+                uni_logits.log_softmax(-1).contiguous().view(-1, uni_logits.size(-1)),
+                labels.contiguous().view(-1),
+                ignore_index=self.pad_index)
+            outputs = (masked_lm_loss,) + outputs
+
         return outputs
 
     @torch.no_grad()
