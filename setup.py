@@ -40,7 +40,7 @@ setup(
         "evaluate",
         "scikit-learn",
         "datasets",
-        "penman>=1.2.2"
+        "penman>=1.2.2",
         "networkx",
         "tqdm",
         "torch"
