@@ -13,7 +13,7 @@ from transformers.models.bart.modeling_bart import (
     _expand_mask, shift_tokens_right)
 
 
-logger = logging.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def extract_backreferences(ids, num_embeddings, backpointer_idx):
@@ -403,8 +403,7 @@ class AMRBartModel(BartModel):
     def __init__(self, config: BartConfig, backpointer_idx=None):
         super().__init__(config)
 
-        self.shared = nn.Embedding(config.vocab_size, config.d_model, self.padding_idx)
-
+        # shared embeddings are set by super
         if backpointer_idx is not None:
             self.backpointer_idx = backpointer_idx
         else:
