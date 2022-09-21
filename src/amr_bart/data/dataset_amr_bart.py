@@ -6,6 +6,7 @@ import torch
 from torch.utils.data import Dataset
 
 from .IO import read_raw_amr_data
+from ..amr_bart.tokenization_amr_bart import AMRBartTokenizer
 
 
 def reverse_direction(x, y, pad_token_id=1):
@@ -17,6 +18,20 @@ def reverse_direction(x, y, pad_token_id=1):
     x = {"input_ids": input_ids, "attention_mask": attention_mask}
     y = {"decoder_input_ids": decoder_input_ids, "lm_labels": lm_labels}
     return x, y
+
+
+def collate_amr(tokenizer: AMRBartTokenizer, samples):
+    batch_sentences = [s["sentences"] for s in samples]
+    encoded, extra = tokenizer.batch_encode_sentences(batch_sentences)
+    extra["ids"] = [s["id"] for s in samples]
+    encoded = {**encoded, **extra}
+
+    if "linearized_graphs_ids" in samples[0]:
+        batch_linearized_graphs = [s["linearized_graphs_ids"] for s in samples]
+        encoded_graphs, extra_y = tokenizer.batch_encode_graphs_from_linearized(batch_linearized_graphs, samples)
+        encoded = {**encoded, **extra_y}
+
+    return encoded
 
 
 class AMRDataset(Dataset):
@@ -31,60 +46,52 @@ class AMRDataset(Dataset):
     ):
         self.paths = paths
         self.tokenizer = tokenizer
-        graphs = read_raw_amr_data(paths, use_recategorization, remove_wiki=remove_wiki, dereify=dereify)
         self.graphs = []
         self.sentences = []
         self.linearized = []
         self.linearized_extra = []
         self.remove_longer_than = remove_longer_than
-        for g in graphs:
-            l, e = self.tokenizer.linearize(g)
 
-            try:
-                self.tokenizer.batch_encode_sentences([g.metadata["snt"]])
-            except Exception:
-                logging.warning("Invalid sentence!")
-                continue
+        for graph in read_raw_amr_data(paths, use_recategorization, remove_wiki=remove_wiki, dereify=dereify):
+            linearized_graph, linearized_extras = self.tokenizer.linearize(graph)
 
-            if remove_longer_than and len(l) > remove_longer_than:
-                continue
-            if len(l) > 1024:
-                logging.warning("Sequence longer than 1024 included. BART does not support it!")
+            # try:
+            #     self.tokenizer.batch_encode_sentences([g.metadata["snt"]])
+            # except Exception:
+            #     logging.warning("Invalid sentence when trying to tokenize it!")
+            #     continue
+            #
+            # if remove_longer_than and len(l) > remove_longer_than:
+            #     continue
+            # if len(l) > 1024:
+            #     logging.warning("Sequence longer than 1024 included. BART does not support it!")
 
-            self.sentences.append(g.metadata["snt"])
-            self.graphs.append(g)
-            self.linearized.append(l)
-            self.linearized_extra.append(e)
+            self.sentences.append(graph.metadata["snt"])
+            self.graphs.append(graph)
+            self.linearized.append(linearized_graph)
+            self.linearized_extra.append(linearized_extras)
 
     def __len__(self):
         return len(self.sentences)
 
     def __getitem__(self, idx):
-        sample = {}
-        sample["id"] = idx
-        sample["sentences"] = self.sentences[idx]
+        sample = {
+            "id": idx,
+            "sentences": self.sentences[idx]
+        }
+
         if self.linearized is not None:
             sample["linearized_graphs_ids"] = self.linearized[idx]
             sample.update(self.linearized_extra[idx])
+
         return sample
 
-    def size(self, sample):
+    @staticmethod
+    def size(sample):
         return len(sample["linearized_graphs_ids"])
 
-    def collate_fn(self, samples):
-        x = [s["sentences"] for s in samples]
-        x, extra = self.tokenizer.batch_encode_sentences(x)
-        if "linearized_graphs_ids" in samples[0]:
-            y = [s["linearized_graphs_ids"] for s in samples]
-            y, extra_y = self.tokenizer.batch_encode_graphs_from_linearized(y, samples,)
-            extra.update(extra_y)
-        else:
-            y = None
-        extra["ids"] = [s["id"] for s in samples]
-        return x, y, extra
-
-
 class AMRDatasetTokenBatcherAndLoader:
+    """TODO: (BV) rework for distributed mode"""
     def __init__(self, dataset, batch_size=800, shuffle=False, sort=False):
         assert not (shuffle and sort)
         self.batch_size = batch_size
@@ -96,7 +103,7 @@ class AMRDatasetTokenBatcherAndLoader:
     def __iter__(self):
         it = self.sampler()
         it = [[self.dataset[s] for s in b] for b in it]
-        it = (self.dataset.collate_fn(b) for b in it)
+        it = (collate_amr(self.tokenizer, b) for b in it)
         return it
 
     @cached_property
