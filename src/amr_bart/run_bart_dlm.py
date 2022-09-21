@@ -1,8 +1,6 @@
 """Pretraining models for denoising multilingual language modeling on a text file or a dataset.
 """
 import logging
-
-
 import math
 import os
 import sys
@@ -11,18 +9,18 @@ from functools import partial
 from pathlib import Path
 from typing import Optional
 
+import transformers
 from amr_bart.amr_bart.trainer_amr_bart import (AMRTrainer, compute_metrics,
                                                 preprocess_logits_for_metrics)
 from amr_bart.data.dataset_amr_bart import AMRDataset, collate_amr
 from amr_bart.utils.utils import instantiate_model_and_tokenizer
-from transformers import (HfArgumentParser, TrainingArguments,
+from transformers import (HfArgumentParser, Trainer, TrainingArguments,
                           is_torch_tpu_available, set_seed)
 from transformers.trainer_utils import get_last_checkpoint
-from transformers import Trainer
-import transformers
 
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ModelArguments:
