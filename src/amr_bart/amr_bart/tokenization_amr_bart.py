@@ -179,11 +179,10 @@ class AMRBartTokenizer(BartTokenizer):
         bpe_backreferences = [b for bb in bpe_backreferences for b in bb]
         return bpe_tokens, bpe_token_ids, bpe_backreferences
 
-    def batch_encode_sentences(self, sentences, device=torch.device("cpu")):
+    def batch_encode_sentences(self, sentences):
         sentences = [s for s in sentences]
         extra = {"sentences": sentences}
         batch = super().batch_encode_plus(sentences, return_tensors="pt", pad_to_max_length=True)
-        batch = {k: v.to(device) for k, v in batch.items()}
         return batch, extra
 
     def linearize(self, graph):
@@ -198,11 +197,11 @@ class AMRBartTokenizer(BartTokenizer):
             backreferences.append(len(backreferences))
         return token_uni_ids, extra
 
-    def batch_encode_graphs(self, graphs, device=torch.device("cpu")):
+    def batch_encode_graphs(self, graphs):
         linearized, extras = zip(*[self.linearize(g) for g in graphs])
-        return self.batch_encode_graphs_from_linearized(linearized, extras, device=device)
+        return self.batch_encode_graphs_from_linearized(linearized, extras)
 
-    def batch_encode_graphs_from_linearized(self, linearized, extras=None, device=torch.device("cpu")):
+    def batch_encode_graphs_from_linearized(self, linearized, extras=None):
         if extras is not None:
             batch_extra = {"linearized_graphs": [], "graphs": []}
             for extra in extras:
@@ -216,7 +215,7 @@ class AMRBartTokenizer(BartTokenizer):
             maxlen = max(len(token_uni_ids), maxlen)
             batch.append(token_uni_ids)
         batch = [x + [self.pad_token_id] * (maxlen - len(x)) for x in batch]
-        batch = torch.tensor(batch).to(device)
+        batch = torch.tensor(batch)
         batch = {"decoder_input_ids": batch[:, :-1], "lm_labels": batch[:, 1:]}
         return batch, batch_extra
 
