@@ -11,7 +11,8 @@ def read_raw_amr_data(
     dereify=True,
     remove_wiki=False,
 ):
-    assert paths
+    if not paths:
+        raise ValueError("Cannot read AMRs. Paths is empty")
 
     if not isinstance(paths, Iterable):
         paths = [paths]
