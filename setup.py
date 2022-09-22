@@ -42,6 +42,7 @@ setup(
         "datasets",
         "penman>=1.2.2",
         "networkx",
+        "smatch",
         "tqdm",
         "torch"
     ],
