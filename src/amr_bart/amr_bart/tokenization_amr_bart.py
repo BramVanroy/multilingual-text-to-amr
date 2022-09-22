@@ -211,7 +211,7 @@ class AMRBartTokenizer(BartTokenizer):
             batch_extra = {}
 
         batch = self.pad({"input_ids": linearized}, return_tensors="pt")["input_ids"]
-        batch = {"decoder_input_ids": batch[:, :-1], "labels": batch[:, 1:]}
+        batch = {"decoder_input_ids": batch[:, :-1].clone(), "labels": batch[:, 1:].clone()}
         batch["labels"][batch["labels"] == self.pad_token_id] = -100  # for crossentropy
         batch["decoder_attention_mask"] = (batch["decoder_input_ids"] != -100).long()
 
