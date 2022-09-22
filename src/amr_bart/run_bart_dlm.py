@@ -14,6 +14,7 @@ from amr_bart.amr_bart.trainer_amr_bart import (AMRTrainer, compute_metrics,
                                                 preprocess_logits_for_metrics)
 from amr_bart.data.dataset_amr_bart import AMRDataset, collate_amr
 from amr_bart.utils.utils import instantiate_model_and_tokenizer
+from torch.utils.data import Subset
 from transformers import (HfArgumentParser, Trainer, TrainingArguments,
                           is_torch_tpu_available, set_seed)
 from transformers.trainer_utils import get_last_checkpoint
@@ -29,7 +30,7 @@ class ModelArguments:
     """
 
     model_name_or_path: Optional[str] = field(
-        default="facebook/bart-large",
+        default="facebook/bart-base",
         metadata={
             "help": (
                 "The model checkpoint for weights initialization.Don't set if you want to train a model from scratch."
@@ -92,13 +93,10 @@ class DataTrainingArguments:
         metadata={
             "help": (
                 "The maximum total input sequence length after tokenization and masking. Sequences longer than this"
-                " will be truncated. Default to the max input length of the model."
+                " will be truncated. Default to the max input length of the model. Batches will be padded up to max."
+                " length in the batch."
             )
         },
-    )
-    preprocessing_num_workers: Optional[int] = field(
-        default=None,
-        metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_train_samples: Optional[int] = field(
         default=None,
@@ -117,32 +115,6 @@ class DataTrainingArguments:
                 "value if set."
             )
         },
-    )
-    mask_ratio: float = field(
-        default=0.3, metadata={"help": "Ratio of tokens to mask for span masked language modeling loss"}
-    )
-    random_ratio: float = field(
-        default=0.1, metadata={"help": "The probability with which to (randomly) replace a token by a random token"}
-    )
-    insert_ratio: float = field(
-        default=0.0,
-        metadata={
-            "help": (
-                "The probability with which to (randomly) insert noise. Will add `insert_ratio * input.numel()` noise"
-            )
-        },
-    )
-    rotate_ratio: float = field(
-        default=0.0,
-        metadata={
-            "help": "The probability with which to (randomly) add rolling noise (i.e., shifted tokens in order)"
-        },
-    )
-    permute_sentence_ratio: float = field(
-        default=1.0, metadata={"help": "Ratio of sentences to be permuted in each document"}
-    )
-    poisson_lambda: float = field(
-        default=3.5, metadata={"help": "Mean of Poisson distribution used to generate span-lengths to be masked"}
     )
 
 
@@ -238,11 +210,22 @@ def main():
     #######################
     # Load datasets #
     #######################
-    train_files = list(Path(data_args.train_directory).rglob("*.txt"))
-    validation_files = list(Path(data_args.validation_directory).rglob("*.txt"))
+    # TODO: implement max_train_samples
+    train_dataset = None
+    validation_dataset = None
+    if training_args.do_train:
+        train_files = list(Path(data_args.train_directory).rglob("*.txt"))
+        train_dataset = AMRDataset(train_files, tokenizer)
+        if data_args.max_train_samples is not None:
+            max_train_samples = min(len(train_dataset), data_args.max_train_samples)
+            train_dataset = Subset(train_dataset, range(max_train_samples))
 
-    train_dataset = AMRDataset(train_files, tokenizer)
-    validation_dataset = AMRDataset(validation_files, tokenizer)
+    if training_args.do_eval:
+        validation_files = list(Path(data_args.validation_directory).rglob("*.txt"))
+        validation_dataset = AMRDataset(validation_files, tokenizer)
+        if data_args.max_eval_samples is not None:
+            max_eval_samples = min(len(validation_dataset), data_args.max_eval_samples)
+            validation_dataset = Subset(validation_dataset, range(max_eval_samples))
 
     # Initialize our Trainer
     training_args.remove_unused_columns = False
