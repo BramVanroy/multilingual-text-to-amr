@@ -21,6 +21,13 @@ def instantiate_model_and_tokenizer(
     tokenizer_kwargs = {} if tokenizer_kwargs is None else tokenizer_kwargs
     config_kwargs = {} if config_kwargs is None else config_kwargs
 
+    tokenizer = AMRBartTokenizer.from_pretrained(
+        tokenizer_name_or_path,
+        collapse_name_ops=collapse_name_ops,
+        use_pointer_tokens=use_pointer_tokens,
+        **tokenizer_kwargs,
+    )
+
     config = AutoConfig.from_pretrained(config_name_or_path, **config_kwargs)
     config.output_past = False
     config.no_repeat_ngram_size = 0
@@ -28,14 +35,6 @@ def instantiate_model_and_tokenizer(
     config.output_attentions = True
     config.dropout = dropout
     config.attention_dropout = attention_dropout
-
-    tokenizer = AMRBartTokenizer.from_pretrained(
-        tokenizer_name_or_path,
-        collapse_name_ops=collapse_name_ops,
-        use_pointer_tokens=use_pointer_tokens,
-        config=config,
-        **tokenizer_kwargs,
-    )
 
     if from_pretrained:
         model = AMRBartForConditionalGeneration.from_pretrained(model_name_or_path, config=config)
