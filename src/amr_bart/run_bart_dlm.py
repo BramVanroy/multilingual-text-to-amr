@@ -210,7 +210,6 @@ def main():
     #######################
     # Load datasets #
     #######################
-    # TODO: implement max_train_samples
     train_dataset = None
     validation_dataset = None
     if training_args.do_train:

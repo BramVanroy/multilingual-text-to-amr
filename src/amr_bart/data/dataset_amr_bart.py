@@ -1,3 +1,5 @@
+import logging
+
 from torch.utils.data import Dataset
 
 from .IO import read_raw_amr_data
@@ -38,16 +40,16 @@ class AMRDataset(Dataset):
         for graph in read_raw_amr_data(paths, use_recategorization, remove_wiki=remove_wiki, dereify=dereify):
             linearized_graph, linearized_extras = self.tokenizer.linearize(graph)
 
-            # try:
-            #     self.tokenizer.batch_encode_sentences([g.metadata["snt"]])
-            # except Exception:
-            #     logging.warning("Invalid sentence when trying to tokenize it!")
-            #     continue
-            #
-            # if remove_longer_than and len(l) > remove_longer_than:
-            #     continue
-            # if len(l) > 1024:
-            #     logging.warning("Sequence longer than 1024 included. BART does not support it!")
+            try:
+                self.tokenizer.batch_encode_sentences([graph.metadata["snt"]])
+            except Exception:
+                logging.warning("Invalid sentence when trying to tokenize it!")
+                continue
+
+            if remove_longer_than and len(linearized_graph) > remove_longer_than:
+                continue
+            if len(linearized_graph) > 1024:
+                logging.warning("Sequence longer than 1024 included. BART does not support it!")
 
             self.sentences.append(graph.metadata["snt"])
             self.graphs.append(graph)
