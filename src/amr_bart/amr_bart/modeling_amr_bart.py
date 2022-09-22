@@ -1,17 +1,19 @@
 import logging
 import random
+from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 import torch
 from torch import nn
 from torch.nn import functional as F
 from transformers import BartConfig
-from transformers.modeling_outputs import (
-    BaseModelOutputWithPastAndCrossAttentions, Seq2SeqModelOutput)
+from transformers.modeling_outputs import (Seq2SeqModelOutput, BaseModelOutput, Seq2SeqLMOutput)
 from transformers.models.bart.modeling_bart import (
     BartDecoder, BartEncoder, BartForConditionalGeneration, BartModel,
     _expand_mask, shift_tokens_right)
+from torch.nn import CrossEntropyLoss
 
+from amr_bart.amr_bart.modeling_outputs import BaseModelOutputWithPastAndCrossAttentionsAndScores, AMRModelOutput
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class AMRBartEncoder(BartEncoder):
     """
     Modified from https://github.com/huggingface/transformers/blob/da02b4035c3cd972ce6dd67de47a88434a105550/src/transformers/models/bart/modeling_py
     Mostly the same except that the forward accepts `embedded` to sum an extra value to the token embeddings and that
-    `input_embeds` cannot be given as a starting value to the encoder. Also, backreferences are extracted
+    `inputs_embeds` cannot be given as a starting value to the encoder. Also, backreferences are extracted
     Args:
         config: BartConfig
     """
@@ -48,8 +50,7 @@ class AMRBartEncoder(BartEncoder):
         head_mask: Optional[torch.Tensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        embedded: Optional[torch.Tensor] = None,
-        **kwargs,
+        return_dict: Optional[bool] = None,
     ):
         r"""
         Args:
@@ -74,13 +75,14 @@ class AMRBartEncoder(BartEncoder):
             output_hidden_states (`bool`, *optional*):
                 Whether or not to return the hidden states of all layers. See `hidden_states` under returned tensors
                 for more detail.
-            embedded (`torch.Tensor`, *optional*):
-                An embedding to add to positional embeddings
         """
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+
         input_ids, backreferences = extract_backreferences(
             input_ids, self.embed_tokens.num_embeddings, self.backpointer_idx
         )
@@ -91,9 +93,6 @@ class AMRBartEncoder(BartEncoder):
         inputs_embeds = self.embed_tokens(input_ids) * self.embed_scale
         embed_pos = self.embed_positions(input)
         hidden_states = inputs_embeds + embed_pos
-
-        if embedded is not None:
-            hidden_states += embedded
 
         hidden_states = self.layernorm_embedding(hidden_states)
         hidden_states = F.dropout(hidden_states, p=self.dropout, training=self.training)
@@ -154,7 +153,11 @@ class AMRBartEncoder(BartEncoder):
         if output_hidden_states:
             encoder_states = encoder_states + (hidden_states,)
 
-        return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
+        if not return_dict:
+            return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
+        return BaseModelOutput(
+            last_hidden_state=hidden_states, hidden_states=encoder_states, attentions=all_attentions
+        )
 
 
 class AMRBartDecoder(BartDecoder):
@@ -188,8 +191,8 @@ class AMRBartDecoder(BartDecoder):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        **kwargs,
-    ) -> Union[Tuple, BaseModelOutputWithPastAndCrossAttentions]:
+        return_dict: Optional[bool] = None,
+    ) -> Union[Tuple, BaseModelOutputWithPastAndCrossAttentionsAndScores]:
         r"""
         Args:
             input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
@@ -246,6 +249,7 @@ class AMRBartDecoder(BartDecoder):
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         input_ids, backreferences = extract_backreferences(
             input_ids, self.embed_tokens.num_embeddings, self.backpointer_idx
@@ -391,12 +395,29 @@ class AMRBartDecoder(BartDecoder):
         else:
             scores = torch.full((xq.size(0), xq.size(1), xk.size(1)), float("-inf"), device=xq.device)
 
+        scores = scores.float()
+
         if use_cache:
             next_cache = ((encoder_hidden_states, encoder_attention_mask), next_decoder_cache)
         else:
             next_cache = None
 
-        return (hidden_states, scores), next_cache, all_hidden_states, all_self_attns, all_cross_attentions
+        outputs = hidden_states, scores, next_cache, all_hidden_states, all_self_attns, all_cross_attentions
+        if not return_dict:
+            return tuple(
+                v
+                for v in outputs
+                if v is not None
+            )
+
+        return BaseModelOutputWithPastAndCrossAttentionsAndScores(
+            last_hidden_state=hidden_states,
+            scores=scores,
+            past_key_values=next_cache,
+            hidden_states=all_hidden_states,
+            attentions=all_self_attns,
+            cross_attentions=all_cross_attentions,
+        )
 
 
 class AMRBartModel(BartModel):
@@ -439,8 +460,8 @@ class AMRBartModel(BartModel):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        **kwargs,
-    ) -> Union[Tuple, Seq2SeqModelOutput]:
+        return_dict: Optional[bool] = None,
+    ) -> Union[Tuple, AMRModelOutput]:
 
         # different to other models, Bart automatically creates decoder_input_ids from
         # input_ids if no decoder_input_ids are provided
@@ -461,13 +482,13 @@ class AMRBartModel(BartModel):
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if encoder_outputs is None:
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 head_mask=head_mask,
-                inputs_embeds=inputs_embeds,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
             )
@@ -487,7 +508,20 @@ class AMRBartModel(BartModel):
             output_hidden_states=output_hidden_states,
         )
 
-        return decoder_outputs + encoder_outputs
+        if not return_dict:
+            return decoder_outputs + encoder_outputs
+
+        return AMRModelOutput(
+            last_hidden_state=decoder_outputs.last_hidden_state,
+            scores=decoder_outputs.scores,
+            past_key_values=decoder_outputs.past_key_values,
+            decoder_hidden_states=decoder_outputs.hidden_states,
+            decoder_attentions=decoder_outputs.attentions,
+            cross_attentions=decoder_outputs.cross_attentions,
+            encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+            encoder_hidden_states=encoder_outputs.hidden_states,
+            encoder_attentions=encoder_outputs.attentions,
+        )
 
 
 class AMRBartForConditionalGeneration(BartForConditionalGeneration):
@@ -528,8 +562,11 @@ class AMRBartForConditionalGeneration(BartForConditionalGeneration):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        **kwargs,
+        return_dict: Optional[bool] = None,
+        **kwargs  # to ignore keys from input such as `sentences`
     ):
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
         if labels is not None:
             if use_cache:
                 logger.warning("The `use_cache` argument is changed to `False` since `labels` is provided.")
@@ -539,6 +576,8 @@ class AMRBartForConditionalGeneration(BartForConditionalGeneration):
                     labels, self.config.pad_token_id, self.config.decoder_start_token_id
                 )
 
+        # Like regular BART, first output is the last hidden state, but unlike BART the second output
+        # are the decoder scores
         outputs = self.model(
             input_ids,
             attention_mask=attention_mask,
@@ -555,25 +594,35 @@ class AMRBartForConditionalGeneration(BartForConditionalGeneration):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
         )
-        lm_logits = self.lm_head(outputs[0][0]) + self.final_logits_bias
+        lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
 
-        po_logits = outputs[0][1]
-        po_padding = torch.full_like(po_logits[:, :, 0:1], float("-inf"))
+        po_logits = outputs[1]
+        po_padding = torch.full_like(po_logits[:, :, 0:1], float("-inf"), dtype=torch.float)
         po_padding = po_padding.repeat(1, 1, 1024 - po_logits.size(-1))
         po_logits = torch.cat((po_logits, po_padding), -1)
-        uni_logits = torch.cat((lm_logits, po_logits), -1)
-        outputs = (uni_logits,) + outputs[1:]  # Add cache, hidden states and attention if they are here
+        uni_logits = torch.cat((lm_logits, po_logits), -1).float()
 
+        masked_lm_loss = None
         if labels is not None:
-            uni_logits = outputs[0]
-            masked_lm_loss = F.nll_loss(
-                uni_logits.log_softmax(-1).contiguous().view(-1, uni_logits.size(-1)),
-                labels.contiguous().view(-1),
-                ignore_index=self.pad_index,
-            )
-            outputs = (masked_lm_loss,) + outputs
+            loss_fct = CrossEntropyLoss(ignore_index=self.pad_index)
+            masked_lm_loss = loss_fct(uni_logits.view(-1, uni_logits.size(-1)), labels.view(-1))
 
-        return outputs
+        if not return_dict:
+            # we do not include last_hidden_state or scores of decoder but only the combined logits
+            output = (uni_logits,) + outputs[2:]
+            return ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
+
+        return Seq2SeqLMOutput(
+            loss=masked_lm_loss,
+            logits=uni_logits,
+            past_key_values=outputs.past_key_values,
+            decoder_hidden_states=outputs.decoder_hidden_states,
+            decoder_attentions=outputs.decoder_attentions,
+            cross_attentions=outputs.cross_attentions,
+            encoder_last_hidden_state=outputs.encoder_last_hidden_state,
+            encoder_hidden_states=outputs.encoder_hidden_states,
+            encoder_attentions=outputs.encoder_attentions,
+        )
 
     #
     # def prepare_logits_for_generation(self, logits, cur_len, max_length):
