@@ -82,7 +82,6 @@ class AMRBartEncoder(BartEncoder):
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-
         input_ids, backreferences = extract_backreferences(
             input_ids, self.embed_tokens.num_embeddings, self.backpointer_idx
         )
@@ -376,10 +375,8 @@ class AMRBartDecoder(BartDecoder):
                 last_state = past_key_values[-1]["pointer"]
                 xk = torch.cat([last_state["prev_key"], xk], dim=1)
 
-        next_state = {"pointer": {"prev_key": xk}}
-
         if use_cache:
-            next_decoder_cache += (next_state,)
+            next_decoder_cache += ({"pointer": {"prev_key": xk}},)
 
         if self.amr_mode:
             scores = torch.einsum("bqh,bkh->bqk", xq, xk)
@@ -396,10 +393,7 @@ class AMRBartDecoder(BartDecoder):
 
         scores = scores.float()
 
-        if use_cache:
-            next_cache = ((encoder_hidden_states, encoder_attention_mask), next_decoder_cache)
-        else:
-            next_cache = None
+        next_cache = next_decoder_cache if use_cache else None
 
         outputs = hidden_states, scores, next_cache, all_hidden_states, all_self_attns, all_cross_attentions
         if not return_dict:
