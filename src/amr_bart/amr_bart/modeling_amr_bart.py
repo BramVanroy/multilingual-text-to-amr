@@ -169,7 +169,6 @@ class AMRBartDecoder(BartDecoder):
 
     def __init__(self, config: BartConfig, embed_tokens: nn.Embedding, backpointer_idx, amr_mode=True):
         super().__init__(config, embed_tokens)
-        self.padding_idx = embed_tokens.padding_idx
         self.backpointer_idx = backpointer_idx
         self.amr_mode = amr_mode
 
@@ -531,7 +530,6 @@ class AMRBartForConditionalGeneration(BartForConditionalGeneration):
         self.model = base_model
         self.register_buffer("final_logits_bias", torch.zeros((1, self.model.shared.num_embeddings)))
         # lm_head will be registered in super()
-        self.pad_index = base_model.shared.padding_idx
         self.backpointer_idx = backpointer_idx
 
         self.post_init()
@@ -604,7 +602,7 @@ class AMRBartForConditionalGeneration(BartForConditionalGeneration):
 
         masked_lm_loss = None
         if labels is not None:
-            loss_fct = CrossEntropyLoss(ignore_index=self.pad_index)
+            loss_fct = CrossEntropyLoss(ignore_index=-100)
             masked_lm_loss = loss_fct(uni_logits.view(-1, uni_logits.size(-1)), labels.view(-1))
 
         if not return_dict:

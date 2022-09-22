@@ -210,10 +210,10 @@ class AMRBartTokenizer(BartTokenizer):
         else:
             batch_extra = {}
 
-        # TODO: (BV) check if we shouldn't set padded labels to -100 for CE
         batch = self.pad({"input_ids": linearized}, return_tensors="pt")["input_ids"]
         batch = {"decoder_input_ids": batch[:, :-1], "labels": batch[:, 1:]}
-        batch["decoder_attention_mask"] = (batch["decoder_input_ids"] != self.pad_token_id).long()
+        batch["labels"][batch["labels"] == self.pad_token_id] = -100  # for crossentropy
+        batch["decoder_attention_mask"] = (batch["decoder_input_ids"] != -100).long()
 
         return batch, batch_extra
 
