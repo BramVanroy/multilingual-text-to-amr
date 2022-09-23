@@ -29,12 +29,17 @@ def translate(
         pfout = pdout / pfin.relative_to(pdin)
         pfout.parent.mkdir(exist_ok=True, parents=True)
         with pfout.open("w", encoding="utf-8") as fhout:
-            lines = pfin.read_text(encoding="utf-8").splitlines()
+            # Some sentences contain \x85 (a non-ascii new line), which messes up sentence splitting
+            # Replace it with a regular space to solve the issue
+            lines = pfin.read_text(encoding="utf-8").replace("\x85", " ").splitlines()
+
             # get sentece lines and remove "# ::snt " prefix
             sentences = [(line_idx, line[8:]) for line_idx, line in enumerate(lines) if line.startswith("# ::snt ")]
 
             for sent_idx, sent in sentences:
-                fixed_sentence = " ".join(sent.split())
+                fixed_sentence = ftfy.fix_text(sent)
+                fixed_sentence = " ".join(fixed_sentence.split())
+
                 if verbose and fixed_sentence != lines[sent_idx][8:]:
                     print(f"ORIG:  {lines[sent_idx][8:]}")
                     print(f"FIXED: {fixed_sentence}")
