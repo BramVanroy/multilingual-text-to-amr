@@ -34,19 +34,24 @@ class AMRBartTokenizer(BartTokenizer):
         self.old_enc_size = None
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_path, pred_min=5, *args, **kwargs):
+    def from_pretrained(cls, pretrained_model_path, pred_min=5, init_special_tokens=True, *args, **kwargs):
+        """
+        init_special_tokens: whether to set special tokens to self.INIT + tok in both encoder and decoder. Should be True
+        when starting from a pretrained BART base model. Should be False when using a finetuned AMR BART model.
+        """
         inst = super().from_pretrained(pretrained_model_path, *args, **kwargs)
-        inst.init_amr_vocabulary(pred_min=pred_min)
+        inst.init_amr_vocabulary(pred_min=pred_min, init_special_tokens=init_special_tokens)
         return inst
 
-    def init_amr_vocabulary(self, pred_min=5):
+    def init_amr_vocabulary(self, pred_min=5, init_special_tokens=True):
         lib_root = Path(__file__).parent.parent
-        for tok in [self.bos_token, self.eos_token, self.pad_token, "<mask>", "<unk>"]:
-            ntok = self.INIT + tok
-            i = self.encoder[tok]
-            self.decoder[i] = ntok
-            del self.encoder[tok]
-            self.encoder[ntok] = i
+        if init_special_tokens:
+            for tok in [self.bos_token, self.eos_token, self.pad_token, "<mask>", "<unk>"]:
+                ntok = self.INIT + tok
+                i = self.encoder[tok]
+                self.decoder[i] = ntok
+                del self.encoder[tok]
+                self.encoder[ntok] = i
 
         tokens = []
         for line in Path(lib_root / "data/vocab/predicates.txt").read_text().strip().splitlines():

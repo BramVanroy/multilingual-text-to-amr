@@ -13,6 +13,7 @@ def instantiate_model_and_tokenizer(
     attention_dropout=0.15,
     from_pretrained=True,
     init_reverse=False,
+    init_special_tokens=True,
     collapse_name_ops=False,
     use_pointer_tokens=False,
     tokenizer_kwargs=None,
@@ -25,6 +26,7 @@ def instantiate_model_and_tokenizer(
         tokenizer_name_or_path,
         collapse_name_ops=collapse_name_ops,
         use_pointer_tokens=use_pointer_tokens,
+        init_special_tokens=init_special_tokens,
         **tokenizer_kwargs,
     )
 
@@ -39,7 +41,6 @@ def instantiate_model_and_tokenizer(
     if from_pretrained:
         model = AMRBartForConditionalGeneration.from_pretrained(model_name_or_path, config=config)
     else:
-        config.vocab_size = len(tokenizer)
         model = AMRBartForConditionalGeneration(config)
 
     model.resize_token_embeddings(len(tokenizer.encoder))
