@@ -34,8 +34,7 @@ def translate(
             sentences = [(line_idx, line[8:]) for line_idx, line in enumerate(lines) if line.startswith("# ::snt ")]
 
             for sent_idx, sent in sentences:
-                fixed_sentence = ftfy.fix_text(sent).replace("\n", " ")
-                fixed_sentence = " ".join(fixed_sentence.split())
+                fixed_sentence = " ".join(sent.split())
                 if verbose and fixed_sentence != lines[sent_idx][8:]:
                     print(f"ORIG:  {lines[sent_idx][8:]}")
                     print(f"FIXED: {fixed_sentence}")

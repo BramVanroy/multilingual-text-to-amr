@@ -80,6 +80,7 @@ def translate(
                 translations = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
 
                 for transl_idx, transl in zip(b_idxs, translations):
+                    transl = " ".join(transl.split())
                     if verbose:
                         print(f"ORIG: {lines[transl_idx][8:]}")
                         print(f"TRANSLATE: {transl}")
