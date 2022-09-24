@@ -4,6 +4,10 @@ from torch.utils.data import Dataset
 
 from .IO import read_raw_amr_data
 
+KEEP_KEYS = {"input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "head_mask",
+             "decoder_head_mask", "cross_attn_head_mask", "encoder_outputs", "past_key_values", "inputs_embeds",
+             "decoder_inputs_embeds", "labels"}
+
 
 def collate_amr(tokenizer, samples):
     batch_sentences = [s["sentences"] for s in samples]
@@ -16,6 +20,7 @@ def collate_amr(tokenizer, samples):
         encoded_graphs, extra_y = tokenizer.batch_encode_graphs_from_linearized(batch_linearized_graphs, samples)
         encoded = {**encoded, **encoded_graphs, **extra_y}
 
+    encoded = {k: v for k, v in encoded.items() if k in KEEP_KEYS}
     return encoded
 
 
