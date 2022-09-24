@@ -6,6 +6,10 @@ An adaptation of MBART to parse text into AMR for multiple languages.
 
 https://github.com/amrisi/amr-guidelines/blob/master/amr.md
 
+## Language modeling head
+
+Unlike Spring, we use a learned LM head. Spring uses the shared weight of the embeddings to predict the tokens.
+
 ## LICENSE
 
 Part of this code (especially the graph processing) was adapted from [SPRING](https://github.com/SapienzaNLP/spring).
