@@ -7,12 +7,18 @@ Installation of Spring on our cluster was a hassle due to the old dependency on 
 This was not easy to install because it doesn't come with prebuilt wheels and relies on an old, nightly Rust build. So to solve this
 I built the wheel on our server, and then moved that wheel to the cluster, and installed it there. To do so:
 
+Make sure that the specified Python version is the same as you will use in the other environment.
+
 ```shell
 rustup default nightly-2020-03-12
 
 git clone https://github.com/huggingface/tokenizers.git
 cd tokenizers
 git checkout tags/python-v0.7.0
+cd bindings/python/
+pipenv shell --python 3.9
+
 python -m pip install setuptools_rust
+rm -rf rust-toolchain
 python -m pip wheel .
 ```
