@@ -1,7 +1,7 @@
 from os import PathLike
 from typing import List, Iterable, Union
 
-from .penman import load
+# from .penman import load
 
 import penman
 from penman import Tree
@@ -49,8 +49,6 @@ def read_graphs(
     return graphs
 
 
-
-
 def format_sense(idx: int):
     if 0 < idx < 25:
         return f"<sense-id:{idx}>"
@@ -62,14 +60,23 @@ def format_relation(relation_type: str):
     if relation_type == "/":
         return "<relation_type:instance>"
     else:
-        return f"<sense-id:{relation_type.replace(':', '')}>"
+        return f"<relation_type:{relation_type.replace(':', '')}>"
 
 
-def serialize_node(parent_node, descriptor=None, varname=None, is_root=True):
+def serialize_node(parent_node, descriptor=None, varname=None, is_root=True, level=0):
+    serialized = "\t" * level
     if is_root:
         print("OPEN TREE")
+        serialized += "TREE( "
     if is_atomic(parent_node):
         print("TERMINAL", parent_node, descriptor, varname)
+        serialized = "\n" + serialized
+        if "-" in parent_node:
+            node_name, sense_id = parent_node.rsplit("-", 1)
+            sense_id = format_sense(int(sense_id))
+            serialized += f"TERM({node_name}{sense_id}, {descriptor}, {varname}) "
+        else:
+            serialized += f"TERM({parent_node}, {format_relation('/') if descriptor == '/' else descriptor}, {varname}) "
     else:
         if not isinstance(parent_node, Tree):
             parent_node = Tree(parent_node)
@@ -78,15 +85,25 @@ def serialize_node(parent_node, descriptor=None, varname=None, is_root=True):
 
         if descriptor is not None and varname is not None:
             print("OPEN", descriptor, varname)
+            serialized = "\n" + serialized
+            serialized += f"REL(({format_relation(descriptor)}, {varname}), "
 
         for descriptor, target in branches:
-            serialize_node(target, descriptor, varname, is_root=False)
+            serialized += serialize_node(target, descriptor, varname, is_root=False, level=level+1)
 
         if descriptor is not None and varname is not None:
             print("CLOSE", descriptor, varname)
+            serialized += "\n" + ("\t" * level)
+            serialized += ")/REL "
 
     if is_root:
         print("CLOSE TREE")
+        serialized += "\n)/tree"
+        print()
+        # TODO: Why are we getting an extra closing /REL???
+        print(serialized)
+
+    return serialized
 
 
 if __name__ == '__main__':
