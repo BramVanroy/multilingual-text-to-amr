@@ -2,7 +2,7 @@ import glob
 from pathlib import Path
 from typing import Iterable, List, Union
 
-from .penman import load as pm_load
+from .penman_connector import load as pm_load
 
 
 def read_raw_amr_data(
