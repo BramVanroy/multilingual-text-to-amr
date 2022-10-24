@@ -1,5 +1,7 @@
+import re
+from dataclasses import dataclass, field
 from os import PathLike
-from typing import List, Iterable, Union
+from typing import List, Iterable, Union, Optional, ClassVar
 
 # from .penman import load
 
@@ -23,87 +25,132 @@ Custom constrained beam search? (if a token is not allowed in a position, set it
     - a sense dash must be followed by a sense
     - special reference token (<R0>) can only follow 1. an opening bracket or 2. an arg:
 """
-def read_graphs(
-    paths: Union[List[Union[str, PathLike]], Union[str, PathLike]],
-    use_recategorization=False,
-    dereify=True,
-    remove_wiki=False,
-):
-    if not paths:
-        raise ValueError("Cannot read AMRs. Paths is empty")
 
-    if not isinstance(paths, Iterable):
-        paths = [paths]
-
-    graphs = [graph for path in paths for graph in load(path, dereify=dereify, remove_wiki=remove_wiki)]
-
-    if use_recategorization:
-        for graph in graphs:
-            metadata = graph.metadata
-            metadata["snt_orig"] = metadata["snt"]
-            tokens = eval(metadata["tokens"])
-            metadata["snt"] = " ".join(
-                [t for t in tokens if not ((t.startswith("-L") or t.startswith("-R")) and t.endswith("-"))]
-            )
-
-    return graphs
-
-
-def format_sense(idx: int):
-    if 0 < idx < 25:
-        return f"<sense-id:{idx}>"
-    else:
+def serialize_sense(str_idx: Optional[str]):
+    idx = int(str_idx) if str_idx is not None else None
+    if idx is None:
+        return "<sense-id:NO>"
+    elif 0 < idx < 25:
+        return f"<sense-id:{str_idx}>"
+    else:  # Maybe we don't want to add potentially hundreds of senses to our vocabulary so rest class
         return "<sense-id:x>"
 
 
-def format_relation(relation_type: str):
+def deserialize_sense(sense_id: str) -> str:
+    sense_id = sense_id.split(":")[1].strip().replace(">", "")
+
+    if sense_id.lower() == "no":
+        return ""
+    else:
+        # Try to convert to int to make sure there is no error
+        sense_id = int(sense_id)
+        if sense_id < 10:
+            return f"0{sense_id}"
+        else:
+            return str(sense_id)
+
+
+def serialize_relation(relation_type: str):
     if relation_type == "/":
         return "<relation_type:instance>"
     else:
-        return f"<relation_type:{relation_type.replace(':', '')}>"
+        relation_type = relation_type if relation_type.startswith(":") else f":{relation_type}"
+        return f"<relation_type{relation_type}>"
 
 
-def serialize_node(parent_node, descriptor=None, varname=None, is_root=True, level=0):
-    serialized = "\t" * level
-    if is_root:
-        print("OPEN TREE")
-        serialized += "TREE( "
-    if is_atomic(parent_node):
-        print("TERMINAL", parent_node, descriptor, varname)
-        serialized = "\n" + serialized
-        if "-" in parent_node:
-            node_name, sense_id = parent_node.rsplit("-", 1)
-            sense_id = format_sense(int(sense_id))
-            serialized += f"TERM({node_name}{sense_id}, {descriptor}, {varname}) "
-        else:
-            serialized += f"TERM({parent_node}, {format_relation('/') if descriptor == '/' else descriptor}, {varname}) "
+def deserialize_relation(relation_type: str):
+    print(relation_type)
+    relation_type = relation_type.split(":")[1].strip().replace(">", "")
+
+    if relation_type.lower() == "instance":
+        return "/"
     else:
-        if not isinstance(parent_node, Tree):
-            parent_node = Tree(parent_node)
+        return relation_type
 
-        varname, branches = parent_node.node
 
-        if descriptor is not None and varname is not None:
-            print("OPEN", descriptor, varname)
-            serialized = "\n" + serialized
-            serialized += f"REL(({format_relation(descriptor)}, {varname}), "
+@dataclass
+class Serializer:
+    penman_tree: penman.tree.Tree = field(default=None)
+    serialized: str = field(default=None)
+    amr_str: str = field(default=None)  # TODO: also save the AMR string/penman serialization
+    regex: ClassVar[re.Pattern] = re.compile(r"(?:([A-Z]+)\(\(([^)]*)\)(.*)\)\/\1)|(?:(TERM)\(([^)]*)\))", flags=re.DOTALL | re.IGNORECASE)
 
-        for descriptor, target in branches:
-            serialized += serialize_node(target, descriptor, varname, is_root=False, level=level+1)
+    def __post_init__(self):
+        if self.penman_tree and not self.serialized:
+            self.serialized = self.serialize_node(self.penman_tree)
+        elif self.serialized and not self.penman_tree:
+            pass
+        elif not (self.penman_tree is not None and self.serialized is not None):
+            raise ValueError("Either 'penman_tree' or 'serialized' has to be given!")
 
-        if descriptor is not None and varname is not None:
-            print("CLOSE", descriptor, varname)
-            serialized += "\n" + ("\t" * level)
-            serialized += ")/REL "
+    def serialize_node(self, parent_node, descriptor=None, is_root=True, level=0, pretty: bool = True):
+        serialized = "\t" * level if pretty else ""
+        if is_root:
+            serialized += f"TREE(({serialize_relation('ROOT')}, {parent_node.node[0]}) "
 
-    if is_root:
-        print("CLOSE TREE")
-        serialized += "\n)/tree"
-        print()
-        # TODO: Why are we getting an extra closing /REL???
-        print(serialized)
+        if is_atomic(parent_node):  # Terminals
+            serialized = ("\n" + serialized) if pretty else serialized
+            if "-" in parent_node:
+                node_name, sense_id = parent_node.rsplit("-", 1)
+                sense_id = serialize_sense(sense_id)
+            else:
+                node_name = parent_node
+                sense_id = serialize_sense(None)
+            serialized += f"TERM({node_name}{sense_id}, {serialize_relation(descriptor)}) "
+        else:  # Branches
+            if not isinstance(parent_node, Tree):
+                parent_node = Tree(parent_node)
 
-    return serialized
+            varname, branches = parent_node.node
+
+            if descriptor is not None and varname is not None:
+                serialized = ("\n" + serialized) if pretty else serialized
+                serialized += f"REL(({serialize_relation(descriptor)}, {varname}), "
+
+            for descriptor, target in branches:
+                serialized += self.serialize_node(target, descriptor, is_root=False, level=level+1)
+
+            if descriptor is not None and varname is not None and not is_root:
+                serialized += ("\n" + ("\t" * level)) if pretty else ""
+                serialized += ")/REL "
+
+        if is_root:
+            serialized += "\n)/TREE" if pretty else ")/TREE"
+            self.serialized = serialized
+
+        return serialized
+
+    @classmethod
+    def deserialize(cls, text: str):
+        if text.count("(") != text.count(")"):
+            raise ValueError("Serialized tree is malformed. Opening and closing parentheses do not match")
+
+        amr_str = ""
+        for match in re.finditer(cls.regex, text):
+            is_terminal = match.group(4) and match.group(4).strip().lower() == "term"
+            if is_terminal:
+                node_type = "TERM"
+                token, relation_type = [item.strip() for item in match.group(5).split(",")]
+                # TODO: probably makes more sense to just get the sense id with a capture group
+                token, sense_id = re.split("<sense-id:", token, maxsplit=1, flags=re.IGNORECASE)
+                sense_id = f"<sense-id:{sense_id}"
+
+                relation_type = deserialize_relation(relation_type)
+                sense_id = deserialize_sense(sense_id)
+                amr_str += f"{relation_type} {token}-{sense_id} " if sense_id else f"{relation_type} {token} "
+            else:
+                node_type = match.group(1).strip()
+                relation_type, varname = [item.strip() for item in match.group(2).split(",")]
+                relation_type = deserialize_relation(relation_type)
+                descendants = match.group(3)
+
+                amr_str += f":{relation_type} ({varname} " if relation_type.lower() != "root" else f"({varname} "
+                amr_str += cls.deserialize(descendants)
+                amr_str += ")"
+
+        return amr_str
+
+
 
 
 if __name__ == '__main__':
@@ -116,4 +163,13 @@ if __name__ == '__main__':
     """
     tree = penman.parse(penman_str)
 
-    serialize_node(tree)
+    serializer = Serializer(penman_tree=tree)
+    serialized_tree = serializer.serialized
+    deserialized_tree = Serializer.deserialize(serialized_tree)
+
+
+    print(serializer.serialized)
+    print(deserialized_tree)
+    re_tree = penman.parse(deserialized_tree)
+
+    print(tree == re_tree)
