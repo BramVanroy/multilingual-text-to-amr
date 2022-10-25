@@ -73,7 +73,8 @@ class Serializer:
     penman_tree: penman.tree.Tree = field(default=None)
     serialized: str = field(default=None)
     amr_str: str = field(default=None)  # TODO: also save the AMR string/penman serialization
-    regex: ClassVar[re.Pattern] = re.compile(r"(?:([A-Z]+)\(\(([^)]*)\)(.*)\)\/\1)|(?:(TERM)\(([^)]*)\))", flags=re.DOTALL | re.IGNORECASE)
+    regex_node: ClassVar[re.Pattern] = re.compile(r"(?:([A-Z]+)\(\(([^)]*)\)(.*)\)\/\1)|(?:TERM\(([^)]*)\))", flags=re.DOTALL | re.IGNORECASE)
+    regex_sense: ClassVar[re.Pattern] = re.compile(r"(.*)(<sense-id:.*>)", flags=re.IGNORECASE)
 
     def __post_init__(self):
         if self.penman_tree and not self.serialized:
@@ -126,20 +127,18 @@ class Serializer:
             raise ValueError("Serialized tree is malformed. Opening and closing parentheses do not match")
 
         amr_str = ""
-        for match in re.finditer(cls.regex, text):
-            is_terminal = match.group(4) and match.group(4).strip().lower() == "term"
+        for match in re.finditer(cls.regex_node, text):
+            is_terminal = match.group(4)
             if is_terminal:
-                node_type = "TERM"
-                token, relation_type = [item.strip() for item in match.group(5).split(",")]
-                # TODO: probably makes more sense to just get the sense id with a capture group
-                token, sense_id = re.split("<sense-id:", token, maxsplit=1, flags=re.IGNORECASE)
-                sense_id = f"<sense-id:{sense_id}"
+                token, relation_type = [item.strip() for item in match.group(4).split(",")]
+                match = re.match(cls.regex_sense, token)
+                token = match.group(1)
+                sense_id = match.group(2)
 
                 relation_type = deserialize_relation(relation_type)
                 sense_id = deserialize_sense(sense_id)
                 amr_str += f"{relation_type} {token}-{sense_id} " if sense_id else f"{relation_type} {token} "
             else:
-                node_type = match.group(1).strip()
                 relation_type, varname = [item.strip() for item in match.group(2).split(",")]
                 relation_type = deserialize_relation(relation_type)
                 descendants = match.group(3)
