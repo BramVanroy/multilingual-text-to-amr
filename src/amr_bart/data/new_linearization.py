@@ -128,7 +128,7 @@ class Serializer:
 
         amr_str = ""
         for match in re.finditer(cls.regex_node, text):
-            is_terminal = match.group(4)
+            is_terminal = match.group(4)  # If we match a terminal group (not None)
             if is_terminal:
                 token, relation_type = [item.strip() for item in match.group(4).split(",")]
                 match = re.match(cls.regex_sense, token)
@@ -143,6 +143,7 @@ class Serializer:
                 relation_type = deserialize_relation(relation_type)
                 descendants = match.group(3)
 
+                # Do not add relation type prefix for the root
                 amr_str += f":{relation_type} ({varname} " if relation_type.lower() != "root" else f"({varname} "
                 amr_str += cls.deserialize(descendants)
                 amr_str += ")"
