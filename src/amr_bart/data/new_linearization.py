@@ -59,7 +59,6 @@ def serialize_relation(relation_type: str):
 
 
 def deserialize_relation(relation_type: str):
-    print(relation_type)
     relation_type = relation_type.split(":")[1].strip().replace(">", "")
 
     if relation_type.lower() == "instance":
@@ -67,14 +66,28 @@ def deserialize_relation(relation_type: str):
     else:
         return relation_type
 
+# TODO: use these in (de)serialization
+SPECIAL_TOKENS = {
+    "open_tree": "<tree>",
+    "close_tree": "</tree>",
+    "open_term": "<term>",
+    "close_term": "</term>",
+    "open_rel": "<rel>",
+    "close_rel": "</rel>",
+}
+
+REV_SPECIAL_TOKENS = {v: k for k, v in SPECIAL_TOKENS.items()}
+
 
 @dataclass
 class Serializer:
     penman_tree: penman.tree.Tree = field(default=None)
     serialized: str = field(default=None)
     amr_str: str = field(default=None)  # TODO: also save the AMR string/penman serialization
-    regex_node: ClassVar[re.Pattern] = re.compile(r"(?:([A-Z]+)\(\(([^)]*)\)(.*)\)\/\1)|(?:TERM\(([^)]*)\))", flags=re.DOTALL | re.IGNORECASE)
-    regex_sense: ClassVar[re.Pattern] = re.compile(r"(.*)(<sense-id:.*>)", flags=re.IGNORECASE)
+    regex_node: ClassVar[re.Pattern] = re.compile(r"(?:([A-Z]+)\(\(([^)]*)\)(.*)\)\/\1)|(?:TERM\(([^)]*)\))",
+                                                  flags=re.DOTALL | re.IGNORECASE)
+    regex_sense: ClassVar[re.Pattern] = re.compile(r"(.*)(<sense-id:.*>)",
+                                                   flags=re.IGNORECASE)
 
     def __post_init__(self):
         if self.penman_tree and not self.serialized:
