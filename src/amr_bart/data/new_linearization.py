@@ -119,13 +119,18 @@ class Serializer:
 
         if is_atomic(parent_node):  # Terminals
             serialized = ("\n" + serialized) if pretty else serialized
-            if "-" in parent_node:
-                node_name, sense_id = parent_node.rsplit("-", 1)
-                sense_id = serialize_sense(sense_id)
+            if descriptor.strip() == "/":
+                if "-" in parent_node:
+                    node_name, sense_id = parent_node.rsplit("-", 1)
+                    sense_id = serialize_sense(sense_id)
+                    serialized += f"TERM({node_name}{sense_id}, {serialize_relation(descriptor)}) "
+                else:
+                    sense_id = serialize_sense(None)
+                    serialized += f"TERM({parent_node}{sense_id}, {serialize_relation(descriptor)}) "
             else:
-                node_name = parent_node
-                sense_id = serialize_sense(None)
-            serialized += f"TERM({node_name}{sense_id}, {serialize_relation(descriptor)}) "
+                self.set_arg_idx(parent_node)
+                serialized += f"TERM({self.get_serialized_arg(parent_node)}, {serialize_relation(descriptor)}) "
+                print(descriptor, parent_node)
         else:  # Branches
             if not isinstance(parent_node, Tree):
                 parent_node = Tree(parent_node)
@@ -187,21 +192,15 @@ if __name__ == '__main__':
     penman_str = """
      ( t / tell-01 
         :ARG0 ( y / you )
-        :ARG1 (w / wash-01
+          :ARG1 (w / wash-01
             :ARG0 i
             :ARG1 ( d / dog ) )
         :ARG2 ( i / i ) )
 
     """
     tree = penman.parse(penman_str)
-
     serializer = Serializer(penman_tree=tree)
-    serialized_tree = serializer.serialized
-    deserialized_tree = Serializer.deserialize(serialized_tree)
-
-
     print(serializer.serialized)
-    print(deserialized_tree)
-    re_tree = penman.parse(deserialized_tree)
+    # deserialized_tree = Serializer.deserialize(serializer.serialized)
 
-    print(tree == re_tree)
+    # re_tree = penman.parse(deserialized_tree)
