@@ -35,14 +35,15 @@ def maybe_convert_relation(relation: str):
     else:
         return relation
 
+
 # TODO: use these in (de)serialization
 SPECIAL_TOKENS = {
-    "open_tree": "<tree>",
-    "close_tree": "</tree>",
-    "open_term": "<term>",
-    "close_term": "</term>",
-    "open_rel": "<rel>",
-    "close_rel": "</rel>",
+    "tree": "<tree>",
+    "/tree": "</tree>",
+    "term": "<term>",
+    "/term": "</term>",
+    "rel": "<rel>",
+    "/rel": "</rel>",
 }
 
 REV_SPECIAL_TOKENS = {v: k for k, v in SPECIAL_TOKENS.items()}
@@ -51,14 +52,12 @@ REV_SPECIAL_TOKENS = {v: k for k, v in SPECIAL_TOKENS.items()}
 @dataclass
 class Serializer:
     penman_tree: penman.tree.Tree = field(default=None)
-    _xml: ET = field(default=None, init=False)
+    _xml: ET.ElementBase = field(default=None, init=False)
+    _linearized: str = field(default=None, init=False)
 
     variable_to_ridx: Dict[str, str] = field(default_factory=dict, init=False)
 
-    regex_node: ClassVar[re.Pattern] = re.compile(r"(?:([A-Z]+)\(\(([^)]*)\)(.*)\)\/\1)|(?:TERM\(([^)]*)\))",
-                                                  flags=re.DOTALL | re.IGNORECASE)
-    regex_sense: ClassVar[re.Pattern] = re.compile(r"(.*)(<sense-id:.*>)", flags=re.IGNORECASE)
-    regex_args: ClassVar[re.Pattern] = re.compile(r"(<R\d+>) / (\w)", flags=re.IGNORECASE)
+    regex_rx: ClassVar[re.Pattern] = re.compile(r"<R(\d+)>", flags=re.IGNORECASE)
 
     def set_variable_ridx(self, varname: str):
         """argument_to_idx is a dictionary of the variable (often just a character) to its index
@@ -78,18 +77,26 @@ class Serializer:
     @property
     def xml(self):
         if self._xml is None:
-            self._xml = self.xmlify(self.penman_tree)
+            self._xml = self.xmlify()
         return self._xml
+
+    @property
+    def linearized(self):
+        if self._linearized is None:
+            self._linearized = self.linearize()
+
+        return self._linearized
 
     def print_xml(self, pretty_print: bool = True):
         xml_str = ET.tostring(self.xml, pretty_print=pretty_print)
         print(xml_str.decode())
 
-    def xmlify(self, parent_node, descriptor=None, is_root=True):
+    def xmlify(self, parent_node=None, descriptor: Optional[str] = None, is_root: bool = True):
+        parent_node = self.penman_tree if parent_node is None else parent_node
         serialized = ""
         if is_root:
             self.set_variable_ridx(parent_node.node[0])
-            serialized += f'<tree value="{self.variable_to_ridx[parent_node.node[0]]}" relation_type="ROOT">'
+            serialized += f'<tree value="{self.variable_to_ridx[parent_node.node[0]]}" varname="{parent_node.node[0]}" relation_type="ROOT">'
 
         descriptor = maybe_convert_relation(descriptor)
 
@@ -102,7 +109,7 @@ class Serializer:
                     serialized += f'<term token="{parent_node}" sense_id="NO" />'
             else:  # References to other variables
                 self.set_variable_ridx(parent_node)
-                serialized += f'<termref ref="{self.variable_to_ridx[parent_node]}" relation_type="{descriptor}" />'
+                serialized += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{parent_node}" relation_type="{descriptor}" />'
         else:  # Branches
             if not isinstance(parent_node, Tree):
                 parent_node = Tree(parent_node)
@@ -111,7 +118,7 @@ class Serializer:
 
             if descriptor is not None and varname is not None:
                 self.set_variable_ridx(varname)
-                serialized += f'<rel ref="{self.variable_to_ridx[varname]}" relation_type="{descriptor}">'
+                serialized += f'<rel ref="{self.variable_to_ridx[varname]}" varname="{varname}" relation_type="{descriptor}">'
 
             for descriptor, target in branches:
                 serialized += self.xmlify(target, descriptor, is_root=False)
@@ -128,22 +135,22 @@ class Serializer:
     def xml_to_penman(self):
         pass
 
-    def linearize(self, xml=None, is_root: bool = True):
+    def linearize(self, xml: Optional[ET.ElementBase] = None, is_root: bool = True):
         xml = xml if xml is not None else self.xml
         linearized = ""
         if is_root or xml.tag.lower() == "rel":
             if is_root:
-                linearized += f"{SPECIAL_TOKENS['open_tree']}<{xml.attrib['value']}>"
+                linearized += f"{SPECIAL_TOKENS['tree']}<{xml.attrib['value']}>"
             else:
-                linearized += f"{xml.attrib['relation_type']}{SPECIAL_TOKENS['open_rel']}<{xml.attrib['ref']}>"
+                linearized += f"{xml.attrib['relation_type']}{SPECIAL_TOKENS['rel']}<{xml.attrib['ref']}>"
 
             for node in xml:
                 linearized += self.linearize(node, is_root=False)
 
             if is_root:
-                linearized += SPECIAL_TOKENS["close_tree"]
+                linearized += SPECIAL_TOKENS["/tree"]
             else:
-                linearized += SPECIAL_TOKENS["close_rel"]
+                linearized += SPECIAL_TOKENS["/rel"]
         elif xml.tag.lower() == "term":
             linearized += f"{xml.attrib['token']}<sense-id:{xml.attrib['sense_id']}>"
         elif xml.tag.lower() == "termref":
@@ -153,6 +160,22 @@ class Serializer:
 
         return linearized
 
+    @classmethod
+    def delinearize(cls, string: str):
+        xml_str = "<tree"
+
+        tempstr = ""
+        for char in string:
+            tempstr += char
+
+            if tempstr in REV_SPECIAL_TOKENS:
+                xml_str += REV_SPECIAL_TOKENS[tempstr]
+                tempstr = ""
+
+            if match := cls.regex_rx.match(tempstr):
+                ref = match.group(1)
+
+        xml_str += "</tree>"
 
 if __name__ == '__main__':
     penman_str = """
@@ -167,6 +190,5 @@ if __name__ == '__main__':
     tree = penman.parse(penman_str)
     serializer = Serializer(penman_tree=tree)
     serializer.print_xml()
-    lin = serializer.linearize()
+    print(serializer.linearized)
     print(serializer.variable_to_ridx)
-    print(lin)
