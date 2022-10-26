@@ -84,6 +84,8 @@ class Serializer:
     penman_tree: penman.tree.Tree = field(default=None)
     serialized: str = field(default=None)
     amr_str: str = field(default=None)  # TODO: also save the AMR string/penman serialization
+    argument_to_idx: None = field(default_factory=dict, init=False)
+
     regex_node: ClassVar[re.Pattern] = re.compile(r"(?:([A-Z]+)\(\(([^)]*)\)(.*)\)\/\1)|(?:TERM\(([^)]*)\))",
                                                   flags=re.DOTALL | re.IGNORECASE)
     regex_sense: ClassVar[re.Pattern] = re.compile(r"(.*)(<sense-id:.*>)",
@@ -97,10 +99,23 @@ class Serializer:
         elif not (self.penman_tree is not None and self.serialized is not None):
             raise ValueError("Either 'penman_tree' or 'serialized' has to be given!")
 
+    def set_arg_idx(self, arg: str):
+        # Don't do anything if arg is already in the dictionary
+        if not self.argument_to_idx:
+            self.argument_to_idx[arg] = 0
+        elif arg not in self.argument_to_idx:
+            max_idx = max(self.argument_to_idx.values())
+            self.argument_to_idx[arg] = max_idx+1
+
+    def get_serialized_arg(self, arg: str):
+        idx = self.argument_to_idx[arg]
+        return f"<R{idx}>"
+
     def serialize_node(self, parent_node, descriptor=None, is_root=True, level=0, pretty: bool = True):
         serialized = "\t" * level if pretty else ""
         if is_root:
-            serialized += f"TREE(({serialize_relation('ROOT')}, {parent_node.node[0]}) "
+            self.set_arg_idx(parent_node.node[0])
+            serialized += f"TREE(({serialize_relation('ROOT')}, {self.get_serialized_arg(parent_node.node[0])}) "
 
         if is_atomic(parent_node):  # Terminals
             serialized = ("\n" + serialized) if pretty else serialized
@@ -118,8 +133,9 @@ class Serializer:
             varname, branches = parent_node.node
 
             if descriptor is not None and varname is not None:
+                self.set_arg_idx(varname)
                 serialized = ("\n" + serialized) if pretty else serialized
-                serialized += f"REL(({serialize_relation(descriptor)}, {varname}), "
+                serialized += f"REL(({serialize_relation(descriptor)}, {self.get_serialized_arg(varname)}), "
 
             for descriptor, target in branches:
                 serialized += self.serialize_node(target, descriptor, is_root=False, level=level+1)
@@ -166,13 +182,16 @@ class Serializer:
 
 
 
+
 if __name__ == '__main__':
     penman_str = """
-    (s / sleep
-        :ARG0 (d / dog
-            :ARG0-of (b / bark-01)
-        )
-    )
+     ( t / tell-01 
+        :ARG0 ( y / you )
+        :ARG1 (w / wash-01
+            :ARG0 i
+            :ARG1 ( d / dog ) )
+        :ARG2 ( i / i ) )
+
     """
     tree = penman.parse(penman_str)
 
