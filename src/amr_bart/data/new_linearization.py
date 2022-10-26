@@ -53,31 +53,31 @@ class Serializer:
     penman_tree: penman.tree.Tree = field(default=None)
     _xml: ET = field(default=None, init=False)
 
-    variable_to_ridx: Dict[str, int] = field(default_factory=dict, init=False)
+    variable_to_ridx: Dict[str, str] = field(default_factory=dict, init=False)
 
     regex_node: ClassVar[re.Pattern] = re.compile(r"(?:([A-Z]+)\(\(([^)]*)\)(.*)\)\/\1)|(?:TERM\(([^)]*)\))",
                                                   flags=re.DOTALL | re.IGNORECASE)
     regex_sense: ClassVar[re.Pattern] = re.compile(r"(.*)(<sense-id:.*>)", flags=re.IGNORECASE)
     regex_args: ClassVar[re.Pattern] = re.compile(r"(<R\d+>) / (\w)", flags=re.IGNORECASE)
 
-    def set_variable_ridx(self, arg: str):
+    def set_variable_ridx(self, varname: str):
         """argument_to_idx is a dictionary of the variable (often just a character) to its index
         which we can then use when creating <RO> etc."""
         # Don't do anything if arg is already in the dictionary
         if not self.variable_to_ridx:
-            self.variable_to_ridx[arg] = 0
-        elif arg not in self.variable_to_ridx:
-            max_idx = max(self.variable_to_ridx.values())
-            self.variable_to_ridx[arg] = max_idx + 1
+            self.variable_to_ridx[varname] = "R0"
+        elif varname not in self.variable_to_ridx:
+            idxs = [int(r[1:]) for r in self.variable_to_ridx.values()]  # remove "R" and get int value
+            max_idx = max(idxs)
+            self.variable_to_ridx[varname] = "R" + str(max_idx + 1)
 
-    def get_rified_variable(self, arg: str):
-        """ r-ified """
-        idx = self.variable_to_ridx[arg]
-        return f"R{idx}"
+    @property
+    def ridx_to_variable(self):
+        return {v: k for k, v in self.variable_to_ridx.items()}
 
     @property
     def xml(self):
-        if not self._xml:
+        if self._xml is None:
             self._xml = self.xmlify(self.penman_tree)
         return self._xml
 
@@ -89,7 +89,7 @@ class Serializer:
         serialized = ""
         if is_root:
             self.set_variable_ridx(parent_node.node[0])
-            serialized += f'<tree value="{self.get_rified_variable(parent_node.node[0])}" relation_type="ROOT">'
+            serialized += f'<tree value="{self.variable_to_ridx[parent_node.node[0]]}" relation_type="ROOT">'
 
         descriptor = maybe_convert_relation(descriptor)
 
@@ -98,11 +98,11 @@ class Serializer:
                 if "-" in parent_node:
                     node_name, sense_id = parent_node.rsplit("-", 1)
                     serialized += f'<term token="{node_name}" sense_id="{sense_id}" />'
-                else:
+                else:  # Without explicit sense-id
                     serialized += f'<term token="{parent_node}" sense_id="NO" />'
             else:  # References to other variables
                 self.set_variable_ridx(parent_node)
-                serialized += f'<termref ref="{self.get_rified_variable(parent_node)}" relation_type="{descriptor}" />'
+                serialized += f'<termref ref="{self.variable_to_ridx[parent_node]}" relation_type="{descriptor}" />'
         else:  # Branches
             if not isinstance(parent_node, Tree):
                 parent_node = Tree(parent_node)
@@ -111,7 +111,7 @@ class Serializer:
 
             if descriptor is not None and varname is not None:
                 self.set_variable_ridx(varname)
-                serialized += f'<rel ref="{self.get_rified_variable(varname)}" relation_type="{descriptor}">'
+                serialized += f'<rel ref="{self.variable_to_ridx[varname]}" relation_type="{descriptor}">'
 
             for descriptor, target in branches:
                 serialized += self.xmlify(target, descriptor, is_root=False)
@@ -125,6 +125,33 @@ class Serializer:
         else:
             return serialized
 
+    def xml_to_penman(self):
+        pass
+
+    def linearize(self, xml=None, is_root: bool = True):
+        xml = xml if xml is not None else self.xml
+        linearized = ""
+        if is_root or xml.tag.lower() == "rel":
+            if is_root:
+                linearized += f"{SPECIAL_TOKENS['open_tree']}<{xml.attrib['value']}>"
+            else:
+                linearized += f"{xml.attrib['relation_type']}{SPECIAL_TOKENS['open_rel']}<{xml.attrib['ref']}>"
+
+            for node in xml:
+                linearized += self.linearize(node, is_root=False)
+
+            if is_root:
+                linearized += SPECIAL_TOKENS["close_tree"]
+            else:
+                linearized += SPECIAL_TOKENS["close_rel"]
+        elif xml.tag.lower() == "term":
+            linearized += f"{xml.attrib['token']}<sense-id:{xml.attrib['sense_id']}>"
+        elif xml.tag.lower() == "termref":
+            linearized += f"{xml.attrib['relation_type']}<{xml.attrib['ref']}>"
+        else:
+            raise ValueError("Unrecognized XML tag")
+
+        return linearized
 
 
 if __name__ == '__main__':
@@ -140,4 +167,6 @@ if __name__ == '__main__':
     tree = penman.parse(penman_str)
     serializer = Serializer(penman_tree=tree)
     serializer.print_xml()
+    lin = serializer.linearize()
     print(serializer.variable_to_ridx)
+    print(lin)
