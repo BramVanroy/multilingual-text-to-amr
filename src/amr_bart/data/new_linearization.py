@@ -88,8 +88,8 @@ class Serializer:
 
     regex_node: ClassVar[re.Pattern] = re.compile(r"(?:([A-Z]+)\(\(([^)]*)\)(.*)\)\/\1)|(?:TERM\(([^)]*)\))",
                                                   flags=re.DOTALL | re.IGNORECASE)
-    regex_sense: ClassVar[re.Pattern] = re.compile(r"(.*)(<sense-id:.*>)",
-                                                   flags=re.IGNORECASE)
+    regex_sense: ClassVar[re.Pattern] = re.compile(r"(.*)(<sense-id:.*>)", flags=re.IGNORECASE)
+    regex_args: ClassVar[re.Pattern] = re.compile(r"(<R\d+>) / (\w)", flags=re.IGNORECASE)
 
     def __post_init__(self):
         if self.penman_tree and not self.serialized:
@@ -99,7 +99,13 @@ class Serializer:
         elif not (self.penman_tree is not None and self.serialized is not None):
             raise ValueError("Either 'penman_tree' or 'serialized' has to be given!")
 
+    @property
+    def r_idx_to_arg(self):
+        return {v: k for k, v in self.argument_to_idx.items()}
+
     def set_arg_idx(self, arg: str):
+        """argument_to_idx is a dictionary of the variable (often just a character) to its index
+        which we can then use when creating <RO> etc."""
         # Don't do anything if arg is already in the dictionary
         if not self.argument_to_idx:
             self.argument_to_idx[arg] = 0
@@ -119,7 +125,7 @@ class Serializer:
 
         if is_atomic(parent_node):  # Terminals
             serialized = ("\n" + serialized) if pretty else serialized
-            if descriptor.strip() == "/":
+            if descriptor.strip() == "/":  # Instances
                 if "-" in parent_node:
                     node_name, sense_id = parent_node.rsplit("-", 1)
                     sense_id = serialize_sense(sense_id)
@@ -127,10 +133,9 @@ class Serializer:
                 else:
                     sense_id = serialize_sense(None)
                     serialized += f"TERM({parent_node}{sense_id}, {serialize_relation(descriptor)}) "
-            else:
+            else:  # References to other variables
                 self.set_arg_idx(parent_node)
                 serialized += f"TERM({self.get_serialized_arg(parent_node)}, {serialize_relation(descriptor)}) "
-                print(descriptor, parent_node)
         else:  # Branches
             if not isinstance(parent_node, Tree):
                 parent_node = Tree(parent_node)
@@ -155,44 +160,52 @@ class Serializer:
 
         return serialized
 
-    @classmethod
-    def deserialize(cls, text: str):
+    def deserialize(self, text: str, is_root: bool = True):
         if text.count("(") != text.count(")"):
             raise ValueError("Serialized tree is malformed. Opening and closing parentheses do not match")
 
         amr_str = ""
-        for match in re.finditer(cls.regex_node, text):
+        for match in re.finditer(self.regex_node, text):
             is_terminal = match.group(4)  # If we match a terminal group (not None)
-            if is_terminal:
+            if is_terminal:  # Terminal
                 token, relation_type = [item.strip() for item in match.group(4).split(",")]
-                match = re.match(cls.regex_sense, token)
-                token = match.group(1)
-                sense_id = match.group(2)
-
                 relation_type = deserialize_relation(relation_type)
-                sense_id = deserialize_sense(sense_id)
-                amr_str += f"{relation_type} {token}-{sense_id} " if sense_id else f"{relation_type} {token} "
-            else:
+                if token_match := re.match(self.regex_sense, token):  # Token
+                    token = token_match.group(1)
+                    sense_id = token_match.group(2)
+                    sense_id = deserialize_sense(sense_id)
+                    amr_str += f"{relation_type} {token}-{sense_id} " if sense_id else f"{relation_type} {token} "
+                else:  # Variable
+                    print(match)
+                    amr_str += f":{relation_type} {token} "
+            else: # Relation
+                print(match)
                 relation_type, varname = [item.strip() for item in match.group(2).split(",")]
                 relation_type = deserialize_relation(relation_type)
                 descendants = match.group(3)
 
                 # Do not add relation type prefix for the root
                 amr_str += f":{relation_type} ({varname} " if relation_type.lower() != "root" else f"({varname} "
-                amr_str += cls.deserialize(descendants)
-                amr_str += ")"
+                amr_str += self.deserialize(descendants, is_root=False)
+                amr_str += ") "
+
+        # if is_root:
+            # amr_str = self.replace_args_in_str(amr_str)
 
         return amr_str
 
+    def replace_args_in_str(self, text: str):
+        for r_idx, repl in self.r_idx_to_arg.items():
+            text = text.replace(f"<R{r_idx}>", repl)
 
-
+        return text
 
 
 if __name__ == '__main__':
     penman_str = """
      ( t / tell-01 
         :ARG0 ( y / you )
-          :ARG1 (w / wash-01
+        :ARG1 (w / wash-01
             :ARG0 i
             :ARG1 ( d / dog ) )
         :ARG2 ( i / i ) )
@@ -200,7 +213,11 @@ if __name__ == '__main__':
     """
     tree = penman.parse(penman_str)
     serializer = Serializer(penman_tree=tree)
-    print(serializer.serialized)
-    # deserialized_tree = Serializer.deserialize(serializer.serialized)
 
+    serialized_tree = serializer.serialized
+    print(serialized_tree)
+    deserialized_tree = serializer.deserialize(serialized_tree)
+    print(deserialized_tree)
     # re_tree = penman.parse(deserialized_tree)
+    #
+    # assert re_tree == tree
