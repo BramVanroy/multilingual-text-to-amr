@@ -2,8 +2,8 @@ import re
 from dataclasses import dataclass, field
 from os import PathLike
 from sys import stdout
-from typing import List, Iterable, Union, Optional, ClassVar, Dict
-
+from typing import List, Iterable, Union, Optional, ClassVar, Dict, Counter
+from collections import Counter
 # from .penman import load
 
 import penman
@@ -28,6 +28,13 @@ Custom constrained beam search? (if a token is not allowed in a position, set it
     - special reference token (<R0>) can only follow 1. an opening bracket or 2. an arg:
 """
 
+def elements_equal(e1, e2):
+    if e1.tag != e2.tag: return False
+    if e1.text != e2.text: return False
+    if e1.tail != e2.tail: return False
+    if e1.attrib != e2.attrib: return False
+    if len(e1) != len(e2): return False
+    return all(elements_equal(c1, c2) for c1, c2 in zip(e1, e2))
 
 def maybe_convert_relation(relation: str):
     if relation is not None and relation.strip() == "/":
@@ -36,7 +43,36 @@ def maybe_convert_relation(relation: str):
         return relation
 
 
-# TODO: use these in (de)serialization
+def text_and_elements(node):
+    """Taken from https://stackoverflow.com/a/30986529/1150683"""
+    yield node
+
+    text = node.text.strip() if node.text else None
+    if text:
+        yield text
+
+    for child in node:
+        yield from text_and_elements(child)
+
+    tail = node.tail.strip() if node.tail else None
+    if tail:
+        yield tail
+
+
+def set_varnames(xml: ET.ElementBase):
+    var_counter = Counter()
+    for node in xml.xpath("//*[@varname]/term"):
+        varname = node.attrib["token"].lower()[0]
+        var_counter[varname] += 1
+        node.getparent().attrib["varname"] = varname if var_counter[varname] == 1 else f"{varname}{var_counter[varname]}"
+
+    for node in xml.xpath("//termref"):
+        ref = xml.xpath(f'//rel[@ref="{node.attrib["ref"]}"]')
+        if ref:
+            node.attrib["varname"] = ref[0].attrib["varname"]
+
+    return xml
+
 SPECIAL_TOKENS = {
     "tree": "<tree>",
     "/tree": "</tree>",
@@ -77,7 +113,7 @@ class Serializer:
     @property
     def xml(self):
         if self._xml is None:
-            self._xml = self.xmlify()
+            self._xml = self.xmlify_penman()
         return self._xml
 
     @property
@@ -91,7 +127,7 @@ class Serializer:
         xml_str = ET.tostring(self.xml, pretty_print=pretty_print)
         print(xml_str.decode())
 
-    def xmlify(self, parent_node=None, descriptor: Optional[str] = None, is_root: bool = True):
+    def xmlify_penman(self, parent_node=None, descriptor: Optional[str] = None, is_root: bool = True):
         parent_node = self.penman_tree if parent_node is None else parent_node
         serialized = ""
         if is_root:
@@ -121,7 +157,7 @@ class Serializer:
                 serialized += f'<rel ref="{self.variable_to_ridx[varname]}" varname="{varname}" relation_type="{descriptor}">'
 
             for descriptor, target in branches:
-                serialized += self.xmlify(target, descriptor, is_root=False)
+                serialized += self.xmlify_penman(target, descriptor, is_root=False)
 
             if descriptor is not None and varname is not None and not is_root:
                 serialized += "</rel>"
@@ -140,9 +176,9 @@ class Serializer:
         linearized = ""
         if is_root or xml.tag.lower() == "rel":
             if is_root:
-                linearized += f"{SPECIAL_TOKENS['tree']}<{xml.attrib['value']}>"
+                linearized += f'{SPECIAL_TOKENS["tree"]}<termid value="{xml.attrib["value"]}"/>'
             else:
-                linearized += f"{xml.attrib['relation_type']}{SPECIAL_TOKENS['rel']}<{xml.attrib['ref']}>"
+                linearized += f'{SPECIAL_TOKENS["rel"]}<reltype value="{xml.attrib["relation_type"]}"/><termid value="{xml.attrib["ref"]}"/>'
 
             for node in xml:
                 linearized += self.linearize(node, is_root=False)
@@ -152,9 +188,9 @@ class Serializer:
             else:
                 linearized += SPECIAL_TOKENS["/rel"]
         elif xml.tag.lower() == "term":
-            linearized += f"{xml.attrib['token']}<sense-id:{xml.attrib['sense_id']}>"
+            linearized += f'{xml.attrib["token"]}<sense_id value="{xml.attrib["sense_id"]}"/>'
         elif xml.tag.lower() == "termref":
-            linearized += f"{xml.attrib['relation_type']}<{xml.attrib['ref']}>"
+            linearized += f'<reltype value="{xml.attrib["relation_type"]}"/><termref value="{xml.attrib["ref"]}"/>'
         else:
             raise ValueError("Unrecognized XML tag")
 
@@ -162,22 +198,56 @@ class Serializer:
 
     @classmethod
     def delinearize(cls, string: str):
-        xml_str = "<tree"
+        # TODO: use SPECIAL_TOKENS
+        # TODO: if an error occurs here during parsing, try to fix the tree
+        # Maybe with BS4, which is supposedly more lenient (?)
+        xml = ET.fromstring(string)
 
-        tempstr = ""
-        for char in string:
-            tempstr += char
+        def _iterate(node, parent_tag: str = None, prev_sibling=None):
+            # MF: in case the xml (e.g. from the LM) is malformed
+            xml_str = ""
+            prev_tail = None if prev_sibling is None or not prev_sibling.tail else prev_sibling.tail.strip()
 
-            if tempstr in REV_SPECIAL_TOKENS:
-                xml_str += REV_SPECIAL_TOKENS[tempstr]
-                tempstr = ""
+            if node.tag.lower() == "termid":
+                if parent_tag == "tree":
+                    xml_str += f'<tree value="{node.attrib["value"]}" varname="" relation_type="ROOT">'
+                elif parent_tag == "rel":
+                    if prev_sibling is not None and prev_sibling.tag.lower() == "reltype":  # relation_type might be empty if MF
+                        xml_str += f'<rel ref="{node.attrib["value"]}" varname="" relation_type="{prev_sibling.attrib["value"]}">'
+                    else:
+                        xml_str += f'<rel ref="{node.attrib["value"]}" varname="" relation_type="">'
 
-            if match := cls.regex_rx.match(tempstr):
-                ref = match.group(1)
+            elif node.tag.lower() == "sense_id":
+                if prev_tail:
+                    xml_str += f'<term token="{prev_tail}" sense_id="{node.attrib["value"]}"/>'
+                else:  # token might be empty if MF
+                    xml_str += f'<term token="" sense_id="{node.attrib["value"]}"/>'
 
-        xml_str += "</tree>"
+            elif node.tag.lower() == "termref":
+                if prev_sibling is not None and prev_sibling.tag.lower() == "reltype":  # relation_type might be empty if MF
+                    xml_str += f'<termref ref="{node.attrib["value"]}" varname="" relation_type="{prev_sibling.attrib["value"]}"/>'
+                else:
+                    xml_str += f'<termref ref="{node.attrib["value"]}" varname="" relation_type=""/>'
 
-if __name__ == '__main__':
+            for child_idx, child in enumerate(node):
+                sibling = node[child_idx - 1] if 0 < child_idx < len(node) else None
+                xml_str += _iterate(child, node.tag.lower(), sibling)
+
+            if parent_tag is None:
+                xml_str += "</tree>"
+            elif node.tag.lower() == "rel":
+                xml_str += "</rel>"
+
+            return xml_str
+
+        final_xml_str = _iterate(xml)
+
+        xml = ET.fromstring(final_xml_str)
+        xml = set_varnames(xml)
+        return xml
+
+
+if __name__ == "__main__":
     penman_str = """
      ( t / tell-01 
         :ARG0 ( y / you )
@@ -190,5 +260,9 @@ if __name__ == '__main__':
     tree = penman.parse(penman_str)
     serializer = Serializer(penman_tree=tree)
     serializer.print_xml()
-    print(serializer.linearized)
-    print(serializer.variable_to_ridx)
+
+    delinearized_xml = serializer.delinearize(serializer.linearized)
+
+    print("Generated XML and delinearized XML identical?", elements_equal(serializer.xml, delinearized_xml))
+
+
