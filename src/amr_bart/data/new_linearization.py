@@ -113,7 +113,7 @@ class Serializer:
     @property
     def xml(self):
         if self._xml is None:
-            self._xml = self.xmlify_penman()
+            self._xml = self.penman2xml()
         return self._xml
 
     @property
@@ -127,7 +127,7 @@ class Serializer:
         xml_str = ET.tostring(self.xml, pretty_print=pretty_print)
         print(xml_str.decode())
 
-    def xmlify_penman(self, parent_node=None, descriptor: Optional[str] = None, is_root: bool = True):
+    def penman2xml(self, parent_node=None, descriptor: Optional[str] = None, is_root: bool = True):
         parent_node = self.penman_tree if parent_node is None else parent_node
         serialized = ""
         if is_root:
@@ -157,7 +157,7 @@ class Serializer:
                 serialized += f'<rel ref="{self.variable_to_ridx[varname]}" varname="{varname}" relation_type="{descriptor}">'
 
             for descriptor, target in branches:
-                serialized += self.xmlify_penman(target, descriptor, is_root=False)
+                serialized += self.penman2xml(target, descriptor, is_root=False)
 
             if descriptor is not None and varname is not None and not is_root:
                 serialized += "</rel>"
@@ -168,25 +168,48 @@ class Serializer:
         else:
             return serialized
 
-    def xml_to_penman(self):
-        pass
+    def xml2penman(self, xml: Optional[ET.ElementBase] = None, is_root: bool = True):
+        xml = xml if xml is not None else self.xml
+        amr_str = ""
+        if is_root or xml.tag.lower() == "rel":
+            if is_root:
+                amr_str += f'({xml.attrib["varname"]} '
+            else:
+                amr_str += f'{xml.attrib["relation_type"]} ( {xml.attrib["varname"]} '
+
+            for node in xml:
+                amr_str += self.xml2penman(node, is_root=False)
+
+            amr_str += ") "
+        elif xml.tag.lower() == "term":
+            if xml.attrib["sense_id"].lower() == "no":
+                amr_str += f'/ {xml.attrib["token"]} '
+            else:
+                amr_str += f'/ {xml.attrib["token"]}-{xml.attrib["sense_id"]} '
+
+        elif xml.tag.lower() == "termref":
+            amr_str += f'{xml.attrib["relation_type"]} {xml.attrib["varname"]} '
+        else:
+            raise ValueError("Unrecognized XML tag")
+
+        return amr_str
 
     def linearize(self, xml: Optional[ET.ElementBase] = None, is_root: bool = True):
         xml = xml if xml is not None else self.xml
         linearized = ""
         if is_root or xml.tag.lower() == "rel":
             if is_root:
-                linearized += f'{SPECIAL_TOKENS["tree"]}<termid value="{xml.attrib["value"]}"/>'
+                linearized += f'<tree><termid value="{xml.attrib["value"]}"/>'
             else:
-                linearized += f'{SPECIAL_TOKENS["rel"]}<reltype value="{xml.attrib["relation_type"]}"/><termid value="{xml.attrib["ref"]}"/>'
+                linearized += f'<rel>><reltype value="{xml.attrib["relation_type"]}"/><termid value="{xml.attrib["ref"]}"/>'
 
             for node in xml:
                 linearized += self.linearize(node, is_root=False)
 
             if is_root:
-                linearized += SPECIAL_TOKENS["/tree"]
+                linearized += "</tree>"
             else:
-                linearized += SPECIAL_TOKENS["/rel"]
+                linearized += "</rel>"
         elif xml.tag.lower() == "term":
             linearized += f'{xml.attrib["token"]}<sense_id value="{xml.attrib["sense_id"]}"/>'
         elif xml.tag.lower() == "termref":
@@ -196,12 +219,11 @@ class Serializer:
 
         return linearized
 
-    @classmethod
-    def delinearize(cls, string: str):
-        # TODO: use SPECIAL_TOKENS
+    @staticmethod
+    def delinearize(linearized_amr: str):
         # TODO: if an error occurs here during parsing, try to fix the tree
         # Maybe with BS4, which is supposedly more lenient (?)
-        xml = ET.fromstring(string)
+        xml = ET.fromstring(linearized_amr)
 
         def _iterate(node, parent_tag: str = None, prev_sibling=None):
             # MF: in case the xml (e.g. from the LM) is malformed
@@ -246,6 +268,17 @@ class Serializer:
         xml = set_varnames(xml)
         return xml
 
+    @classmethod
+    def from_linearized(cls, linearized_amr: str):
+        xml = cls.delinearize(linearized_amr)
+        # TODO: omzetten naar penman
+        penman_tree = penman.parse("somethng")
+        return cls(penman_tree=penman_tree)
+
+    @classmethod
+    def from_xml(cls, xml: ET.ElementBase):
+        pass
+
 
 if __name__ == "__main__":
     penman_str = """
@@ -259,10 +292,14 @@ if __name__ == "__main__":
     """
     tree = penman.parse(penman_str)
     serializer = Serializer(penman_tree=tree)
+    tree_xml = serializer.xml
     serializer.print_xml()
+    re_penman_str = serializer.xml2penman()
 
+    other_tree = penman.parse(re_penman_str)
     delinearized_xml = serializer.delinearize(serializer.linearized)
 
     print("Generated XML and delinearized XML identical?", elements_equal(serializer.xml, delinearized_xml))
+    print("Penman and XML2PENMAN identical?", tree == other_tree)
 
 
