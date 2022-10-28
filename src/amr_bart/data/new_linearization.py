@@ -29,9 +29,8 @@ Custom constrained beam search? (if a token is not allowed in a position, set it
     - special reference token (<R0>) can only follow 1. an opening bracket or 2. an arg:
 """
 
-# TODO: make sure that double quotes are escaped/allowed in the token
 # TODO: check special arguments, especially :opX and things related non-core roles: https://github.com/amrisi/amr-guidelines/blob/master/amr.md
-
+# TODO: check in amr guidelines how variable assignment for p, p2, p3 is prioritized. First the deepest token, or which one is the first p?
 
 def elements_equal(e1, e2):
     """https://stackoverflow.com/a/24349916/1150683"""
@@ -93,7 +92,7 @@ def linearize_from_xml(xml: Optional[ET.ElementBase] = None, is_root: bool = Tru
         if is_root:
             linearized += f'<tree><termid value="{xml.attrib["value"]}"/>'
         else:
-            linearized += f'<rel>><reltype value="{xml.attrib["relation_type"]}"/><termid value="{xml.attrib["ref"]}"/>'
+            linearized += f'<rel><reltype value="{xml.attrib["relation_type"]}"/><termid value="{xml.attrib["ref"]}"/>'
 
         for node in xml:
             linearized += linearize_from_xml(node, is_root=False)
@@ -206,9 +205,36 @@ class Linearizer:
     def penman_str(self):
         return penman.format(self.penman_tree)
 
-    def pprint_xml(self, pretty_print: bool = True):
-        xml_str = ET.tostring(self.xml, pretty_print=pretty_print)
+    def pprint_xml(self):
+        xml_str = ET.tostring(self.xml, pretty_print=True)
         print(xml_str.decode())
+
+    def pprint_linearized(self):
+        """We cannot use ET.tostring because we have text right next to other nodes (as `tail`s)
+        so LXML will not be able to correctly prettify the code. Alright, I'll do it myself.
+        """
+        xml = ET.fromstring(self.linearized)
+
+        def _iterate(xml, indent: int = 0):
+            xml_str = "\n" + "\t" * indent
+            attribs = " ".join([f'{k}="{v}"' for k, v in xml.attrib.items()])
+            xml_str += f'<{xml.tag} {attribs}' if attribs else f'<{xml.tag}'
+
+            if len(xml):
+                xml_str += ">"
+                for node in xml:
+                    xml_str += _iterate(node, indent=indent+1)
+                xml_str += "\n" + "\t" * indent
+                xml_str += f'</{xml.tag}>'
+            else:
+                xml_str += "/>"
+
+            xml_str += xml.tail if xml.tail else ""
+
+            return xml_str
+
+        pprint_lin = _iterate(xml)
+        print(pprint_lin)
 
     def penman_tree2xml(self, parent_node=None, descriptor: Optional[str] = None, is_root: bool = True):
         parent_node = self.penman_tree if parent_node is None else parent_node
@@ -303,5 +329,5 @@ if __name__ == "__main__":
                         :op2 (p / patriotism)))))
 """
         linearizer = Linearizer.from_penman_str(pnman_str)
-        print(linearizer.linearized)
-        new_linearizer = Linearizer.from_linearized(linearizer.linearized)
+        linearizer.pprint_linearized()
+        # new_linearizer = Linearizer.from_linearized(linearizer.linearized)
