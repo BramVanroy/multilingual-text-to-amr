@@ -18,8 +18,8 @@ https://ojs.aaai.org/index.php/AAAI/article/view/17489
 https://github.com/amrisi/amr-guidelines/blob/master/amr.md
 Voc; We can try:
     - putting all tokens in the new vocabulary as full tokens (e.g. believe-01); OR
-    - using special tokens for the sense-dash and sense-id so that the concept itself can be of multiple subword
-     tokens (e.g., [bel, ieve, <sensedash>, <sense1>])
+    - using special tokens for the sense-id so that the concept itself can be of multiple subword
+     tokens (e.g., [bel, ieve, <sense1>])
 Custom constrained beam search? (if a token is not allowed in a position, set its logits to 0?)
     - a sense dash must be followed by a sense
     - special reference token (<R0>) can only follow 1. an opening bracket or 2. an arg:
@@ -101,7 +101,7 @@ def xml2penman_str(node: Optional[ET.ElementBase] = None, is_root: bool = True):
     return penman_str
 
 
-def xml_to_linearize(node: Optional[ET.ElementBase] = None, is_root: bool = True):
+def xml_to_linearized(node: Optional[ET.ElementBase] = None, is_root: bool = True):
     linearized = ""
     if is_root or node.tag.lower() == "rel":
         if is_root:
@@ -110,7 +110,7 @@ def xml_to_linearize(node: Optional[ET.ElementBase] = None, is_root: bool = True
             linearized += f'<rel><reltype value="{node.attrib["relation_type"]}"/><termid value="{node.attrib["ref"]}"/>'
 
         for node in node:
-            linearized += xml_to_linearize(node, is_root=False)
+            linearized += xml_to_linearized(node, is_root=False)
 
         if is_root:
             linearized += "</tree>"
@@ -229,7 +229,7 @@ class Linearizer:
 
     @property
     def linearized(self):
-        return xml_to_linearize(self.xml)
+        return xml_to_linearized(self.xml)
 
     @property
     def penman_str(self):
