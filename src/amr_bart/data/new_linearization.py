@@ -3,12 +3,11 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 from typing import Optional, ClassVar, Dict, Counter
-from collections import Counter
-
+from collections import Counter, deque
 
 import penman
 from penman import Tree, Triple, Graph
-from penman.tree import is_atomic
+from penman.tree import is_atomic, _default_variable_prefix
 import lxml.etree as ET
 from tqdm import tqdm
 
@@ -30,7 +29,8 @@ Custom constrained beam search? (if a token is not allowed in a position, set it
 """
 
 # TODO: check special arguments, especially :opX and things related non-core roles: https://github.com/amrisi/amr-guidelines/blob/master/amr.md
-# TODO: check in amr guidelines how variable assignment for p, p2, p3 is prioritized. First the deepest token, or which one is the first p?
+# TODO: check in amr guidelines how variable assignment for p, p2, p3 is prioritized. First the deepest token, or which one is the first p? Here the "reset_Variables" function in penman seems relevant
+
 
 def elements_equal(e1, e2):
     """https://stackoverflow.com/a/24349916/1150683"""
@@ -58,7 +58,11 @@ def maybe_convert_relation(relation: str):
         return relation
 
 def remove_wiki(penman_str: str):
-    return re.sub(r'\s+:wiki\s+"[^"]+"', "", penman_str)
+    return re.sub(r'\s+:wiki\s+(?:\"[^\"]+\"|-)', "", penman_str)
+
+def remove_metadata(penman_str: str):
+    return re.sub(r'^#.*\n', "", penman_str, flags=re.MULTILINE)
+
 
 def xml2penman_str(xml: Optional[ET.ElementBase] = None, is_root: bool = True):
     penman_str = ""
@@ -80,6 +84,9 @@ def xml2penman_str(xml: Optional[ET.ElementBase] = None, is_root: bool = True):
 
     elif xml.tag.lower() == "termref":
         penman_str += f'{xml.attrib["relation_type"]} {xml.attrib["varname"]} '
+
+    elif xml.tag.lower() == "termrel":
+        penman_str += f'{xml.attrib["relation_type"]} {xml.attrib["token"]} '
     else:
         raise ValueError("Unrecognized XML tag")
 
@@ -105,6 +112,8 @@ def linearize_from_xml(xml: Optional[ET.ElementBase] = None, is_root: bool = Tru
         linearized += f'{xml.attrib["token"]}<sense_id value="{xml.attrib["sense_id"]}"/>'
     elif xml.tag.lower() == "termref":
         linearized += f'<reltype value="{xml.attrib["relation_type"]}"/><termref value="{xml.attrib["ref"]}"/>'
+    elif xml.tag.lower() == "termrel":
+        linearized += f'<reltype value="{xml.attrib["relation_type"]}"/>{xml.attrib["token"]}<sense_id value="NO"/>'
     else:
         raise ValueError("Unrecognized XML tag")
 
@@ -114,7 +123,7 @@ def linearize_from_xml(xml: Optional[ET.ElementBase] = None, is_root: bool = Tru
 def set_varnames(xml: ET.ElementBase):
     var_counter = Counter()
     for node in xml.xpath("//*[@varname]/term"):
-        varname = node.attrib["token"].lower()[0]
+        varname = _default_variable_prefix(node.attrib["token"])
         var_counter[varname] += 1
         node.getparent().attrib["varname"] = varname if var_counter[varname] == 1 else f"{varname}{var_counter[varname]}"
 
@@ -132,7 +141,6 @@ def delinearize_to_xml(linearized_amr: str):
     xml = ET.fromstring(linearized_amr)
 
     def _iterate(node, parent_tag: str = None, prev_sibling=None):
-        # MF: in case the xml (e.g. from the LM) is malformed
         xml_str = ""
         prev_tail = None if prev_sibling is None or not prev_sibling.tail else prev_sibling.tail.strip()
 
@@ -140,19 +148,20 @@ def delinearize_to_xml(linearized_amr: str):
             if parent_tag == "tree":
                 xml_str += f'<tree value="{node.attrib["value"]}" varname="" relation_type="ROOT">'
             elif parent_tag == "rel":
-                if prev_sibling is not None and prev_sibling.tag.lower() == "reltype":  # relation_type might be empty if MF
+                if prev_sibling is not None and prev_sibling.tag.lower() == "reltype":  # relation_type might be empty if malformed
                     xml_str += f'<rel ref="{node.attrib["value"]}" varname="" relation_type="{prev_sibling.attrib["value"]}">'
                 else:
                     xml_str += f'<rel ref="{node.attrib["value"]}" varname="" relation_type="">'
 
         elif node.tag.lower() == "sense_id":
-            if prev_tail:
+            token_str = prev_tail if prev_tail else ""  # token might be empty if malformed
+            if prev_sibling.tag.lower() == "reltype":  # termrels
+                xml_str += f'<termrel token="{token_str}" relation_type="{prev_sibling.attrib["value"]}" />'
+            else:  # terminals
                 xml_str += f'<term token="{prev_tail}" sense_id="{node.attrib["value"]}"/>'
-            else:  # token might be empty if MF
-                xml_str += f'<term token="" sense_id="{node.attrib["value"]}"/>'
 
         elif node.tag.lower() == "termref":
-            if prev_sibling is not None and prev_sibling.tag.lower() == "reltype":  # relation_type might be empty if MF
+            if prev_sibling is not None and prev_sibling.tag.lower() == "reltype":  # relation_type might be empty if malformed
                 xml_str += f'<termref ref="{node.attrib["value"]}" varname="" relation_type="{prev_sibling.attrib["value"]}"/>'
             else:
                 xml_str += f'<termref ref="{node.attrib["value"]}" varname="" relation_type=""/>'
@@ -252,11 +261,19 @@ class Linearizer:
                     xml_str += f'<term token="{escape_xml(node_name)}" sense_id="{sense_id}" />'
                 else:  # Without explicit sense-id
                     xml_str += f'<term token="{escape_xml(parent_node)}" sense_id="NO" />'
-            else:  # References to other variables
-                self.set_variable_ridx(parent_node)
-                if descriptor == ":wiki":
-                    raise ValueError("Wiki items are currently not supported")
-                xml_str += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+            else:
+                if descriptor.startswith(":op"):
+                    if re.match(r"^[a-z]\d+$", parent_node):  # Reference to other variable
+                        xml_str += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                    else:  # A terminal token which is also a some special relation (e.g. `:op1 100000`)
+                        # NOTE: it _seems_ to me that this can only occur for numbers. A string will always be a token "instance" (?)
+                        xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                else: # References to other variables
+                    self.set_variable_ridx(parent_node)
+                    if descriptor == ":wiki":
+                        raise ValueError("Wiki items are currently not supported")
+
+                    xml_str += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
         else:  # Branches
             if not isinstance(parent_node, Tree):
                 parent_node = Tree(parent_node)
@@ -264,7 +281,6 @@ class Linearizer:
             varname, branches = parent_node.node
 
             if descriptor is not None and varname is not None:
-                varname = varname.replace("\"", "\\""")
                 self.set_variable_ridx(varname)
                 xml_str += f'<rel ref="{self.variable_to_ridx[varname]}" varname="{escape_xml(varname)}" relation_type="{descriptor}">'
 
@@ -276,6 +292,7 @@ class Linearizer:
 
         if is_root:
             xml_str += "</tree>"
+            print(xml_str)
             return ET.fromstring(xml_str)
         else:
             return xml_str
@@ -291,25 +308,79 @@ class Linearizer:
         return cls.from_penman_str(penman_str)
 
     @classmethod
-    def from_penman_str(cls, penman_str: str):
-        penman_str = remove_wiki(penman_str)
+    def from_penman_str(cls, penman_str: str, keep_wiki: bool = False, keep_metadata: bool = False):
+        if not keep_wiki:
+            penman_str = remove_wiki(penman_str)
+        if not keep_metadata:
+            penman_str = remove_metadata(penman_str)
+
         penman_tree = penman.parse(penman_str)
         return cls(penman_tree=penman_tree)
 
 
+stri = """
+(m / multi-sentence
+   :snt1 (m2 / many
+             :ARG0-of (s / sense-01
+                         :ARG1 (u / urgency)
+                         :time (w / watch-01
+                                  :ARG0 m2
+                                  :ARG1 (t3 / thing
+                                            :manner-of (d / develop-02
+                                                          :ARG0 (t / thing)))
+                                  :manner (q / quiet-04
+                                             :ARG1 m2))))
+   :snt2 (d2 / dragon
+             :domain (y / you)
+             :ARG0-of (c / coil-01))
+   :snt3 (t2 / tiger
+             :domain (y2 / you)
+             :ARG0-of (c2 / crouch-01))
+   :snt4 (a / admire-01
+            :ARG0 (i / i)
+            :ARG1 (p / patriot
+                     :poss-of (m3 / mind
+                                  :mod (n / noble)))))
+"""
+
+stri2 = """
+(m2 / multi-sentence
+    :snt1 (g / give-01
+             :ARG0 (h / history)
+             :ARG1 (l / lesson
+                      :ARG1-of (h2 / have-quant-91
+                                   :ARG2 (m / many)
+                                   :ARG3 (t / too)))
+             :ARG2 (w / we)
+             :polarity (a2 / amr-unknown))
+    :snt2 (a / and
+             :op1 530
+             :op2 412
+             :op3 64))
+"""
+
 if __name__ == "__main__":
-    run_dir_test = False
+    run_dir_test = True
 
     if run_dir_test:
-        pdin = Path(r"C:\Python\projects\multilingual-text-to-amr\data")
+        pdin = Path(r"D:\corpora\amr_annotation_3.0\data\amrs_fixed")
 
+        valid_trees = 0
+        invalid_trees = 0
         for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file"):
             with pfin.open(encoding="utf-8") as fhin:
                 for tree in penman.iterparse(fhin):
-                    linearizer = Linearizer(tree)
+                    tree_str = penman.format(tree)
+                    linearizer = Linearizer.from_penman_str(tree_str)
                     xml = linearizer.xml
                     linearized = linearizer.linearized
                     penman_str = linearizer.penman_str
+                    relinearizer = Linearizer.from_linearized(linearized)
+
+                    if linearizer.penman_tree != relinearizer.penman_tree:
+                        print(linearizer.penman_str)
+                        print(relinearizer.penman_str)
+                        input("Type something here to contiue")
     else:
         pnman_str = """# ::id bolt12_64545_0529.2 ::date 2012-12-23T19:59:16 ::annotator SDL-AMR-09 ::preferred
 # ::snt What is more they are considered traitors of China, which is a fact of cultural tyranny in the cloak of nationalism and patriotism.
