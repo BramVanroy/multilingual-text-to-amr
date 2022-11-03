@@ -1,12 +1,11 @@
 import re
 from dataclasses import dataclass, field
-from functools import cached_property
 from pathlib import Path
 from typing import Optional, ClassVar, Dict, Counter
-from collections import Counter, deque
+from collections import Counter
 
 import penman
-from penman import Tree, Triple, Graph
+from penman import Tree
 from penman.tree import is_atomic, _default_variable_prefix
 import lxml.etree as ET
 from tqdm import tqdm
@@ -30,7 +29,7 @@ Custom constrained beam search? (if a token is not allowed in a position, set it
 
 # TODO: check special arguments, especially :opX and things related non-core roles: https://github.com/amrisi/amr-guidelines/blob/master/amr.md
 # TODO: check in amr guidelines how variable assignment for p, p2, p3 is prioritized. First the deepest token, or which one is the first p? Here the "reset_Variables" function in penman seems relevant
-
+# TODO: for :op values, remove " surrounding quotes when linearized and add them again when delinearizing. But do not add them for numbers where the whole string.isdigit() is true!
 
 def elements_equal(e1, e2):
     """https://stackoverflow.com/a/24349916/1150683"""
@@ -50,6 +49,14 @@ def escape_xml(str_xml: str):
     str_xml = str_xml.replace("'", "&apos;")
     return str_xml
 
+def unescape_xml(str_xml: str):
+    str_xml = str_xml.replace("&amp;", "&")
+    str_xml = str_xml.replace("&lt;", "<")
+    str_xml = str_xml.replace("&gt;", ">")
+    str_xml = str_xml.replace("&quot;", "\"")
+    str_xml = str_xml.replace("&apos;", "'")
+    return str_xml
+
 
 def maybe_convert_relation(relation: str):
     if relation is not None and relation.strip() == "/":
@@ -64,56 +71,61 @@ def remove_metadata(penman_str: str):
     return re.sub(r'^#.*\n', "", penman_str, flags=re.MULTILINE)
 
 
-def xml2penman_str(xml: Optional[ET.ElementBase] = None, is_root: bool = True):
+def xml2penman_str(node: Optional[ET.ElementBase] = None, is_root: bool = True):
     penman_str = ""
-    if is_root or xml.tag.lower() == "rel":
+    if is_root or node.tag.lower() == "rel":
         if is_root:
-            penman_str += f'({xml.attrib["varname"]} '
+            penman_str += f'({node.attrib["varname"]} '
         else:
-            penman_str += f'{xml.attrib["relation_type"]} ( {xml.attrib["varname"]} '
+            penman_str += f'{node.attrib["relation_type"]} ( {node.attrib["varname"]} '
 
-        for node in xml:
+        for node in node:
             penman_str += xml2penman_str(node, is_root=False)
 
         penman_str += ") "
-    elif xml.tag.lower() == "term":
-        if xml.attrib["sense_id"].lower() == "no":
-            penman_str += f'/ {xml.attrib["token"]} '
+    elif node.tag.lower() == "term":
+        if node.attrib["sense_id"].lower() == "no":
+            penman_str += f'/ {node.attrib["token"]} '
         else:
-            penman_str += f'/ {xml.attrib["token"]}-{xml.attrib["sense_id"]} '
+            penman_str += f'/ {node.attrib["token"]}-{node.attrib["sense_id"]} '
 
-    elif xml.tag.lower() == "termref":
-        penman_str += f'{xml.attrib["relation_type"]} {xml.attrib["varname"]} '
+    elif node.tag.lower() == "termref":
+        penman_str += f'{node.attrib["relation_type"]} {node.attrib["varname"]} '
 
-    elif xml.tag.lower() == "termrel":
-        penman_str += f'{xml.attrib["relation_type"]} {xml.attrib["token"]} '
+    elif node.tag.lower() == "termrel":
+        penman_str += f'{node.attrib["relation_type"]} {node.attrib["token"]} '
+    elif node.tag.lower() == "negation":
+        penman_str += ':polarity - '
+
     else:
         raise ValueError("Unrecognized XML tag")
 
     return penman_str
 
 
-def linearize_from_xml(xml: Optional[ET.ElementBase] = None, is_root: bool = True):
+def linearize_from_xml(node: Optional[ET.ElementBase] = None, is_root: bool = True):
     linearized = ""
-    if is_root or xml.tag.lower() == "rel":
+    if is_root or node.tag.lower() == "rel":
         if is_root:
-            linearized += f'<tree><termid value="{xml.attrib["value"]}"/>'
+            linearized += f'<tree type="linearized_xml"><termid value="{node.attrib["value"]}"/>'
         else:
-            linearized += f'<rel><reltype value="{xml.attrib["relation_type"]}"/><termid value="{xml.attrib["ref"]}"/>'
+            linearized += f'<rel><reltype value="{node.attrib["relation_type"]}"/><termid value="{node.attrib["ref"]}"/>'
 
-        for node in xml:
+        for node in node:
             linearized += linearize_from_xml(node, is_root=False)
 
         if is_root:
             linearized += "</tree>"
         else:
             linearized += "</rel>"
-    elif xml.tag.lower() == "term":
-        linearized += f'{xml.attrib["token"]}<sense_id value="{xml.attrib["sense_id"]}"/>'
-    elif xml.tag.lower() == "termref":
-        linearized += f'<reltype value="{xml.attrib["relation_type"]}"/><termref value="{xml.attrib["ref"]}"/>'
-    elif xml.tag.lower() == "termrel":
-        linearized += f'<reltype value="{xml.attrib["relation_type"]}"/>{xml.attrib["token"]}<sense_id value="NO"/>'
+    elif node.tag.lower() == "term":
+        linearized += f'{escape_xml(node.attrib["token"])}<sense_id value="{node.attrib["sense_id"]}"/>'
+    elif node.tag.lower() == "termref":
+        linearized += f'<reltype value="{node.attrib["relation_type"]}"/><termref value="{node.attrib["ref"]}"/>'
+    elif node.tag.lower() == "termrel":
+        linearized += f'<reltype value="{node.attrib["relation_type"]}"/>{escape_xml(node.attrib["token"])}<sense_id value="NO"/>'
+    elif node.tag.lower() == "negation":
+        linearized += '<negation />'
     else:
         raise ValueError("Unrecognized XML tag")
 
@@ -122,15 +134,17 @@ def linearize_from_xml(xml: Optional[ET.ElementBase] = None, is_root: bool = Tru
 
 def set_varnames(xml: ET.ElementBase):
     var_counter = Counter()
-    for node in xml.xpath("//*[@varname]/term"):
+    for node in xml.xpath("//*[@varname]/term"):  # TODO: check that xpath traversal is depth-first, otherwise use penman reset variables
         varname = _default_variable_prefix(node.attrib["token"])
         var_counter[varname] += 1
         node.getparent().attrib["varname"] = varname if var_counter[varname] == 1 else f"{varname}{var_counter[varname]}"
 
     for node in xml.xpath("//termref"):
-        ref = xml.xpath(f'//rel[@ref="{node.attrib["ref"]}"]')
-        if ref:
-            node.attrib["varname"] = ref[0].attrib["varname"]
+        refs = xml.xpath(f'//rel[@ref="{node.attrib["ref"]}"]|//tree[@value="{node.attrib["ref"]}"]')
+        if len(refs) > 1:
+            raise ValueError("XML malformed: there are multiple rel/tree nodes with the same ref attribute. These must be unique")
+        elif refs:
+            node.attrib["varname"] = refs[0].attrib["varname"]
 
     return xml
 
@@ -146,7 +160,7 @@ def delinearize_to_xml(linearized_amr: str):
 
         if node.tag.lower() == "termid":
             if parent_tag == "tree":
-                xml_str += f'<tree value="{node.attrib["value"]}" varname="" relation_type="ROOT">'
+                xml_str += f'<tree type="intermediate_xml" value="{node.attrib["value"]}" varname="" relation_type="ROOT">'
             elif parent_tag == "rel":
                 if prev_sibling is not None and prev_sibling.tag.lower() == "reltype":  # relation_type might be empty if malformed
                     xml_str += f'<rel ref="{node.attrib["value"]}" varname="" relation_type="{prev_sibling.attrib["value"]}">'
@@ -154,17 +168,19 @@ def delinearize_to_xml(linearized_amr: str):
                     xml_str += f'<rel ref="{node.attrib["value"]}" varname="" relation_type="">'
 
         elif node.tag.lower() == "sense_id":
-            token_str = prev_tail if prev_tail else ""  # token might be empty if malformed
+            token_str = escape_xml(prev_tail) if prev_tail else ""  # token might be empty if malformed
             if prev_sibling.tag.lower() == "reltype":  # termrels
                 xml_str += f'<termrel token="{token_str}" relation_type="{prev_sibling.attrib["value"]}" />'
             else:  # terminals
-                xml_str += f'<term token="{prev_tail}" sense_id="{node.attrib["value"]}"/>'
+                xml_str += f'<term token="{token_str}" sense_id="{node.attrib["value"]}"/>'
 
         elif node.tag.lower() == "termref":
-            if prev_sibling is not None and prev_sibling.tag.lower() == "reltype":  # relation_type might be empty if malformed
+            if prev_sibling is not None and prev_sibling.tag.lower() == "reltype":
                 xml_str += f'<termref ref="{node.attrib["value"]}" varname="" relation_type="{prev_sibling.attrib["value"]}"/>'
-            else:
+            else:  # relation_type might be empty if malformed
                 xml_str += f'<termref ref="{node.attrib["value"]}" varname="" relation_type=""/>'
+        elif node.tag.lower() == "negation":
+            xml_str += '<negation />'
 
         for child_idx, child in enumerate(node):
             sibling = node[child_idx - 1] if 0 < child_idx < len(node) else None
@@ -178,11 +194,16 @@ def delinearize_to_xml(linearized_amr: str):
         return xml_str
 
     final_xml_str = _iterate(xml)
-
     xml = ET.fromstring(final_xml_str)
     xml = set_varnames(xml)
     return xml
 
+def is_number(s: str) -> bool:
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
 
 @dataclass
 class Linearizer:
@@ -202,20 +223,20 @@ class Linearizer:
             max_idx = max(idxs)
             self.variable_to_ridx[varname] = "R" + str(max_idx + 1)
 
-    @cached_property
+    @property
     def xml(self):
         return self.penman_tree2xml()
 
-    @cached_property
+    @property
     def linearized(self):
         return linearize_from_xml(self.xml)
 
-    @cached_property
+    @property
     def penman_str(self):
         return penman.format(self.penman_tree)
 
     def pprint_xml(self):
-        xml_str = ET.tostring(self.xml, pretty_print=True)
+        xml_str = ET.tostring(self.xml, pretty_print=True, encoding="utf-8")
         print(xml_str.decode())
 
     def pprint_linearized(self):
@@ -250,30 +271,46 @@ class Linearizer:
         xml_str = ""
         if is_root:
             self.set_variable_ridx(parent_node.node[0])
-            xml_str += f'<tree value="{self.variable_to_ridx[parent_node.node[0]]}" varname="{escape_xml(parent_node.node[0])}" relation_type="ROOT">'
+            xml_str += f'<tree type="intermediate_xml" value="{self.variable_to_ridx[parent_node.node[0]]}" varname="{escape_xml(parent_node.node[0])}" relation_type="ROOT">'
 
         descriptor = maybe_convert_relation(descriptor)
 
         if is_atomic(parent_node):  # Terminals
             if descriptor == "instance":  # Instances
-                if "-" in parent_node:
+                if re.match(r"\S+-\d{2,}", parent_node):  # Match on "throw-up-01" but not on "even-if"
                     node_name, sense_id = parent_node.rsplit("-", 1)
                     xml_str += f'<term token="{escape_xml(node_name)}" sense_id="{sense_id}" />'
                 else:  # Without explicit sense-id
                     xml_str += f'<term token="{escape_xml(parent_node)}" sense_id="NO" />'
             else:
-                if descriptor.startswith(":op"):
+                if descriptor.startswith(":ARG"):  # TODO: here we make some if/elif distinctions but their realization is the same. We may want to make that different in the future
+                    if parent_node.isdigit():  # In quantitative relationships, where `:ARG1 2` indicates that something is.happens x2
+                        xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                    elif parent_node in ["-", "+"]:  # In polarity relationships of "have-polarity", `:ARG2 -` means negative, or in be-polite relationsships `:ARG2 +`
+                        xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                    elif parent_node.startswith('"') and parent_node.endswith('"'):  # In certain quantities, e.g., `:ARG3 "2/3"`
+                        xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                    elif is_number(parent_node):  # In certain quantities, e.g., `:ARG2 290.19`
+                        xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                    else:
+                        # References to other variables with core roles
+                        self.set_variable_ridx(parent_node)
+                        if descriptor == ":wiki":
+                            raise ValueError("Wiki items are currently not supported")
+                        xml_str += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                elif descriptor == ":polarity":
+                    if parent_node == "-":
+                        xml_str += '<negation />'
+                    else:
+                        raise ValueError(f"Unexpected value '{parent_node}' for :polarity")
+                else:  # Non-core roles
                     if re.match(r"^[a-z]\d+$", parent_node):  # Reference to other variable
+                        self.set_variable_ridx(parent_node)
                         xml_str += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
                     else:  # A terminal token which is also a some special relation (e.g. `:op1 100000`)
                         # NOTE: it _seems_ to me that this can only occur for numbers. A string will always be a token "instance" (?)
                         xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
-                else: # References to other variables
-                    self.set_variable_ridx(parent_node)
-                    if descriptor == ":wiki":
-                        raise ValueError("Wiki items are currently not supported")
 
-                    xml_str += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
         else:  # Branches
             if not isinstance(parent_node, Tree):
                 parent_node = Tree(parent_node)
@@ -292,7 +329,6 @@ class Linearizer:
 
         if is_root:
             xml_str += "</tree>"
-            print(xml_str)
             return ET.fromstring(xml_str)
         else:
             return xml_str
@@ -372,15 +408,14 @@ if __name__ == "__main__":
                 for tree in penman.iterparse(fhin):
                     tree_str = penman.format(tree)
                     linearizer = Linearizer.from_penman_str(tree_str)
-                    xml = linearizer.xml
-                    linearized = linearizer.linearized
-                    penman_str = linearizer.penman_str
-                    relinearizer = Linearizer.from_linearized(linearized)
+                    linearizer.penman_tree.reset_variables()
+                    relinearizer = Linearizer.from_linearized(linearizer.linearized)
 
                     if linearizer.penman_tree != relinearizer.penman_tree:
                         print(linearizer.penman_str)
                         print(relinearizer.penman_str)
-                        input("Type something here to contiue")
+                        exit()
+
     else:
         pnman_str = """# ::id bolt12_64545_0529.2 ::date 2012-12-23T19:59:16 ::annotator SDL-AMR-09 ::preferred
 # ::snt What is more they are considered traitors of China, which is a fact of cultural tyranny in the cloak of nationalism and patriotism.
