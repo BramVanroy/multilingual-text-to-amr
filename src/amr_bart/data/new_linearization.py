@@ -1,6 +1,5 @@
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional, ClassVar, Dict, Counter
 from collections import Counter
 
@@ -8,7 +7,6 @@ import penman
 from penman import Tree
 from penman.tree import is_atomic, _default_variable_prefix
 import lxml.etree as ET
-from tqdm import tqdm
 
 """
 TODO: build DFS linearizer from scratch based on the paper description page 12566 and figure 1
@@ -103,7 +101,7 @@ def xml2penman_str(node: Optional[ET.ElementBase] = None, is_root: bool = True):
     return penman_str
 
 
-def linearize_from_xml(node: Optional[ET.ElementBase] = None, is_root: bool = True):
+def xml_to_linearize(node: Optional[ET.ElementBase] = None, is_root: bool = True):
     linearized = ""
     if is_root or node.tag.lower() == "rel":
         if is_root:
@@ -112,7 +110,7 @@ def linearize_from_xml(node: Optional[ET.ElementBase] = None, is_root: bool = Tr
             linearized += f'<rel><reltype value="{node.attrib["relation_type"]}"/><termid value="{node.attrib["ref"]}"/>'
 
         for node in node:
-            linearized += linearize_from_xml(node, is_root=False)
+            linearized += xml_to_linearize(node, is_root=False)
 
         if is_root:
             linearized += "</tree>"
@@ -149,7 +147,7 @@ def set_varnames(xml: ET.ElementBase):
     return xml
 
 
-def delinearize_to_xml(linearized_amr: str):
+def linearize_to_xml(linearized_amr: str):
     # TODO: if an error occurs here during parsing, try to fix the tree
     # Maybe with BS4, which is supposedly more lenient (?)
     xml = ET.fromstring(linearized_amr)
@@ -198,12 +196,14 @@ def delinearize_to_xml(linearized_amr: str):
     xml = set_varnames(xml)
     return xml
 
+
 def is_number(s: str) -> bool:
     try:
         float(s)
         return True
     except ValueError:
         return False
+
 
 @dataclass
 class Linearizer:
@@ -229,7 +229,7 @@ class Linearizer:
 
     @property
     def linearized(self):
-        return linearize_from_xml(self.xml)
+        return xml_to_linearize(self.xml)
 
     @property
     def penman_str(self):
@@ -335,7 +335,7 @@ class Linearizer:
 
     @classmethod
     def from_linearized(cls, linearized_amr: str):
-        xml = delinearize_to_xml(linearized_amr)
+        xml = linearize_to_xml(linearized_amr)
         return cls.from_xml(xml)
 
     @classmethod
@@ -352,88 +352,3 @@ class Linearizer:
 
         penman_tree = penman.parse(penman_str)
         return cls(penman_tree=penman_tree)
-
-
-stri = """
-(m / multi-sentence
-   :snt1 (m2 / many
-             :ARG0-of (s / sense-01
-                         :ARG1 (u / urgency)
-                         :time (w / watch-01
-                                  :ARG0 m2
-                                  :ARG1 (t3 / thing
-                                            :manner-of (d / develop-02
-                                                          :ARG0 (t / thing)))
-                                  :manner (q / quiet-04
-                                             :ARG1 m2))))
-   :snt2 (d2 / dragon
-             :domain (y / you)
-             :ARG0-of (c / coil-01))
-   :snt3 (t2 / tiger
-             :domain (y2 / you)
-             :ARG0-of (c2 / crouch-01))
-   :snt4 (a / admire-01
-            :ARG0 (i / i)
-            :ARG1 (p / patriot
-                     :poss-of (m3 / mind
-                                  :mod (n / noble)))))
-"""
-
-stri2 = """
-(m2 / multi-sentence
-    :snt1 (g / give-01
-             :ARG0 (h / history)
-             :ARG1 (l / lesson
-                      :ARG1-of (h2 / have-quant-91
-                                   :ARG2 (m / many)
-                                   :ARG3 (t / too)))
-             :ARG2 (w / we)
-             :polarity (a2 / amr-unknown))
-    :snt2 (a / and
-             :op1 530
-             :op2 412
-             :op3 64))
-"""
-
-if __name__ == "__main__":
-    run_dir_test = True
-
-    if run_dir_test:
-        pdin = Path(r"D:\corpora\amr_annotation_3.0\data\amrs_fixed")
-
-        valid_trees = 0
-        invalid_trees = 0
-        for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file"):
-            with pfin.open(encoding="utf-8") as fhin:
-                for tree in penman.iterparse(fhin):
-                    tree_str = penman.format(tree)
-                    linearizer = Linearizer.from_penman_str(tree_str)
-                    linearizer.penman_tree.reset_variables()
-                    relinearizer = Linearizer.from_linearized(linearizer.linearized)
-
-                    if linearizer.penman_tree != relinearizer.penman_tree:
-                        print(linearizer.penman_str)
-                        print(relinearizer.penman_str)
-                        exit()
-
-    else:
-        pnman_str = """# ::id bolt12_64545_0529.2 ::date 2012-12-23T19:59:16 ::annotator SDL-AMR-09 ::preferred
-# ::snt What is more they are considered traitors of China, which is a fact of cultural tyranny in the cloak of nationalism and patriotism.
-# ::save-date Sun Dec 8, 2013 ::file bolt12_64545_0529_2.txt
-(c / consider-01
-      :ARG1 (p2 / person
-            :domain (t2 / they)
-            :ARG0-of (b / betray-01
-                  :ARG1 (c2 / country :wiki "China"
-                        :name (n2 / name :op1 "China"))))
-      :mod (m / more)
-      :mod (t4 / tyrannize-01
-            :ARG2 (c3 / culture)
-            :ARG1-of (c4 / cloak-01
-                  :ARG2 (a / and
-                        :op1 (n / nationalism)
-                        :op2 (p / patriotism)))))
-"""
-        linearizer = Linearizer.from_penman_str(pnman_str)
-        linearizer.pprint_linearized()
-        # new_linearizer = Linearizer.from_linearized(linearizer.linearized)
