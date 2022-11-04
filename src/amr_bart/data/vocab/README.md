@@ -54,7 +54,8 @@ up to `:snt10` and also add a generic `:snt`.
 
 AMR tracks different senses of words with OntoNotes specifiers, e.g. `charge-05`. We add 100 special `:senseX` tokens,
 and add `:sense` for generalizability. That means the model can still generate `:sense200` with multiple tokens.
-`:sense0` indicates that no sense was indicated for a given word.
+`:senseNO` indicates that no sense was indicated for a given word. Note that counting is with a prepended zero for
+`< 10`. E.g. `:sense07`.
 
 # Reference tokens and their IDs
 

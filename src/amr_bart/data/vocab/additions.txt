@@ -100,16 +100,16 @@ amr-choice
 :negation
 
 :sense
-:sense0
-:sense1
-:sense2
-:sense3
-:sense4
-:sense5
-:sense6
-:sense7
-:sense8
-:sense9
+:senseNO
+:sense01
+:sense02
+:sense03
+:sense04
+:sense05
+:sense06
+:sense07
+:sense08
+:sense09
 :sense10
 :sense11
 :sense12
