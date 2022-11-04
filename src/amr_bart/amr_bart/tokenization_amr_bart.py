@@ -1,259 +1,519 @@
-import sys
-from pathlib import Path
+from typing import List, Union
 
-import regex as re
-import torch
-from amr_bart.data.linearization import AMRLinearizer, AMRTokens
-from transformers import BartTokenizer
+from transformers import MBartTokenizer
+from ftfy import fix_text
 
-from ..data import postprocessing
+from amr_bart.amr_bart.linearization import escape_xml
+
+# Idea Tim: remove outlier from special tokens, so that these outliers will be automatically tokenized
+# This may make it difficult to postprocess the trees, but we can try!
+tokens_to_add = ['</rel>',
+                 '</tree>',
+                 '<negation/>',
+                 '<rel>',
+                 '<reltype value=":ARG0"/>',
+                 '<reltype value=":ARG0-of"/>',
+                 '<reltype value=":ARG1"/>',
+                 '<reltype value=":ARG1-of"/>',
+                 '<reltype value=":ARG2"/>',
+                 '<reltype value=":ARG2-of"/>',
+                 '<reltype value=":ARG3"/>',
+                 '<reltype value=":ARG3-of"/>',
+                 '<reltype value=":ARG4"/>',
+                 '<reltype value=":ARG4-of"/>',
+                 '<reltype value=":ARG5"/>',
+                 '<reltype value=":ARG5-of"/>',
+                 '<reltype value=":ARG6"/>',
+                 '<reltype value=":ARG6-of"/>',
+                 '<reltype value=":ARG7"/>',
+                 '<reltype value=":ARG7-of"/>',
+                 '<reltype value=":ARG8"/>',
+                 '<reltype value=":ARG9"/>',
+                 '<reltype value=":accompanier"/>',
+                 '<reltype value=":accompanier-of"/>',
+                 '<reltype value=":age"/>',
+                 '<reltype value=":age-of"/>',
+                 '<reltype value=":beneficiary"/>',
+                 '<reltype value=":beneficiary-of"/>',
+                 '<reltype value=":calendar"/>',
+                 '<reltype value=":century"/>',
+                 '<reltype value=":concession"/>',
+                 '<reltype value=":concession-of"/>',
+                 '<reltype value=":condition"/>',
+                 '<reltype value=":condition-of"/>',
+                 '<reltype value=":conj-as-if"/>',
+                 '<reltype value=":consist-of"/>',
+                 '<reltype value=":day"/>',
+                 '<reltype value=":dayperiod"/>',
+                 '<reltype value=":decade"/>',
+                 '<reltype value=":degree"/>',
+                 '<reltype value=":degree-of"/>',
+                 '<reltype value=":destination"/>',
+                 '<reltype value=":destination-of"/>',
+                 '<reltype value=":direction"/>',
+                 '<reltype value=":direction-of"/>',
+                 '<reltype value=":domain"/>',
+                 '<reltype value=":duration"/>',
+                 '<reltype value=":duration-of"/>',
+                 '<reltype value=":era"/>',
+                 '<reltype value=":example"/>',
+                 '<reltype value=":example-of"/>',
+                 '<reltype value=":extent"/>',
+                 '<reltype value=":extent-of"/>',
+                 '<reltype value=":frequency"/>',
+                 '<reltype value=":frequency-of"/>',
+                 '<reltype value=":instrument"/>',
+                 '<reltype value=":instrument-of"/>',
+                 '<reltype value=":li"/>',
+                 '<reltype value=":location"/>',
+                 '<reltype value=":location-of"/>',
+                 '<reltype value=":manner"/>',
+                 '<reltype value=":manner-of"/>',
+                 '<reltype value=":medium"/>',
+                 '<reltype value=":medium-of"/>',
+                 '<reltype value=":mod"/>',
+                 '<reltype value=":mode"/>',
+                 '<reltype value=":month"/>',
+                 '<reltype value=":name"/>',
+                 '<reltype value=":name-of"/>',
+                 '<reltype value=":op1"/>',
+                 '<reltype value=":op1-of"/>',
+                 '<reltype value=":op10"/>',
+                 '<reltype value=":op11"/>',
+                 '<reltype value=":op12"/>',
+                 '<reltype value=":op13"/>',
+                 '<reltype value=":op14"/>',
+                 '<reltype value=":op15"/>',
+                 '<reltype value=":op16"/>',
+                 '<reltype value=":op17"/>',
+                 '<reltype value=":op18"/>',
+                 '<reltype value=":op19"/>',
+                 '<reltype value=":op2"/>',
+                 '<reltype value=":op20"/>',
+                 '<reltype value=":op21"/>',
+                 '<reltype value=":op22"/>',
+                 '<reltype value=":op23"/>',
+                 '<reltype value=":op24"/>',
+                 '<reltype value=":op3"/>',
+                 '<reltype value=":op4"/>',
+                 '<reltype value=":op5"/>',
+                 '<reltype value=":op6"/>',
+                 '<reltype value=":op7"/>',
+                 '<reltype value=":op8"/>',
+                 '<reltype value=":op9"/>',
+                 '<reltype value=":ord"/>',
+                 '<reltype value=":ord-of"/>',
+                 '<reltype value=":part"/>',
+                 '<reltype value=":part-of"/>',
+                 '<reltype value=":path"/>',
+                 '<reltype value=":path-of"/>',
+                 '<reltype value=":polarity"/>',
+                 '<reltype value=":polarity-of"/>',
+                 '<reltype value=":polite"/>',
+                 '<reltype value=":poss"/>',
+                 '<reltype value=":poss-of"/>',
+                 '<reltype value=":prep-against"/>',
+                 '<reltype value=":prep-along-with"/>',
+                 '<reltype value=":prep-amid"/>',
+                 '<reltype value=":prep-among"/>',
+                 '<reltype value=":prep-as"/>',
+                 '<reltype value=":prep-at"/>',
+                 '<reltype value=":prep-by"/>',
+                 '<reltype value=":prep-for"/>',
+                 '<reltype value=":prep-from"/>',
+                 '<reltype value=":prep-in"/>',
+                 '<reltype value=":prep-in-addition-to"/>',
+                 '<reltype value=":prep-into"/>',
+                 '<reltype value=":prep-on"/>',
+                 '<reltype value=":prep-on-behalf-of"/>',
+                 '<reltype value=":prep-out-of"/>',
+                 '<reltype value=":prep-to"/>',
+                 '<reltype value=":prep-toward"/>',
+                 '<reltype value=":prep-under"/>',
+                 '<reltype value=":prep-with"/>',
+                 '<reltype value=":prep-without"/>',
+                 '<reltype value=":purpose"/>',
+                 '<reltype value=":purpose-of"/>',
+                 '<reltype value=":quant"/>',
+                 '<reltype value=":quant-of"/>',
+                 '<reltype value=":quarter"/>',
+                 '<reltype value=":range"/>',
+                 '<reltype value=":scale"/>',
+                 '<reltype value=":season"/>',
+                 '<reltype value=":snt1"/>',
+                 '<reltype value=":snt10"/>',
+                 '<reltype value=":snt11"/>',
+                 '<reltype value=":snt2"/>',
+                 '<reltype value=":snt3"/>',
+                 '<reltype value=":snt4"/>',
+                 '<reltype value=":snt5"/>',
+                 '<reltype value=":snt6"/>',
+                 '<reltype value=":snt7"/>',
+                 '<reltype value=":snt8"/>',
+                 '<reltype value=":snt9"/>',
+                 '<reltype value=":source"/>',
+                 '<reltype value=":source-of"/>',
+                 '<reltype value=":subevent"/>',
+                 '<reltype value=":subevent-of"/>',
+                 '<reltype value=":subset"/>',
+                 '<reltype value=":subset-of"/>',
+                 '<reltype value=":time"/>',
+                 '<reltype value=":time-of"/>',
+                 '<reltype value=":timezone"/>',
+                 '<reltype value=":topic"/>',
+                 '<reltype value=":topic-of"/>',
+                 '<reltype value=":unit"/>',
+                 '<reltype value=":value"/>',
+                 '<reltype value=":value-of"/>',
+                 '<reltype value=":weekday"/>',
+                 '<reltype value=":year"/>',
+                 '<reltype value=":year2"/>',
+                 '<sense_id value="00"/>',
+                 '<sense_id value="01"/>',
+                 '<sense_id value="02"/>',
+                 '<sense_id value="03"/>',
+                 '<sense_id value="04"/>',
+                 '<sense_id value="05"/>',
+                 '<sense_id value="06"/>',
+                 '<sense_id value="07"/>',
+                 '<sense_id value="08"/>',
+                 '<sense_id value="09"/>',
+                 '<sense_id value="10"/>',
+                 '<sense_id value="101"/>',
+                 '<sense_id value="11"/>',
+                 '<sense_id value="12"/>',
+                 '<sense_id value="13"/>',
+                 '<sense_id value="14"/>',
+                 '<sense_id value="15"/>',
+                 '<sense_id value="16"/>',
+                 '<sense_id value="17"/>',
+                 '<sense_id value="18"/>',
+                 '<sense_id value="19"/>',
+                 '<sense_id value="20"/>',
+                 '<sense_id value="21"/>',
+                 '<sense_id value="22"/>',
+                 '<sense_id value="23"/>',
+                 '<sense_id value="24"/>',
+                 '<sense_id value="25"/>',
+                 '<sense_id value="26"/>',
+                 '<sense_id value="27"/>',
+                 '<sense_id value="28"/>',
+                 '<sense_id value="29"/>',
+                 '<sense_id value="30"/>',
+                 '<sense_id value="31"/>',
+                 '<sense_id value="32"/>',
+                 '<sense_id value="33"/>',
+                 '<sense_id value="34"/>',
+                 '<sense_id value="35"/>',
+                 '<sense_id value="36"/>',
+                 '<sense_id value="38"/>',
+                 '<sense_id value="91"/>',
+                 '<sense_id value="92"/>',
+                 '<sense_id value="NO"/>',
+                 '<termid value="R0"/>',
+                 '<termid value="R1"/>',
+                 '<termid value="R10"/>',
+                 '<termid value="R100"/>',
+                 '<termid value="R101"/>',
+                 '<termid value="R102"/>',
+                 '<termid value="R103"/>',
+                 '<termid value="R104"/>',
+                 '<termid value="R105"/>',
+                 '<termid value="R106"/>',
+                 '<termid value="R107"/>',
+                 '<termid value="R108"/>',
+                 '<termid value="R109"/>',
+                 '<termid value="R11"/>',
+                 '<termid value="R110"/>',
+                 '<termid value="R111"/>',
+                 '<termid value="R112"/>',
+                 '<termid value="R113"/>',
+                 '<termid value="R114"/>',
+                 '<termid value="R115"/>',
+                 '<termid value="R116"/>',
+                 '<termid value="R117"/>',
+                 '<termid value="R118"/>',
+                 '<termid value="R119"/>',
+                 '<termid value="R12"/>',
+                 '<termid value="R120"/>',
+                 '<termid value="R121"/>',
+                 '<termid value="R122"/>',
+                 '<termid value="R123"/>',
+                 '<termid value="R124"/>',
+                 '<termid value="R125"/>',
+                 '<termid value="R126"/>',
+                 '<termid value="R127"/>',
+                 '<termid value="R128"/>',
+                 '<termid value="R129"/>',
+                 '<termid value="R13"/>',
+                 '<termid value="R130"/>',
+                 '<termid value="R131"/>',
+                 '<termid value="R132"/>',
+                 '<termid value="R133"/>',
+                 '<termid value="R134"/>',
+                 '<termid value="R135"/>',
+                 '<termid value="R136"/>',
+                 '<termid value="R137"/>',
+                 '<termid value="R138"/>',
+                 '<termid value="R139"/>',
+                 '<termid value="R14"/>',
+                 '<termid value="R140"/>',
+                 '<termid value="R141"/>',
+                 '<termid value="R15"/>',
+                 '<termid value="R16"/>',
+                 '<termid value="R17"/>',
+                 '<termid value="R18"/>',
+                 '<termid value="R19"/>',
+                 '<termid value="R2"/>',
+                 '<termid value="R20"/>',
+                 '<termid value="R21"/>',
+                 '<termid value="R22"/>',
+                 '<termid value="R23"/>',
+                 '<termid value="R24"/>',
+                 '<termid value="R25"/>',
+                 '<termid value="R26"/>',
+                 '<termid value="R27"/>',
+                 '<termid value="R28"/>',
+                 '<termid value="R29"/>',
+                 '<termid value="R3"/>',
+                 '<termid value="R30"/>',
+                 '<termid value="R31"/>',
+                 '<termid value="R32"/>',
+                 '<termid value="R33"/>',
+                 '<termid value="R34"/>',
+                 '<termid value="R35"/>',
+                 '<termid value="R36"/>',
+                 '<termid value="R37"/>',
+                 '<termid value="R38"/>',
+                 '<termid value="R39"/>',
+                 '<termid value="R4"/>',
+                 '<termid value="R40"/>',
+                 '<termid value="R41"/>',
+                 '<termid value="R42"/>',
+                 '<termid value="R43"/>',
+                 '<termid value="R44"/>',
+                 '<termid value="R45"/>',
+                 '<termid value="R46"/>',
+                 '<termid value="R47"/>',
+                 '<termid value="R48"/>',
+                 '<termid value="R49"/>',
+                 '<termid value="R5"/>',
+                 '<termid value="R50"/>',
+                 '<termid value="R51"/>',
+                 '<termid value="R52"/>',
+                 '<termid value="R53"/>',
+                 '<termid value="R54"/>',
+                 '<termid value="R55"/>',
+                 '<termid value="R56"/>',
+                 '<termid value="R57"/>',
+                 '<termid value="R58"/>',
+                 '<termid value="R59"/>',
+                 '<termid value="R6"/>',
+                 '<termid value="R60"/>',
+                 '<termid value="R61"/>',
+                 '<termid value="R62"/>',
+                 '<termid value="R63"/>',
+                 '<termid value="R64"/>',
+                 '<termid value="R65"/>',
+                 '<termid value="R66"/>',
+                 '<termid value="R67"/>',
+                 '<termid value="R68"/>',
+                 '<termid value="R69"/>',
+                 '<termid value="R7"/>',
+                 '<termid value="R70"/>',
+                 '<termid value="R71"/>',
+                 '<termid value="R72"/>',
+                 '<termid value="R73"/>',
+                 '<termid value="R74"/>',
+                 '<termid value="R75"/>',
+                 '<termid value="R76"/>',
+                 '<termid value="R77"/>',
+                 '<termid value="R78"/>',
+                 '<termid value="R79"/>',
+                 '<termid value="R8"/>',
+                 '<termid value="R80"/>',
+                 '<termid value="R81"/>',
+                 '<termid value="R82"/>',
+                 '<termid value="R83"/>',
+                 '<termid value="R84"/>',
+                 '<termid value="R85"/>',
+                 '<termid value="R86"/>',
+                 '<termid value="R87"/>',
+                 '<termid value="R88"/>',
+                 '<termid value="R89"/>',
+                 '<termid value="R9"/>',
+                 '<termid value="R90"/>',
+                 '<termid value="R91"/>',
+                 '<termid value="R92"/>',
+                 '<termid value="R93"/>',
+                 '<termid value="R94"/>',
+                 '<termid value="R95"/>',
+                 '<termid value="R96"/>',
+                 '<termid value="R97"/>',
+                 '<termid value="R98"/>',
+                 '<termid value="R99"/>',
+                 '<termref value="R0"/>',
+                 '<termref value="R1"/>',
+                 '<termref value="R10"/>',
+                 '<termref value="R101"/>',
+                 '<termref value="R105"/>',
+                 '<termref value="R106"/>',
+                 '<termref value="R109"/>',
+                 '<termref value="R11"/>',
+                 '<termref value="R110"/>',
+                 '<termref value="R117"/>',
+                 '<termref value="R118"/>',
+                 '<termref value="R119"/>',
+                 '<termref value="R12"/>',
+                 '<termref value="R13"/>',
+                 '<termref value="R133"/>',
+                 '<termref value="R134"/>',
+                 '<termref value="R14"/>',
+                 '<termref value="R15"/>',
+                 '<termref value="R16"/>',
+                 '<termref value="R17"/>',
+                 '<termref value="R18"/>',
+                 '<termref value="R19"/>',
+                 '<termref value="R2"/>',
+                 '<termref value="R20"/>',
+                 '<termref value="R21"/>',
+                 '<termref value="R22"/>',
+                 '<termref value="R23"/>',
+                 '<termref value="R24"/>',
+                 '<termref value="R25"/>',
+                 '<termref value="R26"/>',
+                 '<termref value="R27"/>',
+                 '<termref value="R28"/>',
+                 '<termref value="R29"/>',
+                 '<termref value="R3"/>',
+                 '<termref value="R30"/>',
+                 '<termref value="R31"/>',
+                 '<termref value="R32"/>',
+                 '<termref value="R33"/>',
+                 '<termref value="R34"/>',
+                 '<termref value="R35"/>',
+                 '<termref value="R36"/>',
+                 '<termref value="R37"/>',
+                 '<termref value="R38"/>',
+                 '<termref value="R39"/>',
+                 '<termref value="R4"/>',
+                 '<termref value="R40"/>',
+                 '<termref value="R41"/>',
+                 '<termref value="R42"/>',
+                 '<termref value="R43"/>',
+                 '<termref value="R44"/>',
+                 '<termref value="R45"/>',
+                 '<termref value="R46"/>',
+                 '<termref value="R47"/>',
+                 '<termref value="R48"/>',
+                 '<termref value="R49"/>',
+                 '<termref value="R5"/>',
+                 '<termref value="R50"/>',
+                 '<termref value="R51"/>',
+                 '<termref value="R52"/>',
+                 '<termref value="R53"/>',
+                 '<termref value="R54"/>',
+                 '<termref value="R55"/>',
+                 '<termref value="R56"/>',
+                 '<termref value="R57"/>',
+                 '<termref value="R58"/>',
+                 '<termref value="R59"/>',
+                 '<termref value="R6"/>',
+                 '<termref value="R60"/>',
+                 '<termref value="R62"/>',
+                 '<termref value="R63"/>',
+                 '<termref value="R64"/>',
+                 '<termref value="R65"/>',
+                 '<termref value="R66"/>',
+                 '<termref value="R67"/>',
+                 '<termref value="R68"/>',
+                 '<termref value="R69"/>',
+                 '<termref value="R7"/>',
+                 '<termref value="R71"/>',
+                 '<termref value="R72"/>',
+                 '<termref value="R73"/>',
+                 '<termref value="R74"/>',
+                 '<termref value="R75"/>',
+                 '<termref value="R76"/>',
+                 '<termref value="R77"/>',
+                 '<termref value="R78"/>',
+                 '<termref value="R79"/>',
+                 '<termref value="R8"/>',
+                 '<termref value="R80"/>',
+                 '<termref value="R81"/>',
+                 '<termref value="R85"/>',
+                 '<termref value="R89"/>',
+                 '<termref value="R9"/>',
+                 '<termref value="R91"/>',
+                 '<termref value="R96"/>',
+                 '<termref value="R97"/>',
+                 '<termref value="R99"/>',
+                 '<tree type="linearized_xml">'
+]
 
 
-class AMRBartTokenizer(BartTokenizer):
-    INIT = "Ġ"
+def clean_up_tokenization(out_string: str) -> str:
+    """
+    Clean up a list of simple English tokenization artifacts like spaces before punctuations and abbreviated forms.
 
-    ADDITIONAL = [
-        AMRTokens.PNTR_N,
-        AMRTokens.STOP_N,
-        AMRTokens.LIT_START,
-        AMRTokens.LIT_END,
-        AMRTokens.BACKR_SRC_N,
-        AMRTokens.BACKR_TRG_N,
-    ]
+    Args:
+        out_string (`str`): The text to clean up.
 
-    def __init__(self, *args, use_pointer_tokens=False, collapse_name_ops=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.patterns = re.compile(
-            r" ?<[a-z]+:?\d*>| ?:[^\s]+|'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
-        )
-        self.linearizer = AMRLinearizer(use_pointer_tokens=use_pointer_tokens, collapse_name_ops=collapse_name_ops)
-        self.use_pointer_tokens = use_pointer_tokens
-        self.collapse_name_ops = collapse_name_ops
-        self.recategorizations = set()
-        self.modified = 0
-        self.old_enc_size = None
+    Returns:
+        `str`: The cleaned-up string.
+    """
+    out_string = (
+        out_string.replace(" .", ".")
+        .replace(" ?", "?")
+        .replace(" !", "!")
+        .replace(" ,", ",")
+        .replace(" ' ", "'")
+        .replace(" n't", "n't")
+        .replace(" 'm", "'m")
+        .replace(" 's", "'s")
+        .replace(" 've", "'ve")
+        .replace(" 're", "'re")
+    )
+    return out_string
 
+
+class AMRMBartTokenizer(MBartTokenizer):
+    # TODO: when encoding, make sure we account for escaped characters. So first unescape, i.e.,
+    #  linearized = fix_text(unescape_xml(linearizer.linearized))
     @classmethod
-    def from_pretrained(cls, pretrained_model_path, pred_min=5, init_special_tokens=True, *args, **kwargs):
-        """
-        init_special_tokens: whether to set special tokens to self.INIT + tok in both encoder and decoder. Should be True
-        when starting from a pretrained BART base model. Should be False when using a finetuned AMR BART model.
-        """
-        inst = super().from_pretrained(pretrained_model_path, *args, **kwargs)
-        inst.init_amr_vocabulary(pred_min=pred_min, init_special_tokens=init_special_tokens)
+    def from_pretrained(cls, *args, **kwargs):
+        inst = super().from_pretrained(*args, **kwargs)
+        voc = set(inst.get_vocab().keys())
+        # Only add tokens that are not in here yet.
+        tokens_to_add.extend(["amr_XX"])
+        new_tokens = set(tokens_to_add) - voc
+        if new_tokens:
+            inst.add_tokens(list(sorted(new_tokens)))
+            print(f"Added {len(new_tokens):,} new tokens!")
+
         return inst
 
-    def init_amr_vocabulary(self, pred_min=5, init_special_tokens=True):
-        lib_root = Path(__file__).parent.parent
-        if init_special_tokens:
-            for tok in [self.bos_token, self.eos_token, self.pad_token, "<mask>", "<unk>"]:
-                ntok = self.INIT + tok
-                i = self.encoder[tok]
-                self.decoder[i] = ntok
-                del self.encoder[tok]
-                self.encoder[ntok] = i
+    def decode_and_escape(self, token_ids: List[int]):
+        filtered_tokens = self.convert_ids_to_tokens(token_ids, skip_special_tokens=True)
+        filtered_tokens = [token if token in tokens_to_add else escape_xml(fix_text(token)) for token in
+                           filtered_tokens]
 
-        tokens = []
-        for line in Path(lib_root / "data/vocab/predicates.txt").read_text().strip().splitlines():
-            tok, count = line.split()
-            if int(count) >= pred_min:
-                tokens.append(tok)
-
-        for tok in Path(lib_root / "data/vocab/additions.txt").read_text().strip().splitlines():
-            tokens.append(tok)
-
-        for tok in Path(lib_root / "data/vocab/recategorizations.txt").read_text().strip().splitlines():
-            if not tok.startswith("_"):
-                self.recategorizations.add(tok)
-            tokens.append(tok)
-
-        if self.use_pointer_tokens:
-            for cnt in range(512):
-                tokens.append(f"<pointer:{cnt}>")
-
-        tokens += self.ADDITIONAL
-        tokens = [self.INIT + t if t[0] not in ("_", "-") else t for t in tokens]
-        tokens = [t for t in tokens if t not in self.encoder]
-        self.old_enc_size = old_enc_size = len(self.encoder)
-        for i, t in enumerate(tokens, start=old_enc_size):
-            self.encoder[t] = i
-
-        self.encoder = {k: i for i, (k, v) in enumerate(sorted(self.encoder.items(), key=lambda x: x[1]))}
-        self.decoder = {v: k for k, v in sorted(self.encoder.items(), key=lambda x: x[1])}
-        self.modified = len(tokens)
-
-        self.bos_token = self.INIT + "<s>"
-        self.pad_token = self.INIT + "<pad>"
-        self.eos_token = self.INIT + "</s>"
-        self.unk_token = self.INIT + "<unk>"
-
-    def build_inputs_with_special_tokens(self, token_ids_0, token_ids_1=None):
-        output = [self.bos_token_id] + token_ids_0 + [self.eos_token_id]
-        if token_ids_1 is None:
-            return output
-        return output + [self.eos_token_id] + token_ids_1 + [self.eos_token_id]
-
-    def _tokenize(self, text):
-        """Tokenize a string. Modified in order to handle sentences with recategorization pointers"""
-        bpe_tokens = []
-        for tok_span in text.lstrip().split(" "):
-            tok_span = tok_span.strip()
-            recats = tok_span.rsplit("_", 1)
-            if len(recats) == 2 and recats[0] in self.recategorizations and ("_" + recats[1]) in self.encoder:
-                bpe_tokens.extend([self.INIT + recats[0], "_" + recats[1]])
+        # To avoid mixing byte-level and unicode for byte-level BPT
+        # we need to build string separately for added tokens and byte-level tokens
+        # cf. https://github.com/huggingface/transformers/issues/1133
+        sub_texts = []
+        current_sub_text = []
+        for token in filtered_tokens:
+            if token in tokens_to_add:
+                if current_sub_text:
+                    sub_texts.append(self.convert_tokens_to_string(current_sub_text))
+                    current_sub_text = []
+                sub_texts.append(token)
             else:
-                for token in re.findall(self.pat, " " + tok_span):
-                    # Maps all our bytes to unicode strings, avoiding controle tokens of the BPE (spaces in our case)
-                    token = "".join(self.byte_encoder[b] for b in token.encode("utf-8"))
-                    bpe_tokens.extend(bpe_token for bpe_token in self.bpe(token).split(" "))
+                current_sub_text.append(token)
+        if current_sub_text:
+            sub_texts.append(self.convert_tokens_to_string(current_sub_text))
 
-        return bpe_tokens
-
-    def _tok_bpe(self, token, add_space=True):
-        # if add_space:
-        #     token = ' ' + token.lstrip()
-        tokk = []
-        tok = token.strip()
-        recats = tok.rsplit("_", 1)
-        if len(recats) == 2 and recats[0] in self.recategorizations and ("_" + recats[1]) in self.encoder:
-            tokk.extend([self.INIT + recats[0], "_" + recats[1]])
-        else:
-            for tok in self.patterns.findall(" " + token):
-                tok = "".join(self.byte_encoder[b] for b in tok.encode("utf-8"))
-                toks = self.bpe(tok).split(" ")
-                tokk.extend(toks)
-        return tokk
-
-    def _get_nodes_and_backreferences(self, graph):
-        lin = self.linearizer.linearize(graph)
-        linearized_nodes, backreferences = lin.nodes, lin.backreferences
-        return linearized_nodes, backreferences
-
-    def tokenize_amr(self, graph):
-        linearized_nodes, backreferences = self._get_nodes_and_backreferences(graph)
-
-        bpe_tokens = []
-        bpe_backreferences = []
-        counter = 0
-
-        for i, (backr, tokk) in enumerate(zip(backreferences, linearized_nodes)):
-            is_in_enc = self.INIT + tokk in self.encoder
-            is_rel = tokk.startswith(":") and len(tokk) > 1
-            is_spc = tokk.startswith("<") and tokk.endswith(">")
-            is_of = tokk.startswith(":") and tokk.endswith("-of")
-            is_frame = re.match(r".+-\d\d", tokk) is not None
-
-            if tokk.startswith('"') and tokk.endswith('"'):
-                tokk = tokk[1:-1].replace("_", " ")
-                bpe_toks = [self.INIT + AMRTokens.LIT_START]
-                bpe_toks += self._tok_bpe(tokk, add_space=True)
-                bpe_toks.append(self.INIT + AMRTokens.LIT_END)
-            elif is_rel or is_spc or is_frame or is_of:
-                if is_in_enc:
-                    bpe_toks = [self.INIT + tokk]
-                elif is_frame:
-                    bpe_toks = self._tok_bpe(tokk[:-3], add_space=True) + [tokk[-3:]]
-                elif is_of:
-                    rel = tokk[:-3]
-                    if self.INIT + rel in self.encoder:
-                        bpe_toks = [self.INIT + rel, "-of"]
-                    else:
-                        bpe_toks = [self.INIT + ":"] + self._tok_bpe(rel[1:], add_space=True) + ["-of"]
-                elif is_rel:
-                    bpe_toks = [self.INIT + ":"] + self._tok_bpe(tokk[1:], add_space=True)
-                else:
-                    raise
-
-            else:
-                if is_in_enc:
-                    bpe_toks = [self.INIT + tokk]
-                else:
-                    bpe_toks = self._tok_bpe(tokk, add_space=True)
-
-            bpe_tokens.append(bpe_toks)
-
-            if i == backr:
-                bpe_backr = list(range(counter, counter + len(bpe_toks)))
-                counter += len(bpe_toks)
-                bpe_backreferences.append(bpe_backr)
-            else:
-                bpe_backreferences.append(bpe_backreferences[backr][0:1])
-                counter += 1
-        bpe_tokens = [b for bb in bpe_tokens for b in bb]
-        bpe_token_ids = [self.encoder.get(b, self.unk_token_id) for b in bpe_tokens]
-        bpe_backreferences = [b for bb in bpe_backreferences for b in bb]
-        return bpe_tokens, bpe_token_ids, bpe_backreferences
-
-    def batch_encode_sentences(self, sentences):
-        sentences = [s for s in sentences]
-        extra = {"sentences": sentences}
-        batch = super().batch_encode_plus(sentences, return_tensors="pt", padding=True, truncation=True)
-        return batch, extra
-
-    def linearize(self, graph):
-        shift = len(self.encoder)
-        tokens, token_ids, backreferences = self.tokenize_amr(graph)
-        extra = {"linearized_graphs": tokens, "graphs": graph}
-        token_uni_ids = [idx if i == b else b + shift for i, (idx, b) in enumerate(zip(token_ids, backreferences))]
-        if token_uni_ids[-1] != (self.INIT + AMRTokens.EOS_N):
-            tokens.append(self.INIT + AMRTokens.EOS_N)
-            token_ids.append(self.eos_token_id)
-            token_uni_ids.append(self.eos_token_id)
-            backreferences.append(len(backreferences))
-        return token_uni_ids, extra
-
-    def batch_encode_graphs(self, graphs):
-        linearized, extras = zip(*[self.linearize(g) for g in graphs])
-        return self.batch_encode_graphs_from_linearized(linearized, extras)
-
-    def batch_encode_graphs_from_linearized(self, linearized, extras=None):
-        if extras is not None:
-            batch_extra = {"linearized_graphs": [], "graphs": []}
-            for extra in extras:
-                batch_extra["graphs"].append(extra["graphs"])
-                batch_extra["linearized_graphs"].append(extra["linearized_graphs"])
-        else:
-            batch_extra = {}
-
-        batch = self.pad({"input_ids": linearized}, return_tensors="pt")["input_ids"]
-        batch = {"decoder_input_ids": batch[:, :-1].clone(), "labels": batch[:, 1:].clone()}
-        batch["labels"][batch["labels"] == self.pad_token_id] = -100  # for crossentropy
-        batch["decoder_attention_mask"] = (batch["decoder_input_ids"] != -100).long()
-
-        return batch, batch_extra
-
-    def decode_amr(self, tokens, restore_name_ops=False):
-        if isinstance(tokens, torch.Tensor):
-            tokens = tokens.tolist()
-
-        try:
-            nodes, backreferences = postprocessing.decode_into_node_and_backreferences(tokens, self)
-        except Exception as e:
-            print("Decoding failure:", file=sys.stderr)
-            print(e, file=sys.stderr)
-            return postprocessing.BACKOFF, postprocessing.ParsedStatus.BACKOFF, (None, None)
-        if self.use_pointer_tokens:
-            nodes, backreferences = postprocessing.restore_backreferences_from_pointers(nodes)
-        try:
-            graph_ = graph = postprocessing.build_graph(nodes, backreferences, restore_name_ops=restore_name_ops)
-        except Exception as e:
-            print("Building failure:", file=sys.stderr)
-            print(nodes, file=sys.stderr)
-            print(backreferences, file=sys.stderr)
-            print(e, file=sys.stderr)
-            return postprocessing.BACKOFF, postprocessing.ParsedStatus.BACKOFF, (None, None)
-        try:
-            graph, status = postprocessing.connect_graph_if_not_connected(graph)
-            if status == postprocessing.ParsedStatus.BACKOFF:
-                print("Reconnection 1 failure:")
-                print(nodes, file=sys.stderr)
-                print(backreferences, file=sys.stderr)
-                print(graph_, file=sys.stderr)
-            return graph, status, (nodes, backreferences)
-        except Exception as e:
-            print("Reconnction 2 failure:", file=sys.stderr)
-            print(e, file=sys.stderr)
-            print(nodes, file=sys.stderr)
-            print(backreferences, file=sys.stderr)
-            print(graph_, file=sys.stderr)
-            return postprocessing.BACKOFF, postprocessing.ParsedStatus.BACKOFF, (nodes, backreferences)
+        text = " ".join(sub_texts)
+        text = clean_up_tokenization(text)
+        return text

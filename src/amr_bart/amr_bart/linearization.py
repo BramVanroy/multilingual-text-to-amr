@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Optional, ClassVar, Dict, Counter
 from collections import Counter
 
+from ftfy import fix_text
 import penman
 from penman import Tree
 from penman.tree import is_atomic, _default_variable_prefix
@@ -28,6 +29,7 @@ Custom constrained beam search? (if a token is not allowed in a position, set it
 # TODO: check special arguments, especially :opX and things related non-core roles: https://github.com/amrisi/amr-guidelines/blob/master/amr.md
 # TODO: check in amr guidelines how variable assignment for p, p2, p3 is prioritized. First the deepest token, or which one is the first p? Here the "reset_Variables" function in penman seems relevant
 # TODO: for :op values, remove " surrounding quotes when linearized and add them again when delinearizing. But do not add them for numbers where the whole string.isdigit() is true!
+
 
 def elements_equal(e1, e2):
     """https://stackoverflow.com/a/24349916/1150683"""
@@ -62,8 +64,10 @@ def maybe_convert_relation(relation: str):
     else:
         return relation
 
+
 def remove_wiki(penman_str: str):
     return re.sub(r'\s+:wiki\s+(?:\"[^\"]+\"|-)', "", penman_str)
+
 
 def remove_metadata(penman_str: str):
     return re.sub(r'^#.*\n', "", penman_str, flags=re.MULTILINE)
@@ -123,7 +127,7 @@ def xml_to_linearized(node: Optional[ET.ElementBase] = None, is_root: bool = Tru
     elif node.tag.lower() == "termrel":
         linearized += f'<reltype value="{node.attrib["relation_type"]}"/>{escape_xml(node.attrib["token"])}<sense_id value="NO"/>'
     elif node.tag.lower() == "negation":
-        linearized += '<negation />'
+        linearized += '<negation/>'
     else:
         raise ValueError("Unrecognized XML tag")
 
@@ -168,7 +172,7 @@ def linearize_to_xml(linearized_amr: str):
         elif node.tag.lower() == "sense_id":
             token_str = escape_xml(prev_tail) if prev_tail else ""  # token might be empty if malformed
             if prev_sibling.tag.lower() == "reltype":  # termrels
-                xml_str += f'<termrel token="{token_str}" relation_type="{prev_sibling.attrib["value"]}" />'
+                xml_str += f'<termrel token="{token_str}" relation_type="{prev_sibling.attrib["value"]}"/>'
             else:  # terminals
                 xml_str += f'<term token="{token_str}" sense_id="{node.attrib["value"]}"/>'
 
@@ -178,7 +182,7 @@ def linearize_to_xml(linearized_amr: str):
             else:  # relation_type might be empty if malformed
                 xml_str += f'<termref ref="{node.attrib["value"]}" varname="" relation_type=""/>'
         elif node.tag.lower() == "negation":
-            xml_str += '<negation />'
+            xml_str += '<negation/>'
 
         for child_idx, child in enumerate(node):
             sibling = node[child_idx - 1] if 0 < child_idx < len(node) else None
@@ -271,7 +275,7 @@ class Linearizer:
         xml_str = ""
         if is_root:
             self.set_variable_ridx(parent_node.node[0])
-            xml_str += f'<tree type="intermediate_xml" value="{self.variable_to_ridx[parent_node.node[0]]}" varname="{escape_xml(parent_node.node[0])}" relation_type="ROOT">'
+            xml_str += f'<tree type="intermediate_xml" value="{self.variable_to_ridx[parent_node.node[0]]}" varname="{escape_xml(fix_text(parent_node.node[0]))}" relation_type="ROOT">'
 
         descriptor = maybe_convert_relation(descriptor)
 
@@ -279,25 +283,25 @@ class Linearizer:
             if descriptor == "instance":  # Instances
                 if re.match(r"\S+-\d{2,}", parent_node):  # Match on "throw-up-01" but not on "even-if"
                     node_name, sense_id = parent_node.rsplit("-", 1)
-                    xml_str += f'<term token="{escape_xml(node_name)}" sense_id="{sense_id}" />'
+                    xml_str += f'<term token="{escape_xml(fix_text(node_name))}" sense_id="{sense_id}"/>'
                 else:  # Without explicit sense-id
-                    xml_str += f'<term token="{escape_xml(parent_node)}" sense_id="NO" />'
+                    xml_str += f'<term token="{escape_xml(fix_text(parent_node))}" sense_id="NO"/>'
             else:
                 if descriptor.startswith(":ARG"):  # TODO: here we make some if/elif distinctions but their realization is the same. We may want to make that different in the future
                     if parent_node.isdigit():  # In quantitative relationships, where `:ARG1 2` indicates that something is.happens x2
-                        xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                        xml_str += f'<termrel token="{escape_xml(fix_text(parent_node))}" relation_type="{descriptor}"/>'
                     elif parent_node in ["-", "+"]:  # In polarity relationships of "have-polarity", `:ARG2 -` means negative, or in be-polite relationsships `:ARG2 +`
-                        xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                        xml_str += f'<termrel token="{escape_xml(fix_text(parent_node))}" relation_type="{descriptor}"/>'
                     elif parent_node.startswith('"') and parent_node.endswith('"'):  # In certain quantities, e.g., `:ARG3 "2/3"`
-                        xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                        xml_str += f'<termrel token="{escape_xml(fix_text(parent_node))}" relation_type="{descriptor}"/>'
                     elif is_number(parent_node):  # In certain quantities, e.g., `:ARG2 290.19`
-                        xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                        xml_str += f'<termrel token="{escape_xml(fix_text(parent_node))}" relation_type="{descriptor}"/>'
                     else:
                         # References to other variables with core roles
                         self.set_variable_ridx(parent_node)
                         if descriptor == ":wiki":
                             raise ValueError("Wiki items are currently not supported")
-                        xml_str += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                        xml_str += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{escape_xml(fix_text(parent_node))}" relation_type="{descriptor}"/>'
                 elif descriptor == ":polarity":
                     if parent_node == "-":
                         xml_str += '<negation />'
@@ -306,10 +310,10 @@ class Linearizer:
                 else:  # Non-core roles
                     if re.match(r"^[a-z]\d+$", parent_node):  # Reference to other variable
                         self.set_variable_ridx(parent_node)
-                        xml_str += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                        xml_str += f'<termref ref="{self.variable_to_ridx[parent_node]}" varname="{escape_xml(fix_text(parent_node))}" relation_type="{descriptor}"/>'
                     else:  # A terminal token which is also a some special relation (e.g. `:op1 100000`)
                         # NOTE: it _seems_ to me that this can only occur for numbers. A string will always be a token "instance" (?)
-                        xml_str += f'<termrel token="{escape_xml(parent_node)}" relation_type="{descriptor}" />'
+                        xml_str += f'<termrel token="{escape_xml(fix_text(parent_node))}" relation_type="{descriptor}"/>'
 
         else:  # Branches
             if not isinstance(parent_node, Tree):
@@ -319,7 +323,7 @@ class Linearizer:
 
             if descriptor is not None and varname is not None:
                 self.set_variable_ridx(varname)
-                xml_str += f'<rel ref="{self.variable_to_ridx[varname]}" varname="{escape_xml(varname)}" relation_type="{descriptor}">'
+                xml_str += f'<rel ref="{self.variable_to_ridx[varname]}" varname="{escape_xml(fix_text(varname))}" relation_type="{descriptor}">'
 
             for descriptor, target in branches:
                 xml_str += self.penman_tree2xml(target, descriptor, is_root=False)
@@ -329,7 +333,11 @@ class Linearizer:
 
         if is_root:
             xml_str += "</tree>"
-            return ET.fromstring(xml_str)
+            xml = ET.fromstring(xml_str)
+            # TODO: restructure this class so that this is not necessary.
+            # Now this is necessary because we want to do escape/unescape and especially ftfy in the current method
+            self.penman_tree = penman.parse(xml2penman_str(xml))
+            return xml
         else:
             return xml_str
 
