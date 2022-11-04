@@ -45,6 +45,11 @@ are also allowed, such as `date-entity` or `phone-number-entity`. To make this m
 - Negative polarity `:polarity -` is a way of negating what is being said. This is so frequent that we add a special
 `:negation` token. (Similar to `not`)
 
+# Sentences
+
+AMR allows multi-sentences constructions (which can also be phrases). Sentences are denoted with `:sntX`. We add
+up to `:snt10` and also add a generic `:snt`.
+
 # Senses
 
 AMR tracks different senses of words with OntoNotes specifiers, e.g. `charge-05`. We add 100 special `:senseX` tokens,
@@ -64,7 +69,8 @@ Because we are predicting a linearized version of AMR, we need a way to encapsul
 a branch starts and stops. In AMR, these branches are typically relations. We therefore add `:startrel` and `:endrel`
 to indicate the start and end of a relation branch.
 
-# Tree start/end (not added)
+# Tree start/end
 
 We will assume that the start and end of the prediction indicate the start and end of the tree. So no special tokens
-are needed there.
+are needed there. However, MBART relies on special language tokens to learn language-specific phenomena (and even
+translate). Therefore, we add the special token `amr_XX` which we will use as a special token.
