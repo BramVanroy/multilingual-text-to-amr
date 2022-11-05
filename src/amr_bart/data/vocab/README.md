@@ -38,7 +38,9 @@ are also allowed, such as `date-entity` or `phone-number-entity`. To make this m
 # Special cases
 
 - In exceptions, when no better annotation is found, prepositions can also be annotated by `:prep-` + the prefix, e.g.,
-`prep-by`. Therefore, we also add `prep-` to the vocabulary.
+`prep-by`. Therefore, we also add `prep-` to the vocabulary. 
+- Similarly, not all conjunctions are covered in AMR so they can be generically created with `:conj-`, which
+we add to the vocabulary.
 - All relations have an inverse relation that is created with the `-of` suffix, e.g., `:ARG0-of`. We therefore add `-of` as a token.
 - Questions in AMR are denoted with the special relation `amr-unknown`, which we add. (It is therefore similar to `?`)
 - Choice questions are a bit different, they are marked with `amr-choice`, which we add. (Similar to `or`)

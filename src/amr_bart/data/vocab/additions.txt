@@ -94,6 +94,7 @@
 -entity
 
 :prep-
+:conj-
 -of
 amr-unknown
 amr-choice
