@@ -1,9 +1,8 @@
 from pathlib import Path
 from tqdm import tqdm
 import penman
-from ftfy import fix_text
 
-from amr_bart.amr_bart.linearization import Linearizer, unescape_xml
+from amr_bart.amr_bart.linearization import Linearizer
 from amr_bart.amr_bart.tokenization_amr_bart import AMRMBartTokenizer
 
 
@@ -14,12 +13,12 @@ def main(indir: str):
         with pfin.open(encoding="utf-8") as fhin:
             for tree in penman.iterparse(fhin):
                 tree.reset_variables()
-                tree_str = penman.format(tree)
-                original = Linearizer.from_penman_str(tree_str)
-                linearized = fix_text(unescape_xml(original.linearized))
+                penman_str = penman.format(tree)
+                original = Linearizer.from_penman_str(penman_str)
 
-                encoded = tokenizer.encode(linearized)
+                encoded = tokenizer.encode_penman(penman_str)
                 decoded = tokenizer.decode_and_escape(encoded)
+                print(decoded)
                 delinearized = Linearizer.from_linearized(decoded)
 
                 if original.penman_tree != delinearized.penman_tree:

@@ -19,14 +19,14 @@ def linearized2inputstr(linearized: str) -> str:
     linearized = linearized.replace('<tree>', "")  # Just in case the type attribute was not added
     linearized = linearized.replace('</tree>', "")
 
-    linearized = re.sub(r'<reltype value="([^"]+)"\/>', "$1", linearized)
-    linearized = re.sub(r'<sense_id value="([^"]+)"\/>', ":sense$1", linearized)
+    linearized = re.sub(r'<reltype value="([^"]+)"\/>', r"\1", linearized)
+    linearized = re.sub(r'<sense_id value="([^"]+)"\/>', r":sense\1", linearized)
 
     linearized = linearized.replace("<rel>", ":startrel")
     linearized = linearized.replace("</rel>", ":endrel")
 
-    linearized = re.sub(r'<termid value="R([^"]+)"\/>', ":term$1", linearized)
-    linearized = re.sub(r'<termref value="R([^"]+)"\/>', ":ref$1", linearized)
+    linearized = re.sub(r'<termid value="R([^"]+)"\/>', r":term\1", linearized)
+    linearized = re.sub(r'<termref value="R([^"]+)"\/>', r":ref\1", linearized)
 
     linearized = linearized.replace("<negation/>", ":negation")
 
@@ -41,13 +41,13 @@ def inputstr2linearized(inputstr: str) -> str:
     # verify that they are in our list of new tokens. For some tokens, e.g. :ARG24, it might be that it is not explicitly
     # in our list so we will have to check for possibilities per-tag, .e.g. r":ARG\d+" etc.
 
-    inputstr = re.sub(r':sense(NO|\d+)', '<sense_id value="$1"/>', inputstr)
+    inputstr = re.sub(r':sense(NO|\d+)', r'<sense_id value="\1"/>', inputstr)
 
     inputstr = inputstr.replace(":startrel", "<rel>")
     inputstr = inputstr.replace(":endrel", "</rel>")
 
-    inputstr = re.sub(r":term(\d+)", r'<termid value="$1"/>', inputstr)
-    inputstr = re.sub(r":ref(\d+)", r'<termref value="$1"/>', inputstr)
+    inputstr = re.sub(r":term(\d+)", r'<termid value="\1"/>', inputstr)
+    inputstr = re.sub(r":ref(\d+)", r'<termref value="\1"/>', inputstr)
 
     inputstr = inputstr.replace(":negation", "<negation/>")
 
@@ -56,5 +56,5 @@ def inputstr2linearized(inputstr: str) -> str:
     return inputstr
 
 def postprocess_tokenids(ids: List[int]) -> List[int]:
-    """Postprocess tokenids in such a way that the final result (after tokens2linearized) must be a valid tree"""
+    """Postprocess tokenids (or tokens???) in such a way that the final result (after tokens2linearized) must be a valid tree"""
     pass

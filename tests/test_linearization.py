@@ -5,8 +5,8 @@ import penman
 from amr_bart.amr_bart.linearization import Linearizer
 
 
-def main():
-    pdin = Path(r"D:\corpora\amr_annotation_3.0\data\amrs_fixed")
+def main(indir: str):
+    pdin = Path(indir)
     for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file"):
         with pfin.open(encoding="utf-8") as fhin:
             for tree in penman.iterparse(fhin):
@@ -24,4 +24,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    cparser = argparse.ArgumentParser(description="Brute-force testing of AMR linearization. All .txt"
+                                                  " files in a given directory will be (recursively) tested.")
+    cparser.add_argument("indir", help="Input directory with AMR data. Will be recursively traversed. All .txt files"
+                                       " will be tested.")
+    cargs = cparser.parse_args()
+    main(cargs.indir)

@@ -27,9 +27,8 @@ Custom constrained beam search? (if a token is not allowed in a position, set it
 """
 
 # TODO: check special arguments, especially :opX and things related non-core roles: https://github.com/amrisi/amr-guidelines/blob/master/amr.md
-# TODO: check in amr guidelines how variable assignment for p, p2, p3 is prioritized. First the deepest token, or which one is the first p? Here the "reset_Variables" function in penman seems relevant
 # TODO: for :op values, remove " surrounding quotes when linearized and add them again when delinearizing. But do not add them for numbers where the whole string.isdigit() is true!
-
+# TODO: clean up the "termid"s: not all terms NEED a termid if they are not referred to, and they may add a lot of noise. However, this means we also have to make sure that the "delinearization" works well when no termid is given
 
 def elements_equal(e1, e2):
     """https://stackoverflow.com/a/24349916/1150683"""
@@ -56,13 +55,6 @@ def unescape_xml(str_xml: str):
     str_xml = str_xml.replace("&quot;", "\"")
     str_xml = str_xml.replace("&apos;", "'")
     return str_xml
-
-
-def maybe_convert_relation(relation: str):
-    if relation is not None and relation.strip() == "/":
-        return "instance"
-    else:
-        return relation
 
 
 def remove_wiki(penman_str: str):
@@ -277,10 +269,8 @@ class Linearizer:
             self.set_variable_ridx(parent_node.node[0])
             xml_str += f'<tree type="intermediate_xml" value="{self.variable_to_ridx[parent_node.node[0]]}" varname="{escape_xml(fix_text(parent_node.node[0]))}" relation_type="ROOT">'
 
-        descriptor = maybe_convert_relation(descriptor)
-
         if is_atomic(parent_node):  # Terminals
-            if descriptor == "instance":  # Instances
+            if descriptor == "/":  # Instances
                 if re.match(r"\S+-\d{2,}", parent_node):  # Match on "throw-up-01" but not on "even-if"
                     node_name, sense_id = parent_node.rsplit("-", 1)
                     xml_str += f'<term token="{escape_xml(fix_text(node_name))}" sense_id="{sense_id}"/>'
