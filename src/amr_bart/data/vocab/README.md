@@ -72,6 +72,11 @@ Because we are predicting a linearized version of AMR, we need a way to encapsul
 a branch starts and stops. In AMR, these branches are typically relations. We therefore add `:startrel` and `:endrel`
 to indicate the start and end of a relation branch.
 
+# Subsets
+
+[Subsets](https://github.com/amrisi/amr-guidelines/blob/master/amr.md#subsets) are covered with `:subset`, which we add.
+Due to the generic token `-of` that is in the vocabulary, `:subset-of` can automatically be generated.
+
 # Tree start/end
 
 We will assume that the start and end of the prediction indicate the start and end of the tree. So no special tokens
