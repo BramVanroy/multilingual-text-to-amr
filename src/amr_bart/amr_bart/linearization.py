@@ -29,6 +29,8 @@ Custom constrained beam search? (if a token is not allowed in a position, set it
 # TODO: check special arguments, especially :opX and things related non-core roles: https://github.com/amrisi/amr-guidelines/blob/master/amr.md
 # TODO: for :op values, remove " surrounding quotes when linearized and add them again when delinearizing. But do not add them for numbers where the whole string.isdigit() is true!
 # TODO: clean up the "termid"s: not all terms NEED a termid if they are not referred to, and they may add a lot of noise. However, this means we also have to make sure that the "delinearization" works well when no termid is given
+# TODO: instead of dashes, maybe use ~~ for some things? E.g., instead of -91 we can use ~~91 to make it less likely to occur in the wild
+# For instance -91, is in the dataset as a regular token as part of a phone number. So the special token should be different.
 
 def elements_equal(e1, e2):
     """https://stackoverflow.com/a/24349916/1150683"""
