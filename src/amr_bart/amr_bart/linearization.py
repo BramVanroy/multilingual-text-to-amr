@@ -30,19 +30,34 @@ Custom constrained beam search? (if a token is not allowed in a position, set it
 
 
 def do_remove_wiki(penman_str: str):
+    """Remove all wiki entrires from a given penman string. These are the items that start with ':wiki' and
+    have a value after it that is enclosed in double quotation marks '"'.
+
+    :param penman_str: the given penman string
+    :return: a string where all the wiki entries are removed
+    """
     return re.sub(r'\s+:wiki\s+(?:\"[^\"]+\"|-)', "", penman_str)
 
 
 def do_remove_metadata(penman_str: str):
+    """Remove the metadata from a given penman string. These are the lines that start with '#'
+    :param penman_str: the given penman string
+    :return: a string where all the lines that start with '#' are removed
+    """
     return re.sub(r'^#.*\n', "", penman_str, flags=re.MULTILINE)
 
 
-def is_number(s: str) -> bool:
-    if s in ["infinity", "nan"]:
+def is_number(maybe_number_str: str) -> bool:
+    """Check whether a given string is a number. We do not consider special cases such as 'infinity' and 'nan',
+    which technically are floats. We do consider, however, floats like '1.23'.
+    :param maybe_number_str: a string that might be a number
+    :return: whether the given number is indeed a number
+    """
+    if maybe_number_str in ["infinity", "nan"]:
         return False
 
     try:
-        float(s)
+        float(maybe_number_str)
         return True
     except ValueError:
         return False
@@ -57,12 +72,14 @@ ROLES = [':ARG', ':accompanier', ':age', ':beneficiary', ':calendar', ':century'
          ':sense', ':senseNO', ':snt', ':source', ':startrel', ':subevent', ':subset', ':term', ':time', ':timezone',
          ':topic', ':unit', ':value', ':weekday', ':wiki', ':year', ':year2']
 
-def tokenize_except_quotes(input_str: str):
+
+def tokenize_except_quotes(input_str: str) -> List[str]:
     """Split a given string into tokens by white-space EXCEPT for the tokens within quotation marks, do not split those.
-    E.g.: `&quot;25 bis&quot;` is one token. (Note that the output will have double quotation marks escaped as &quot;)
+    E.g.: `"25 bis"` is one token. This is important to ensure that all special values that are enclosed in double
+    quotation marks are also considered as a single token.
 
-    This is necessary because otherwise the tokens given to linearized2inputstr will be incorrectly put together.
-
+    :param input_str: string to tokenize
+    :return: a list of tokens
     """
     tokens = []
     tmp_str = ""
@@ -95,7 +112,15 @@ def tokenize_except_quotes(input_str: str):
     tokens.append(tmp_str.strip())
     return tokens
 
+
 def penmanstr2linearized(penman_str: str, remove_wiki: bool = False, remove_metadata: bool = False) -> str:
+    """Linearize a given penman string. Optionally remove the wiki items and/or metadata.
+
+    :param penman_str: the penman string to linearize
+    :param remove_wiki: whether to remove wiki entries
+    :param remove_metadata: whether to remove metadata
+    :return: a linearized string of the given penman string
+    """
     if remove_wiki:
         penman_str = do_remove_wiki(penman_str)
     if remove_metadata:
@@ -107,11 +132,20 @@ def penmanstr2linearized(penman_str: str, remove_wiki: bool = False, remove_meta
 
 
 def penmantree2linearized(penman_tree: Tree) -> str:
+    """Linearize a given penman Tree.
+
+    :param penman_tree: a penman Tree
+    :return: a linearized string of the given penman Tree
+    """
     tokens = []
+    # A dictionary to keep track of references, i.e. variables to a generalizable ":refX"
+    # Looks like: `{"f2": ":ref2"}`
     references = {}
 
     def _maybe_add_reference(varname: str):
-        # Add a reference ID. For each variable, it would look like e.g.: `"f2": ":ref2"`
+        """Add a varname to `references` if it is not already in there.
+        :param varname: the varname to add, e.g. "d" (for dog) or "f2" for "fight
+        """
         if varname not in references:
             if references:
                 max_refs = max([int(r.replace(":ref", "")) for r in references.values()])
@@ -120,6 +154,11 @@ def penmantree2linearized(penman_tree: Tree) -> str:
             references[varname] = f":ref{max_refs + 1}"
 
     def _iterate(node, is_instance_type: bool = False):
+        """Method to recursively traverse the given penman Tree and while doing so adding new tokens to `tokens`.
+
+        :param node: a Tree or node in a tree
+        :param is_instance_type: whether this given node has an instance relation type (/) with its parent
+        """
         nonlocal tokens, references
         if is_atomic(node):  # Terminals, node is the token
             # This is explicitly necessary because in some cases, the regex below will also match on
@@ -147,6 +186,7 @@ def penmantree2linearized(penman_tree: Tree) -> str:
             if not isinstance(node, Tree):
                 node = Tree(node)
             # Varname is e.g. "d" for dog or "d2" for dragon
+            # Branches are "child nodes"
             varname, branches = node.node
 
             _maybe_add_reference(varname)
@@ -161,7 +201,8 @@ def penmantree2linearized(penman_tree: Tree) -> str:
 
     _iterate(penman_tree)
 
-    # Remove references that only occur once (every token "occurs" at least once)
+    # Remove references that only occur once
+    # Every token "occurs" at least once (itself) but if no other occurrences -> remove
     refs_to_keep = sorted([r for r in references.values() if tokens.count(r) > 1],
                           key=lambda x: int(x.replace(":ref", "")))
     tokens = [token for token in tokens if token in refs_to_keep or not token.startswith(":ref")]
@@ -174,8 +215,10 @@ def penmantree2linearized(penman_tree: Tree) -> str:
 
 
 def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
-    """The idea here is that we iterate over all tokens, and call _iterate again whenever we encounter a new :startrel.
-    That allows us to have more control over how to generate relationships in a recursive, tree-like manner."""
+    """Turn a linearized string or a list of linearized tokens into a penman string representation.
+    :param tokens: a linearized string, or a list of tokens. If a string, we will tokenize it automatically
+    :return: a penman string
+    """
     if isinstance(tokens, str):
         tokens = tokenize_except_quotes(tokens)
 
@@ -185,6 +228,27 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
     penman_tokens = []
 
     def _iterate(first_index: int = 0, level: int = 0):
+        """Iterate over all tokens, starting from a first_index. Whenever we encounter :startrel, we call _iterate
+        again. That allows us to have more control over how to generate relationships in a recursive, tree-like manner.
+
+        In hopes of making this clearer, here is a visualization of the processing of tokens A rel( B ) C depth-first.
+        First we encounter and process token A, then we encounter an opening rel token `srel` (actually `:startrel`).
+        Therefore, we will enter a new `_iterate` function, and find and process B. After B, we encounter a `:endrel`
+        token to end the relationship (here `erel`), and therefore break out of this _iterate function. That leads us
+        back to the initial _iterate function, where then continue with the next token in that loop, which would be B!
+        It would be B because this initial _iterate function had not seen B yet, as we had moved from srel into another
+        _iterate call. So now that we are back, we need to skip B (because it was processed in the sub call) and move
+        to processing C.
+
+
+        A---> srel ---> B (skip) -------> C
+               ↓                          ↑
+               -------> B ------------> erel (break)
+
+
+        :param first_index: the index to start this iteration from. So we started at tokens[first_index]
+        :param level: the "depth" that we are in in the tree. Used for indentation
+        """
         nonlocal penman_tokens
         indent = "\t" * level
         # Iterate from a given start index to the end of all tokens but we can break out if we encounter an :endrel
@@ -281,5 +345,10 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
 
 
 def linearized2penmantree(tokens: Union[str, List[str]]) -> Tree:
+    """Turn a linearized representation back into a penman Tree
+
+    :param tokens: a linearized string, or a list of tokens. If a string, we will tokenize it automatically
+    :return: a penman Tree based on the linearized string or tokens
+    """
     penman_str = linearized2penmanstr(tokens)
     return penman.parse(penman_str)
