@@ -2,7 +2,7 @@ from pathlib import Path
 from tqdm import tqdm
 import penman
 
-from amr_bart.amr_bart.linearization import Linearizer
+from amr_bart.amr_bart.linearization import penmantree2linearized, linearized2penmantree
 
 
 def main(indir: str):
@@ -11,15 +11,14 @@ def main(indir: str):
         with pfin.open(encoding="utf-8") as fhin:
             for tree in penman.iterparse(fhin):
                 tree.reset_variables()
-                tree_str = penman.format(tree)
-                original = Linearizer.from_penman_str(tree_str)
-                linearized = original.linearized
-                delinearized = Linearizer.from_linearized(linearized)
 
-                if original.penman_tree != delinearized.penman_tree:
+                linearized = penmantree2linearized(tree)
+                delinearized_tree = linearized2penmantree(linearized)
+
+                if tree != delinearized_tree:
                     print(tree.metadata)
-                    print(original.penman_tree)
-                    print(delinearized.penman_tree)
+                    print(tree)
+                    print(delinearized_tree)
                     raise ValueError("Tree mismatch between original tree and delinearized tree")
 
 
