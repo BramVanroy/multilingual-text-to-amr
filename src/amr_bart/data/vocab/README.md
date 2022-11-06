@@ -50,7 +50,7 @@ we add to the vocabulary.
 # Sentences
 
 AMR allows multi-sentences constructions (which can also be phrases). Sentences are denoted with `:sntX`. We add
-up to `:snt10` and also add a generic `:snt`.
+up to `:snt10` and also add a generic `:snt`. Because it occurs often, we also add the special token `multi-sentence`.
 
 # Senses
 
