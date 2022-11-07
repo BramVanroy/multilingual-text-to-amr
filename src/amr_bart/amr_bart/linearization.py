@@ -247,7 +247,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
         to processing C.
 
 
-        A---> srel ---> B (skip) -------> C
+        A---> srel ---> B (skip) -----> erel (skip) ---> C
                ↓                          ↑
                -------> B ------------> erel (break)
 
