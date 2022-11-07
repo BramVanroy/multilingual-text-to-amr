@@ -164,18 +164,19 @@ def penmantree2linearized(penman_tree: Tree) -> str:
             # This is explicitly necessary because in some cases, the regex below will also match on
             # very rare cases where the match, e.g. `f4`, is not a reference but a real token, e.g. `f / f4`
             if is_instance_type:
-                tokens.extend((node, ":senseNO"))
+                # Token+sense_id. The last condition is to make sure that we do not catch wiki's, too, which may
+                # look like that, e.g., "Russian_submarine_Kursk_(K-141)"
+                if (match := re.match(r"(\S+)-(\d{2,})", node)) and not (node.startswith('"') and node.endswith('"')):
+                    # Special frames. TODO: check explicitly for all potential frames because sense 91 might exist?
+                    if match.group(2) == "91":
+                        tokens.append(node)
+                    else:
+                        tokens.extend((match.group(1), f":sense{match.group(2)}"))
+                else:
+                    tokens.extend((node, ":senseNO"))
             elif re.match(r"^[a-z]\d+$", node):  # In case a terminal refers to another token
                 _maybe_add_reference(node)
                 tokens.append(references[node])
-            # Token+sense_id. The last condition is to make sure that we do not catch wiki's, too, which may
-            # look like that, e.g., "Russian_submarine_Kursk_(K-141)"
-            elif (match := re.match(r"(\S+)-(\d{2,})", node)) and not (node.startswith('"') and node.endswith('"')):
-                # Special frames. TODO: check explicitly for all potential frames because sense 91 might exist
-                if match.group(2) == "91":
-                    tokens.append(node)
-                else:
-                    tokens.extend((match.group(1), f":sense{match.group(2)}"))
             # Special "literal" tokens do not have senses. These occur in e.g. :op or :wiki
             elif node.startswith('"') and node.endswith('"'):
                 tokens.append(node)
@@ -361,3 +362,35 @@ def linearized2penmantree(tokens: Union[str, List[str]]) -> Tree:
     """
     penman_str = linearized2penmanstr(tokens)
     return penman.parse(penman_str)
+
+
+test_str = """
+# ::annotator SDL-AMR-09
+# ::date 2012-12-23T19:59:16
+# ::id bolt12_64545_0529.2
+# ::snt What is more they are considered traitors of China, which is a fact of cultural tyranny in the cloak of nationalism and patriotism.
+# ::file bolt12_64545_0529_2.txt
+# ::save-date Sun Dec 8, 2013
+(c / consider-01
+   :ARG1 (p / person
+            :domain (t / they)
+            :ARG0-of (b / betray-01
+                        :ARG1 (c2 / country
+                                  :wiki "China"
+                                  :name (n / name
+                                           :op1 "China"))))
+   :mod (m / more)
+   :mod (t2 / tyrannize-01
+            :ARG2 (c3 / culture)
+            :ARG1-of (c4 / cloak-01
+                         :ARG2 (a / and
+                                  :op1 (n2 / nationalism)
+                                  :op2 (p2 / patriotism)))))
+
+"""
+
+if __name__ == '__main__':
+    tree = penman.parse(test_str)
+    tree.reset_variables()
+    linearized = penmantree2linearized(tree)
+    print(linearized)
