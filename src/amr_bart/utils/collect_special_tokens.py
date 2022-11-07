@@ -1,11 +1,10 @@
 from pathlib import Path
 from pprint import pprint
 
-from tqdm import tqdm
-import penman
 import lxml.etree as ET
-
+import penman
 from amr_bart.data.new_linearization import Linearizer
+from tqdm import tqdm
 
 
 def get_tags(tree):
@@ -24,7 +23,7 @@ def get_tags(tree):
         elif node.tag == "termref":
             uniq_els.add(f'<termref value="{node.attrib["value"]}"/>')
         elif node.tag == "negation":
-            uniq_els.add(f'<negation/>')
+            uniq_els.add(f"<negation/>")
 
     return uniq_els
 
@@ -41,8 +40,6 @@ def main(din: str):
                 special_tags.update(get_tags(tree))
 
     pprint(sorted(special_tags))
-
-
 
 
 if __name__ == "__main__":

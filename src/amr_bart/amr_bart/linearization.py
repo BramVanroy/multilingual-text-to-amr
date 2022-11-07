@@ -1,10 +1,10 @@
 import re
-from typing import Counter, Union, List
 from collections import Counter
+from typing import Counter, List, Union
 
 import penman
 from penman import Tree
-from penman.tree import is_atomic, _default_variable_prefix
+from penman.tree import _default_variable_prefix, is_atomic
 
 
 def do_remove_wiki(penman_str: str):
@@ -14,7 +14,7 @@ def do_remove_wiki(penman_str: str):
     :param penman_str: the given penman string
     :return: a string where all the wiki entries are removed
     """
-    return re.sub(r'\s+:wiki\s+(?:\"[^\"]+\"|-)', "", penman_str)
+    return re.sub(r"\s+:wiki\s+(?:\"[^\"]+\"|-)", "", penman_str)
 
 
 def do_remove_metadata(penman_str: str):
@@ -22,7 +22,7 @@ def do_remove_metadata(penman_str: str):
     :param penman_str: the given penman string
     :return: a string where all the lines that start with '#' are removed
     """
-    return re.sub(r'^#.*\n', "", penman_str, flags=re.MULTILINE)
+    return re.sub(r"^#.*\n", "", penman_str, flags=re.MULTILINE)
 
 
 def is_number(maybe_number_str: str) -> bool:
@@ -42,13 +42,70 @@ def is_number(maybe_number_str: str) -> bool:
 
 
 # Does not include :ref
-ROLES = [':ARG', ':accompanier', ':age', ':beneficiary', ':calendar', ':century', ':concession', ':condition', ':conj-',
-         ':consist-of', ':day', ':dayperiod', ':decade', ':degree', ':destination', ':direction', ':domain',
-         ':duration', ':endrel', ':era', ':example', ':extent', ':frequency', ':instrument', ':li', ':location',
-         ':manner', ':medium', ':mod', ':mode', ':month', ':name', ':negation', ':op', ':ord', ':part', ':path',
-         ':polarity', ':polite', ':poss', ':prep-', ':purpose', ':quant', ':quarter', ':range', ':scale', ':season',
-         ':sense', ':snt', ':source', ':startrel', ':subevent', ':subset', ':time', ':timezone',
-         ':topic', ':unit', ':value', ':weekday', ':wiki', ':year', ':year2']
+ROLES = [
+    ":ARG",
+    ":accompanier",
+    ":age",
+    ":beneficiary",
+    ":calendar",
+    ":century",
+    ":concession",
+    ":condition",
+    ":conj-",
+    ":consist-of",
+    ":day",
+    ":dayperiod",
+    ":decade",
+    ":degree",
+    ":destination",
+    ":direction",
+    ":domain",
+    ":duration",
+    ":endrel",
+    ":era",
+    ":example",
+    ":extent",
+    ":frequency",
+    ":instrument",
+    ":li",
+    ":location",
+    ":manner",
+    ":medium",
+    ":mod",
+    ":mode",
+    ":month",
+    ":name",
+    ":negation",
+    ":op",
+    ":ord",
+    ":part",
+    ":path",
+    ":polarity",
+    ":polite",
+    ":poss",
+    ":prep-",
+    ":purpose",
+    ":quant",
+    ":quarter",
+    ":range",
+    ":scale",
+    ":season",
+    ":sense",
+    ":snt",
+    ":source",
+    ":startrel",
+    ":subevent",
+    ":subset",
+    ":time",
+    ":timezone",
+    ":topic",
+    ":unit",
+    ":value",
+    ":weekday",
+    ":wiki",
+    ":year",
+    ":year2",
+]
 
 
 def tokenize_except_quotes(input_str: str) -> List[str]:
@@ -208,8 +265,9 @@ def penmantree2linearized(penman_tree: Tree) -> str:
 
     # Remove references that only occur once
     # Every token "occurs" at least once (itself) but if no other occurrences -> remove
-    refs_to_keep = sorted([r for r in references.values() if tokens.count(r) > 1],
-                          key=lambda x: int(x.replace(":ref", "")))
+    refs_to_keep = sorted(
+        [r for r in references.values() if tokens.count(r) > 1], key=lambda x: int(x.replace(":ref", ""))
+    )
     tokens = [token for token in tokens if token in refs_to_keep or not token.startswith(":ref")]
 
     # Re-number references so that the ones that are kept are numbered sequentially starting from :ref1.
@@ -288,7 +346,9 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                 penman_tokens.append(")")
 
             # End of a relation
-            elif token == ":endrel":  # Stop processing because we have now processed a whole :startrel -> :endrel chunk
+            elif (
+                token == ":endrel"
+            ):  # Stop processing because we have now processed a whole :startrel -> :endrel chunk
                 break
             # Handle the special token :negation, which indicate s negative polarity
             elif token == ":negation":
@@ -312,8 +372,14 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                 elif token.startswith('"') and token.endswith('"'):
                     penman_tokens.append(f" {token}")
                 # Many special roles have special values like "-" or numbers. E.g. `polarity -`, `:value 1`
-                elif prev_token is not None and prev_token in [":polarity", ":mode", ":mod", ":polite", ":value",
-                                                               ":quant"]:
+                elif prev_token is not None and prev_token in [
+                    ":polarity",
+                    ":mode",
+                    ":mod",
+                    ":polite",
+                    ":value",
+                    ":quant",
+                ]:
                     penman_tokens.append(f" {token}")
                 # Wikis do not have an instance relation. Empty wikis look like `:wiki -`
                 elif prev_token is not None and prev_token in [":wiki"]:
@@ -345,8 +411,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
         ref2varname[canon_ref.replace("-canonicalref", "")] = prev_token
 
     # Replace :ref tokens with the found varnames for that token, and remove the canonical ref tokens
-    penman_tokens = [ref2varname[t] if t in all_refs else t for t in penman_tokens if
-                     not t.endswith("-canonicalref")]
+    penman_tokens = [ref2varname[t] if t in all_refs else t for t in penman_tokens if not t.endswith("-canonicalref")]
 
     return " ".join(penman_tokens)
 

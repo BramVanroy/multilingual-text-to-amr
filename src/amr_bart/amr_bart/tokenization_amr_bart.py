@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import List, Optional, Union
-import re
-
-from transformers import MBartTokenizer, BatchEncoding
-from ftfy import fix_text
 
 from amr_bart.amr_bart.linearization import penmanstr2linearized
+from ftfy import fix_text
+from transformers import BatchEncoding, MBartTokenizer
 
 
 def clean_up_tokenization(out_string: str) -> str:
-    """ Clean up a list of simple English tokenization artifacts like spaces before punctuations and abbreviated forms.
+    """Clean up a list of simple English tokenization artifacts like spaces before punctuations and abbreviated forms.
 
     :param out_string: the text to clean up
     :return: the cleaned-up string
@@ -59,7 +58,11 @@ class AMRMBartTokenizer(MBartTokenizer):
     def from_pretrained(cls, *args, new_tokens_file: Optional[str] = None, **kwargs) -> AMRMBartTokenizer:
         inst = super().from_pretrained(*args, **kwargs)
 
-        new_tokens_file = new_tokens_file if new_tokens_file else Path(__file__).resolve().parent.parent.joinpath("data/vocab/additions.txt")
+        new_tokens_file = (
+            new_tokens_file
+            if new_tokens_file
+            else Path(__file__).resolve().parent.parent.joinpath("data/vocab/additions.txt")
+        )
         tokens_to_add = set([token for token in new_tokens_file.read_text(encoding="utf-8").splitlines() if token])
 
         voc = set(inst.get_vocab().keys())
@@ -78,8 +81,9 @@ class AMRMBartTokenizer(MBartTokenizer):
         :return: an output string, representing the linearized graph
         """
         filtered_tokens = self.convert_ids_to_tokens(token_ids, skip_special_tokens=True)
-        filtered_tokens = [token if token in self.added_tokens_encoder else fix_text(token) for token in
-                           filtered_tokens]
+        filtered_tokens = [
+            token if token in self.added_tokens_encoder else fix_text(token) for token in filtered_tokens
+        ]
         # To avoid mixing byte-level and unicode for byte-level BPT
         # we need to build string separately for added tokens and byte-level tokens
         # cf. https://github.com/huggingface/transformers/issues/1133
@@ -101,27 +105,19 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         return text
 
-    def encode_penmanstr(
-        self,
-        penman_str: str,
-        remove_wiki: bool = True,
-        **kwargs
-    ) -> List[int]:
+    def encode_penmanstr(self, penman_str: str, remove_wiki: bool = True, **kwargs) -> List[int]:
         """Given one or  penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids.
-        See: _linearize_and_unescape() """
+        See: _linearize_and_unescape()"""
         prepared_str = penmanstr2linearized(penman_str, remove_wiki=remove_wiki)
         return super().encode(prepared_str, **kwargs)
 
     def encode_penmanstr_plus(
-        self,
-        penman_strs: Union[str, List[str]],
-        remove_wiki: bool = True,
-        **kwargs
+        self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
     ) -> BatchEncoding:
         """Given one or  penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
         as well as other important items such as attention masks.
 
-        See: _linearize_and_unescape() """
+        See: _linearize_and_unescape()"""
         if isinstance(penman_strs, str):
             penman_strs = [penman_strs]
 

@@ -5,20 +5,21 @@ For the language keys, make sure to use a valid one for the corresponding model!
     For NLLB: https://github.com/facebookresearch/flores/blob/main/flores200/README.md#languages-in-flores-200
 """
 from collections import Counter
-from dataclasses import field, dataclass
+from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
-from typing import Union, List
+from typing import List, Union
 
 import torch
 from tqdm import tqdm
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizer
+from transformers import (AutoModelForSeq2SeqLM, AutoTokenizer,
+                          PreTrainedModel, PreTrainedTokenizer)
 
 
 def batch_sentences(sentences, batch_size: int = 32):
     batch_len = len(sentences)
     for idx in range(0, batch_len, batch_size):
-        yield sentences[idx: min(idx + batch_size, batch_len)]
+        yield sentences[idx : min(idx + batch_size, batch_len)]
 
 
 @dataclass
@@ -59,22 +60,24 @@ class Translator:
             )
         except AttributeError:
             generated_tokens = self.model.generate(
-                **encoded, forced_bos_token_id=self.tokenizer.lang_code_to_id[self.tgt_lang], max_length=self.max_length
+                **encoded,
+                forced_bos_token_id=self.tokenizer.lang_code_to_id[self.tgt_lang],
+                max_length=self.max_length,
             )
         return self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
 
 
 def translate(
-        amr_dir: Union[str, PathLike],
-        output_dir: Union[str, PathLike],
-        model_name_or_path: Union[str, PathLike] = "facebook/m2m100_418M",
-        src_lang: str = "en",
-        tgt_lang: str = "nl",
-        batch_size: int = 32,
-        max_length: int = 256,
-        num_threads: int = None,
-        no_cuda: bool = False,
-        verbose: bool = False,
+    amr_dir: Union[str, PathLike],
+    output_dir: Union[str, PathLike],
+    model_name_or_path: Union[str, PathLike] = "facebook/m2m100_418M",
+    src_lang: str = "en",
+    tgt_lang: str = "nl",
+    batch_size: int = 32,
+    max_length: int = 256,
+    num_threads: int = None,
+    no_cuda: bool = False,
+    verbose: bool = False,
 ):
     """Given a directory of AMR, all .txt files will recursively be traversed and translated. All the lines
     that start with "# ::snt " will be translated. For the language keys, make sure to use a valid one!
@@ -156,7 +159,8 @@ def main():
     cparser.add_argument("--src_lang", default="en", help="language code of source language")
     cparser.add_argument("--tgt_lang", default="nl", help="language code of target language")
     cparser.add_argument(
-        "-b", "--batch_size",
+        "-b",
+        "--batch_size",
         type=int,
         default=32,
         help="batch size of translating simultaneously. Set to lower value if you get out of memory issues",
@@ -167,7 +171,7 @@ def main():
         type=int,
         default=None,
         help="if not using CUDA, how many threads to use in torch for parallel operations."
-             " By default, as many threads as available will be used",
+        " By default, as many threads as available will be used",
     )
     cparser.add_argument("--no_cuda", action="store_true", help="whether to disable CUDA if it is available")
     cparser.add_argument("-v", "--verbose", action="store_true", help="whether to print translations to stdout")

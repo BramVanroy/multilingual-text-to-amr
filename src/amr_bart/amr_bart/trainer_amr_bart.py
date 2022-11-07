@@ -1,29 +1,19 @@
 import logging
-from typing import Optional, List
+from typing import List, Optional
 
 import evaluate
 import numpy as np
 import torch
-from transformers import Trainer
-from transformers.trainer_utils import (
-    EvalLoopOutput,
-    EvalPrediction,
-    denumpify_detensorize,
-    has_length,
-)
-
-from transformers.deepspeed import deepspeed_init
 from torch.utils.data import DataLoader
-from transformers.trainer_pt_utils import (
-    IterableDatasetShard,
-    find_batch_size,
-    nested_concat,
-    nested_numpify,
-    nested_truncate,
-)
-from transformers.utils import (
-    is_torch_tpu_available
-)
+from transformers import Trainer
+from transformers.deepspeed import deepspeed_init
+from transformers.trainer_pt_utils import (IterableDatasetShard,
+                                           find_batch_size, nested_concat,
+                                           nested_numpify, nested_truncate)
+from transformers.trainer_utils import (EvalLoopOutput, EvalPrediction,
+                                        denumpify_detensorize, has_length)
+from transformers.utils import is_torch_tpu_available
+
 
 if is_torch_tpu_available(check_device=False):
     import torch_xla.core.xla_model as xm
@@ -34,12 +24,12 @@ logger = logging.getLogger(__name__)
 
 class AMRTrainer(Trainer):
     def evaluation_loop(
-            self,
-            dataloader: DataLoader,
-            description: str,
-            prediction_loss_only: Optional[bool] = None,
-            ignore_keys: Optional[List[str]] = None,
-            metric_key_prefix: str = "eval",
+        self,
+        dataloader: DataLoader,
+        description: str,
+        prediction_loss_only: Optional[bool] = None,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "eval",
     ) -> EvalLoopOutput:
         """
         Prediction/evaluation loop, shared by `Trainer.evaluate()` and `Trainer.predict()`.

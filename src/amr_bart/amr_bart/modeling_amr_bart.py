@@ -1,20 +1,22 @@
 import logging
 import random
-from typing import List, Optional, Tuple, Union, Iterable
+from typing import Iterable, List, Optional, Tuple, Union
 
 import torch
+from amr_bart.amr_bart.modeling_outputs import (
+    AMRModelOutput, BaseModelOutputWithPastAndCrossAttentionsAndScores)
 from torch import nn
+from torch.nn import CrossEntropyLoss
 from torch.nn import functional as F
 from transformers import BartConfig, top_k_top_p_filtering
-from transformers.modeling_outputs import (BaseModelOutput, Seq2SeqLMOutput, BaseModelOutputWithPastAndCrossAttentions,
-                                           Seq2SeqModelOutput)
+from transformers.generation_beam_search import BeamHypotheses
+from transformers.modeling_outputs import (
+    BaseModelOutput, BaseModelOutputWithPastAndCrossAttentions,
+    Seq2SeqLMOutput, Seq2SeqModelOutput)
 from transformers.models.bart.modeling_bart import (
     BartDecoder, BartEncoder, BartForConditionalGeneration, BartModel,
     _expand_mask, shift_tokens_right)
-from transformers.generation_beam_search import BeamHypotheses
-from torch.nn import CrossEntropyLoss
 
-from amr_bart.amr_bart.modeling_outputs import BaseModelOutputWithPastAndCrossAttentionsAndScores, AMRModelOutput
 
 logger = logging.getLogger(__name__)
 
@@ -422,6 +424,7 @@ class AMRBartModel(BartModel):
 class AMRBartForConditionalGeneration(BartForConditionalGeneration):
     base_model_prefix = "model"
     _keys_to_ignore_on_load_missing = [r"final_logits_bias", r"lm_head.weight"]
+
     def __init__(self, config: BartConfig, backpointer_idx=None):
         super().__init__(config)
         base_model = AMRBartModel(config, backpointer_idx)
