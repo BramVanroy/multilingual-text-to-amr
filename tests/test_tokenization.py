@@ -1,8 +1,9 @@
 from pathlib import Path
 from tqdm import tqdm
 import penman
+from ftfy import fix_text
 
-from amr_bart.amr_bart.linearization import Linearizer
+from amr_bart.amr_bart.linearization import penmanstr2linearized, linearized2penmantree
 from amr_bart.amr_bart.tokenization_amr_bart import AMRMBartTokenizer
 
 
@@ -13,18 +14,30 @@ def main(indir: str):
         with pfin.open(encoding="utf-8") as fhin:
             for tree in penman.iterparse(fhin):
                 tree.reset_variables()
-                penman_str = penman.format(tree)
-                original = Linearizer.from_penman_str(penman_str)
+                # NOTE: the fix_text is important to make sure the reference tree also is correctly formed, e.g.
+                # (':op2', '"d’Intervention"'), -> (':op2', '"d\'Intervention"'),
+                penman_str = fix_text(penman.format(tree))
+                original_tree = penman.parse(penman_str)
 
-                encoded = tokenizer.encode_penman(penman_str)
-                decoded = tokenizer.decode_and_escape(encoded)
-                print(decoded)
-                delinearized = Linearizer.from_linearized(decoded)
+                encoded = tokenizer.encode_penmanstr(penman_str, remove_wiki=False)
+                decoded = tokenizer.decode_and_fix(encoded)
 
-                if original.penman_tree != delinearized.penman_tree:
+                try:
+                    delinearized_tree = linearized2penmantree(decoded)
+                except penman.exceptions.DecodeError as exc:
+                    print(original_tree.metadata)
+                    print(original_tree)
+                    print(decoded)
+                    raise exc
+
+                if original_tree != delinearized_tree:
                     print(tree.metadata)
-                    print(original.penman_tree)
-                    print(delinearized.penman_tree)
+                    print("PENMAN", penman_str)
+                    print("LINEARIZED", penmanstr2linearized(penman_str))
+                    print("ENCODED", encoded)
+                    print("DECODED", decoded)
+                    print(original_tree)
+                    print(delinearized_tree)
                     raise ValueError("Tree mismatch between original tree and delinearized tree")
 
 
