@@ -69,7 +69,7 @@ ROLES = [':ARG', ':accompanier', ':age', ':beneficiary', ':calendar', ':century'
          ':duration', ':endrel', ':era', ':example', ':extent', ':frequency', ':instrument', ':li', ':location',
          ':manner', ':medium', ':mod', ':mode', ':month', ':name', ':negation', ':op', ':ord', ':part', ':path',
          ':polarity', ':polite', ':poss', ':prep-', ':purpose', ':quant', ':quarter', ':range', ':scale', ':season',
-         ':sense', ':senseNO', ':snt', ':source', ':startrel', ':subevent', ':subset', ':term', ':time', ':timezone',
+         ':sense', ':snt', ':source', ':startrel', ':subevent', ':subset', ':term', ':time', ':timezone',
          ':topic', ':unit', ':value', ':weekday', ':wiki', ':year', ':year2']
 
 
@@ -161,8 +161,9 @@ def penmantree2linearized(penman_tree: Tree) -> str:
         """
         nonlocal tokens, references
         if is_atomic(node):  # Terminals, node is the token
-            # This is explicitly necessary because in some cases, the regex below will also match on
-            # very rare cases where the match, e.g. `f4`, is not a reference but a real token, e.g. `f / f4`
+            # This is_instance_type is explicitly necessary because in some cases, the regex ^[a-z]\d+$
+            # below will also match on very rare cases where the match, e.g. `f4`, is not a reference but a
+            # real token, e.g. `f / f4`
             if is_instance_type:
                 # Token+sense_id. The last condition is to make sure that we do not catch wiki's, too, which may
                 # look like that, e.g., "Russian_submarine_Kursk_(K-141)"
@@ -173,7 +174,7 @@ def penmantree2linearized(penman_tree: Tree) -> str:
                     else:
                         tokens.extend((match.group(1), f":sense{match.group(2)}"))
                 else:
-                    tokens.extend((node, ":senseNO"))
+                    tokens.append(node)
             elif re.match(r"^[a-z]\d+$", node):  # In case a terminal refers to another token
                 _maybe_add_reference(node)
                 tokens.append(references[node])
@@ -181,7 +182,7 @@ def penmantree2linearized(penman_tree: Tree) -> str:
             elif node.startswith('"') and node.endswith('"'):
                 tokens.append(node)
             else:
-                tokens.extend((node, ":senseNO"))
+                tokens.append(node)
         else:
             tokens.append(":startrel")
             if not isinstance(node, Tree):
@@ -297,8 +298,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                 penman_tokens.append(":polarity -")
             # SENSE IDs: add the sense to the previous token
             elif match := re.match(r"^:sense(.+)", token):
-                penman_tokens[-1] = penman_tokens[-1] if match.group(
-                    1) == "NO" else f"{penman_tokens[-1]}-{match.group(1)}"
+                penman_tokens[-1] = f"{penman_tokens[-1]}-{match.group(1)}"
             # ROLES (that are not :refs)
             elif token.startswith(tuple(ROLES)):
                 penman_tokens.append(f"\n{indent}{token}")

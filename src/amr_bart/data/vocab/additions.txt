@@ -103,7 +103,6 @@ multi-sentence
 :negation
 
 :sense
-:senseNO
 :sense01
 :sense02
 :sense03
