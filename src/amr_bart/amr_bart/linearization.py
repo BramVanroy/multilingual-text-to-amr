@@ -7,28 +7,6 @@ from penman import Tree
 from penman.tree import is_atomic, _default_variable_prefix
 
 
-"""
-TODO: build DFS linearizer from scratch based on the paper description page 12566 and figure 1
-https://ojs.aaai.org/index.php/AAAI/article/view/17489
-- Of course use the linearized graph as the labels and (shifted) as the decoder inputs
-- update tokenizer with special tokens like :ARG and all others (probably gotta check the guidelines for all possible tags)
-- add special tokens for opening/closing brackets
-
-https://github.com/amrisi/amr-guidelines/blob/master/amr.md
-Voc; We can try:
-    - putting all tokens in the new vocabulary as full tokens (e.g. believe-01); OR
-    - using special tokens for the sense-id so that the concept itself can be of multiple subword
-     tokens (e.g., [bel, ieve, <sense1>])
-Custom constrained beam search? (if a token is not allowed in a position, set its logits to 0?)
-    - a sense dash must be followed by a sense
-    - special reference token (<R0>) can only follow 1. an opening bracket or 2. an arg:
-"""
-
-
-# TODO: instead of dashes, maybe use ~~ for some things? E.g., instead of -91 we can use ~~91 to make it less likely to occur in the wild
-# For instance -91, is in the dataset as a regular token as part of a phone number. So the special token should be different.
-
-
 def do_remove_wiki(penman_str: str):
     """Remove all wiki entrires from a given penman string. These are the items that start with ':wiki' and
     have a value after it that is enclosed in double quotation marks '"'.
@@ -69,7 +47,7 @@ ROLES = [':ARG', ':accompanier', ':age', ':beneficiary', ':calendar', ':century'
          ':duration', ':endrel', ':era', ':example', ':extent', ':frequency', ':instrument', ':li', ':location',
          ':manner', ':medium', ':mod', ':mode', ':month', ':name', ':negation', ':op', ':ord', ':part', ':path',
          ':polarity', ':polite', ':poss', ':prep-', ':purpose', ':quant', ':quarter', ':range', ':scale', ':season',
-         ':sense', ':snt', ':source', ':startrel', ':subevent', ':subset', ':term', ':time', ':timezone',
+         ':sense', ':snt', ':source', ':startrel', ':subevent', ':subset', ':time', ':timezone',
          ':topic', ':unit', ':value', ':weekday', ':wiki', ':year', ':year2']
 
 
@@ -111,6 +89,25 @@ def tokenize_except_quotes(input_str: str) -> List[str]:
 
     tokens.append(tmp_str.strip())
     return tokens
+
+
+def replace_of(relation_token: str, reverse: bool = False):
+    """We want to use -of as a generic token because all roles can be inversed with the addition of -of, e.g.,
+    :ARG0-of. However, `-of` also often occurs in other strings that we do not want to mess with, e.g. `jet-off-01`.
+    To avoid these issues, we replace roles that end with `-of` with `~~of` (except for `:consist-of`, which stands
+    on its own). Using `reverse=True` replaces `~~of` with `-of` again.
+
+    :param relation_token: token to replace
+    :param reverse: if true, turns replaces ~~of with -of instead of the other way around
+    :return: the potentially modified token
+    """
+    if reverse:
+        if relation_token.startswith(":") and relation_token.endswith("~~of"):
+            return relation_token.replace("~~of", "-of")
+    else:
+        if relation_token.startswith(":") and relation_token.endswith("-of") and relation_token != ":consist-of":
+            return relation_token.replace("-of", "~~of")
+    return relation_token
 
 
 def penmanstr2linearized(penman_str: str, remove_wiki: bool = False, remove_metadata: bool = False) -> str:
@@ -201,7 +198,7 @@ def penmantree2linearized(penman_tree: Tree) -> str:
                     continue
 
                 if relation_type != "/":
-                    tokens.append(relation_type)
+                    tokens.append(replace_of(relation_type))
 
                 _iterate(targetnode, relation_type == "/")
 
@@ -301,7 +298,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                 penman_tokens[-1] = f"{penman_tokens[-1]}-{match.group(1)}"
             # ROLES (that are not :refs)
             elif token.startswith(tuple(ROLES)):
-                penman_tokens.append(f"\n{indent}{token}")
+                penman_tokens.append(f"\n{indent}{replace_of(token, reverse=True)}")
             # REFS
             elif token.startswith(":ref"):
                 if prev_token and prev_token.startswith(":"):  # This is a reference to another token
@@ -362,35 +359,3 @@ def linearized2penmantree(tokens: Union[str, List[str]]) -> Tree:
     """
     penman_str = linearized2penmanstr(tokens)
     return penman.parse(penman_str)
-
-
-test_str = """
-# ::annotator SDL-AMR-09
-# ::date 2012-12-23T19:59:16
-# ::id bolt12_64545_0529.2
-# ::snt What is more they are considered traitors of China, which is a fact of cultural tyranny in the cloak of nationalism and patriotism.
-# ::file bolt12_64545_0529_2.txt
-# ::save-date Sun Dec 8, 2013
-(c / consider-01
-   :ARG1 (p / person
-            :domain (t / they)
-            :ARG0-of (b / betray-01
-                        :ARG1 (c2 / country
-                                  :wiki "China"
-                                  :name (n / name
-                                           :op1 "China"))))
-   :mod (m / more)
-   :mod (t2 / tyrannize-01
-            :ARG2 (c3 / culture)
-            :ARG1-of (c4 / cloak-01
-                         :ARG2 (a / and
-                                  :op1 (n2 / nationalism)
-                                  :op2 (p2 / patriotism)))))
-
-"""
-
-if __name__ == '__main__':
-    tree = penman.parse(test_str)
-    tree.reset_variables()
-    linearized = penmantree2linearized(tree)
-    print(linearized)
