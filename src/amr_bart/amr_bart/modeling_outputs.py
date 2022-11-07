@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 import torch
 from transformers.modeling_outputs import ModelOutput
@@ -45,6 +45,7 @@ class BaseModelOutputWithPastAndCrossAttentionsAndScores(ModelOutput):
             Attentions weights of the decoder's cross-attention layer, after the attention softmax, used to compute the
             weighted average in the cross-attention heads.
     """
+
     last_hidden_state: torch.FloatTensor = None
     scores: torch.FloatTensor = None
     past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None

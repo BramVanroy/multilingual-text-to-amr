@@ -1,5 +1,6 @@
 import ftfy
 
+
 """Fix all the sentences in "# ::snt " in given AMR files. Some of these contain encoding issues and need
 to be fixed. Also special characters/quotation marks will be normalized. This is especially important before 
 translation."""
@@ -55,9 +56,13 @@ def main():
     cparser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     cparser.add_argument("amr_dir", help="dir with AMR files (potentially deep-structured)")
     cparser.add_argument("output_dir", help="dir to write the new structure and files to with fixed sentences")
-    cparser.add_argument("-v", "--verbose", action="store_true",
-                         help="whether to print fixed sentences to stdout. Only the fixed sentences that differ from"
-                              " the original sentence will be printed")
+    cparser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="whether to print fixed sentences to stdout. Only the fixed sentences that differ from"
+        " the original sentence will be printed",
+    )
 
     cargs = cparser.parse_args()
     translate(**vars(cargs))
