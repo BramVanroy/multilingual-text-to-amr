@@ -63,7 +63,7 @@ and add `:sense` for generalizability. That means the model can still generate `
 
 In AMR, we often refer back to other concepts by means of variables. That means that we need a way to keep track of
 the referent and referees. To distingusih them, we use `:termX` for antecedents, and `:refX` for items that refer to 
-term `X`. E.g., `:term5` is the antecedent that `:ref5` refers to. Again, we include up to `:term100` and `:ref100`
+term `X`. E.g., `:term5` is the antecedent that `:ref5` refers to. Again, we include up to `:term20` and `:ref20`
 but also include a generic `:term` and `:ref`.
 
 # Branch boundaries
