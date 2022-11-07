@@ -193,8 +193,14 @@ def penmantree2linearized(penman_tree: Tree) -> str:
             tokens.append(references[varname])
 
             for relation_type, targetnode in branches:
+                # We add a special token for negative polarity because it is a strong semantic cue
+                if relation_type == ":polarity" and targetnode == "-":
+                    tokens.append(":negation")
+                    continue
+
                 if relation_type != "/":
                     tokens.append(relation_type)
+
                 _iterate(targetnode, relation_type == "/")
 
             tokens.append(":endrel")
@@ -285,6 +291,9 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
             # End of a relation
             elif token == ":endrel":  # Stop processing because we have now processed a whole :startrel -> :endrel chunk
                 break
+            # Handle the special token :negation, which indicate s negative polarity
+            elif token == ":negation":
+                penman_tokens.append(":polarity -")
             # SENSE IDs: add the sense to the previous token
             elif match := re.match(r"^:sense(.+)", token):
                 penman_tokens[-1] = penman_tokens[-1] if match.group(
