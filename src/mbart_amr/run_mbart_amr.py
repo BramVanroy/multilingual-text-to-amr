@@ -9,11 +9,12 @@ from functools import partial
 from typing import Optional
 
 import evaluate as evaluate
+import numpy as np
 import transformers
 
 from mbart_amr.data.tokenization import AMRMBartTokenizer
 from mbart_amr.data.dataset import AMRDataset, collate_amr
-from transformers import (HfArgumentParser, Trainer, TrainingArguments,
+from transformers import (HfArgumentParser, Seq2SeqTrainer, Seq2SeqTrainingArguments,
                           is_torch_tpu_available, set_seed, MBartForConditionalGeneration, EarlyStoppingCallback)
 from transformers.trainer_utils import get_last_checkpoint
 
@@ -123,7 +124,7 @@ class DataTrainingArguments:
 
 
 @dataclass
-class ExpandedTrainingArguments(TrainingArguments):
+class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
     early_stopping_patience: Optional[int] = field(
         default=None,
         metadata={"help": "Stop training when the evaluation metric worsens (instead of improves) for"
@@ -135,36 +136,8 @@ class ExpandedTrainingArguments(TrainingArguments):
     )
 
 
-# Some trainer-specific submethods that may be relevant:
-def preprocess_logits_for_metrics(logits, labels):
-    if isinstance(logits, tuple):
-        # Depending on the model and config, logits may contain extra tensors,
-        # like past_key_values, but logits always come first
-        logits = logits[0]
-    return logits.argmax(dim=-1)
-
-
-metric = evaluate.load("accuracy")
-
-def compute_metrics(eval_preds):
-    preds, labels = eval_preds
-    # preds have the same shape as the labels, after the argmax(-1) has been calculated
-    # by preprocess_logits_for_metrics
-    labels = labels.reshape(-1)
-    preds = preds.reshape(-1)
-    mask = labels != -100
-    labels = labels[mask]
-    preds = preds[mask]
-
-    acc = metric.compute(predictions=preds, references=labels)
-
-    # calculate smatch
-    smatch = {}
-
-    return {**acc, **smatch}
-
 def main():
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, ExpandedTrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, ExpandedSeq2SeqTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -251,6 +224,44 @@ def main():
     model.resize_token_embeddings(len(tokenizer))
 
     #######################
+    # CUSTOM METRICS #
+    #######################
+    def preprocess_logits_for_metrics(logits, labels):
+        if isinstance(logits, tuple):
+            # Depending on the model and config, logits may contain extra tensors,
+            # like past_key_values, but logits always come first
+            logits = logits[0]
+        return logits.argmax(dim=-1)
+
+    acc_metric = evaluate.load("accuracy")
+    sb_metric = evaluate.load("sacrebleu")
+    def compute_metrics(eval_preds):
+        preds, labels = eval_preds
+        if isinstance(preds, tuple):
+            preds = preds[0]
+
+        # BLEU
+        labels_for_bleu = np.where(labels != -100, labels, tokenizer.pad_token_id)
+        preds_for_bleu = np.where(preds != -100, preds, tokenizer.pad_token_id)
+        ref_linearization = [tokenizer.decode_and_fix(l) for l in labels_for_bleu]
+        pred_linearization = [tokenizer.decode_and_fix(p) for p in preds_for_bleu]
+
+        sb = {"bleu": sb_metric.compute(predictions=pred_linearization, references=ref_linearization)["score"]}
+
+        # Accuracy: flatten and calculate accuracy on flattened arrays
+        labels = labels.reshape(-1)
+        preds = preds.reshape(-1)
+        mask = labels != -100
+        labels = labels[mask]
+        preds = preds[mask]
+        acc = acc_metric.compute(predictions=preds, references=labels)
+
+        # TODO: postprocess + calculate smatch
+        smatch = {}
+
+        return {**acc, **sb}
+
+    #######################
     # Load datasets #
     #######################
     train_dataset = None
@@ -263,7 +274,7 @@ def main():
 
     training_args.remove_unused_columns = False
     # Initialize our Trainer
-    trainer = Trainer(
+    trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
@@ -271,9 +282,7 @@ def main():
         tokenizer=tokenizer,
         data_collator=partial(collate_amr, tokenizer, data_args.input_max_seq_length, data_args.output_max_seq_length),
         compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics
-        if training_args.do_eval and not is_torch_tpu_available()
-        else None,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=training_args.early_stopping_patience,
                                          early_stopping_threshold=training_args.early_stopping_threshold)]
     )
