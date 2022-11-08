@@ -3,8 +3,8 @@ from tqdm import tqdm
 import penman
 from ftfy import fix_text
 
-from amr_bart.amr_bart.linearization import penmanstr2linearized, linearized2penmantree
-from amr_bart.amr_bart.tokenization_amr_bart import AMRMBartTokenizer
+from mbart_amr.amr_bart.linearization import penmanstr2linearized, linearized2penmantree
+from mbart_amr.amr_bart.tokenization_amr_bart import AMRMBartTokenizer
 
 
 def main(indir: str):
@@ -19,8 +19,8 @@ def main(indir: str):
                 penman_str = fix_text(penman.format(tree))
                 original_tree = penman.parse(penman_str)
 
-                encoded = tokenizer.encode_penmanstr(penman_str, remove_wiki=False)
-                decoded = tokenizer.decode_and_fix(encoded)
+                encoded = tokenizer.encode_penmanstrs(penman_str, remove_wiki=False)
+                decoded = tokenizer.decode_and_fix(encoded.input_ids)
 
                 try:
                     delinearized_tree = linearized2penmantree(decoded)

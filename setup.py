@@ -1,7 +1,7 @@
 from pathlib import Path
 from setuptools import find_packages, setup
 
-from src.amr_bart import __version__
+from src.mbart_amr import __version__
 
 
 extras = {"style": ["flake8", "isort", "black"]}

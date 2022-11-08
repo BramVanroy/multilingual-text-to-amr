@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import List, Optional, Union
 
-from amr_bart.amr_bart.linearization import penmanstr2linearized
+from mbart_amr.data.linearization import penmanstr2linearized
 from ftfy import fix_text
 from transformers import BatchEncoding, MBartTokenizer
 
@@ -71,15 +71,21 @@ class AMRMBartTokenizer(MBartTokenizer):
             inst.add_tokens(list(sorted(new_tokens)))
             print(f"Added {len(new_tokens):,} new tokens!")
 
+        inst.tgt_lang = "amr_XX"
+
         return inst
 
     def decode_and_fix(self, token_ids: List[int]) -> str:
         """Modified from the original HF Tokenizer. Note that run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.
+        Note that this does not work on the batch level but on a single sequence!
 
         :param token_ids: List of token ids
         :return: an output string, representing the linearized graph
         """
+        if isinstance(token_ids[0], list):
+            token_ids = token_ids[0]
+
         filtered_tokens = self.convert_ids_to_tokens(token_ids, skip_special_tokens=True)
         filtered_tokens = [
             token if token in self.added_tokens_encoder else fix_text(token) for token in filtered_tokens
@@ -105,13 +111,7 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         return text
 
-    def encode_penmanstr(self, penman_str: str, remove_wiki: bool = True, **kwargs) -> List[int]:
-        """Given one or  penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids.
-        See: _linearize_and_unescape()"""
-        prepared_str = penmanstr2linearized(penman_str, remove_wiki=remove_wiki)
-        return super().encode(prepared_str, **kwargs)
-
-    def encode_penmanstr_plus(
+    def encode_penmanstrs(
         self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
     ) -> BatchEncoding:
         """Given one or  penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
@@ -122,4 +122,12 @@ class AMRMBartTokenizer(MBartTokenizer):
             penman_strs = [penman_strs]
 
         prepared_strs = [penmanstr2linearized(penman_str, remove_wiki=remove_wiki) for penman_str in penman_strs]
-        return super().encode_plus(prepared_strs, **kwargs)
+        return self(prepared_strs, **kwargs)
+
+
+def postprocess(text: str) -> str:
+    """
+    :param text:
+    :return:
+    """
+    pass

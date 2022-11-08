@@ -2,7 +2,7 @@ from pathlib import Path
 from tqdm import tqdm
 import penman
 
-from amr_bart.amr_bart.linearization import penmantree2linearized, linearized2penmantree
+from mbart_amr.amr_bart.linearization import penmantree2linearized, linearized2penmantree
 
 
 def main(indir: str):

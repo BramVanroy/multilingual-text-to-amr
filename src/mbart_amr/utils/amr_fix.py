@@ -1,6 +1,3 @@
-import ftfy
-
-
 """Fix all the sentences in "# ::snt " in given AMR files. Some of these contain encoding issues and need
 to be fixed. Also special characters/quotation marks will be normalized. This is especially important before 
 translation."""
@@ -8,6 +5,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Union
 
+import ftfy
 from tqdm import tqdm
 
 

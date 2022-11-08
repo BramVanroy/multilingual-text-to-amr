@@ -6,17 +6,15 @@ import os
 import sys
 from dataclasses import dataclass, field
 from functools import partial
-from pathlib import Path
 from typing import Optional
 
+import evaluate as evaluate
 import transformers
-from amr_bart.amr_bart.trainer_amr_bart import (AMRTrainer, compute_metrics,
-                                                preprocess_logits_for_metrics)
-from amr_bart.data.dataset_amr_bart import AMRDataset, collate_amr
-from amr_bart.utils.utils import instantiate_model_and_tokenizer
-from torch.utils.data import Subset
+
+from mbart_amr.data.tokenization import AMRMBartTokenizer
+from mbart_amr.data.dataset import AMRDataset, collate_amr
 from transformers import (HfArgumentParser, Trainer, TrainingArguments,
-                          is_torch_tpu_available, set_seed)
+                          is_torch_tpu_available, set_seed, MBartForConditionalGeneration)
 from transformers.trainer_utils import get_last_checkpoint
 
 
@@ -30,7 +28,7 @@ class ModelArguments:
     """
 
     model_name_or_path: Optional[str] = field(
-        default="facebook/bart-base",
+        default="facebook/mbart-large-cc25",
         metadata={
             "help": (
                 "The model checkpoint for weights initialization.Don't set if you want to train a model from scratch."
@@ -64,10 +62,6 @@ class ModelArguments:
             )
         },
     )
-    from_pretrained: bool = field(
-        default=True,
-        metadata={"help": "Whether to finetune a pretrained model or train from scratch."},
-    )
     additional_tokens_smart_init: bool = field(
         default=True,
         metadata={"help": "Whether to automatically initialize new, special AMR tokens."},
@@ -88,11 +82,21 @@ class DataTrainingArguments:
         default=None,
         metadata={"help": "Directory that contains validation data. Will" " recursively be traversed for *.txt files"},
     )
-    max_seq_length: Optional[int] = field(
+    input_max_seq_length: Optional[int] = field(
         default=None,
         metadata={
             "help": (
                 "The maximum total input sequence length after tokenization and masking. Sequences longer than this"
+                " will be truncated. Default to the max input length of the model. Batches will be padded up to max."
+                " length in the batch."
+            )
+        },
+    )
+    output_max_seq_length: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": (
+                "The maximum total output sequence length after tokenization and masking. Sequences longer than this"
                 " will be truncated. Default to the max input length of the model. Batches will be padded up to max."
                 " length in the batch."
             )
@@ -116,7 +120,33 @@ class DataTrainingArguments:
             )
         },
     )
+# Some trainer-specific submethods that may be relevant:
+def preprocess_logits_for_metrics(logits, labels):
+    if isinstance(logits, tuple):
+        # Depending on the model and config, logits may contain extra tensors,
+        # like past_key_values, but logits always come first
+        logits = logits[0]
+    return logits.argmax(dim=-1)
 
+
+metric = evaluate.load("accuracy")
+
+def compute_metrics(eval_preds):
+    preds, labels = eval_preds
+    # preds have the same shape as the labels, after the argmax(-1) has been calculated
+    # by preprocess_logits_for_metrics
+    labels = labels.reshape(-1)
+    preds = preds.reshape(-1)
+    mask = labels != -100
+    labels = labels[mask]
+    preds = preds[mask]
+
+    acc = metric.compute(predictions=preds, references=labels)
+
+    # calculate smatch
+    smatch = {}
+
+    return {**acc, **smatch}
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
@@ -189,6 +219,11 @@ def main():
     if not model_args.tokenizer_name and model_args.model_name_or_path:
         model_args.tokenizer_name = model_args.model_name_or_path
 
+    # TODO: generalize `src_lang` to other languages. Probably in the dataset and then during collation
+    # set the src_lang on the fly for each batch. tgt_lang is specified in tokenizer from_pretrained call
+    tokenizer = AMRMBartTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs,
+                                                  src_lang="en_XX")
+
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
         "revision": model_args.model_revision,
@@ -197,15 +232,8 @@ def main():
     if not model_args.config_name and model_args.model_name_or_path:
         model_args.config_name = model_args.model_name_or_path
 
-    model, tokenizer = instantiate_model_and_tokenizer(
-        model_args.model_name_or_path,
-        model_args.config_name,
-        model_args.tokenizer_name,
-        additional_tokens_smart_init=model_args.additional_tokens_smart_init,
-        from_pretrained=model_args.additional_tokens_smart_init,
-        tokenizer_kwargs=tokenizer_kwargs,
-        config_kwargs=config_kwargs,
-    )
+    model = MBartForConditionalGeneration.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+    model.resize_token_embeddings(len(tokenizer))
 
     #######################
     # Load datasets #
@@ -213,29 +241,20 @@ def main():
     train_dataset = None
     validation_dataset = None
     if training_args.do_train:
-        train_files = list(Path(data_args.train_directory).rglob("*.txt"))
-        train_dataset = AMRDataset(train_files, tokenizer)
-        if data_args.max_train_samples is not None:
-            max_train_samples = min(len(train_dataset), data_args.max_train_samples)
-            train_dataset = Subset(train_dataset, range(max_train_samples))
+        train_dataset = AMRDataset(data_args.train_directory, tokenizer, max_samples=data_args.max_train_samples)
 
     if training_args.do_eval:
-        validation_files = list(Path(data_args.validation_directory).rglob("*.txt"))
-        validation_dataset = AMRDataset(validation_files, tokenizer)
-        if data_args.max_eval_samples is not None:
-            max_eval_samples = min(len(validation_dataset), data_args.max_eval_samples)
-            validation_dataset = Subset(validation_dataset, range(max_eval_samples))
+        validation_dataset = AMRDataset(data_args.validation_directory, tokenizer, max_samples=data_args.max_eval_samples)
 
-    # Initialize our Trainer
     training_args.remove_unused_columns = False
-    # training_args.prediction_loss_only = True
+    # Initialize our Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=validation_dataset,
         tokenizer=tokenizer,
-        data_collator=partial(collate_amr, tokenizer),
+        data_collator=partial(collate_amr, tokenizer, data_args.input_max_seq_length, data_args.output_max_seq_length),
         compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics
         if training_args.do_eval and not is_torch_tpu_available()
@@ -253,10 +272,7 @@ def main():
         trainer.save_model()  # Saves the tokenizer too for easy upload
         metrics = train_result.metrics
 
-        max_train_samples = (
-            data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
-        )
-        metrics["train_samples"] = min(max_train_samples, len(train_dataset))
+        metrics["train_samples"] = len(train_dataset)
 
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
