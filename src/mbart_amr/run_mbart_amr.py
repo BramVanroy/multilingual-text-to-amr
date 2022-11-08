@@ -14,7 +14,7 @@ import transformers
 from mbart_amr.data.tokenization import AMRMBartTokenizer
 from mbart_amr.data.dataset import AMRDataset, collate_amr
 from transformers import (HfArgumentParser, Trainer, TrainingArguments,
-                          is_torch_tpu_available, set_seed, MBartForConditionalGeneration)
+                          is_torch_tpu_available, set_seed, MBartForConditionalGeneration, EarlyStoppingCallback)
 from transformers.trainer_utils import get_last_checkpoint
 
 
@@ -120,6 +120,21 @@ class DataTrainingArguments:
             )
         },
     )
+
+
+@dataclass
+class ExpandedTrainingArguments(TrainingArguments):
+    early_stopping_patience: Optional[int] = field(
+        default=None,
+        metadata={"help": "Stop training when the evaluation metric worsens (instead of improves) for"
+                          " early_stopping_patience evaluation calls."},
+    )
+    early_stopping_threshold: Optional[float] = field(
+        default=None,
+        metadata={"help": "Denote how much the evaluation metric must improve to satisfy early stopping conditions."},
+    )
+
+
 # Some trainer-specific submethods that may be relevant:
 def preprocess_logits_for_metrics(logits, labels):
     if isinstance(logits, tuple):
@@ -149,7 +164,7 @@ def compute_metrics(eval_preds):
     return {**acc, **smatch}
 
 def main():
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, ExpandedTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -259,6 +274,8 @@ def main():
         preprocess_logits_for_metrics=preprocess_logits_for_metrics
         if training_args.do_eval and not is_torch_tpu_available()
         else None,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=training_args.early_stopping_patience,
+                                         early_stopping_threshold=training_args.early_stopping_threshold)]
     )
 
     # Training
