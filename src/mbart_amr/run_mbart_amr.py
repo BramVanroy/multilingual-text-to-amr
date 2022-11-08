@@ -241,10 +241,10 @@ def main():
     train_dataset = None
     validation_dataset = None
     if training_args.do_train:
-        train_dataset = AMRDataset(data_args.train_directory, tokenizer, max_samples=data_args.max_train_samples)
+        train_dataset = AMRDataset(data_args.train_directory, max_samples=data_args.max_train_samples)
 
     if training_args.do_eval:
-        validation_dataset = AMRDataset(data_args.validation_directory, tokenizer, max_samples=data_args.max_eval_samples)
+        validation_dataset = AMRDataset(data_args.validation_directory, max_samples=data_args.max_eval_samples)
 
     training_args.remove_unused_columns = False
     # Initialize our Trainer

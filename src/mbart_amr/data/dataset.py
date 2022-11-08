@@ -57,12 +57,10 @@ class AMRDataset(Dataset):
     def __init__(
             self,
             din: Union[str, PathLike],
-            tokenizer: AMRMBartTokenizer,
             remove_wiki: bool = False,
             max_samples: Optional[int] = None
     ):
         self.pdin = Path(din)
-        self.tokenizer = tokenizer
         self.remove_wiki = remove_wiki
         self.max_samples = max_samples
 
