@@ -1,30 +1,45 @@
 {
-  "train_directory": "D:\\corpora\\amr_annotation_3.0\\data\\amrs_fixed\\split\\training",
-  "validation_directory": "D:\\corpora\\amr_annotation_3.0\\data\\amrs_fixed\\split\\dev",
-  "output_dir": "F:\\python\\multilingual-text-to-amr\\runs",
+  "model_name_or_path": "facebook/mbart-large-cc25",
+  "train_directories": [
+    "path/to/english/training",
+    "path/to/dutch/training",
+    "path/to/spanish/training"
+  ],
+  "validation_directories": [
+    "path/to/english/dev",
+    "path/to/dutch/dev",
+    "path/to/spanish/dev"
+  ],
+  "src_langs": ["en_XX", "nl_XX", "es_XX"],
+  "output_dir": "runs",
   "do_train": true,
   "do_eval": true,
   "overwrite_output_dir": true,
-  "report_to": "wandb",
-  "run_name": "amr",
+  "report_to": "none",
+  "run_name": "AMR dev",
 
   "save_steps": 100,
   "evaluation_strategy": "steps",
   "eval_steps": 100,
   "logging_steps": 10,
   "save_total_limit": 5,
-  "num_train_epochs": 30,
+  "num_train_epochs": 10,
 
-  "per_device_train_batch_size": 1,
-  "per_device_eval_batch_size": 1,
-  "input_max_seq_length": 8,
-  "output_max_seq_length": 8,
-  "max_train_samples": 32,
-  "max_eval_samples": 32,
+  "per_device_train_batch_size": 8,
+  "per_device_eval_batch_size": 8,
+  "input_max_seq_length": 128,
+  "output_max_seq_length": 128,
+
+  "max_train_samples_per_language": null,
+  "max_eval_samples_per_language": null,
 
   "max_grad_norm": 2.5,
   "gradient_accumulation_steps": 1,
-  "eval_accumulation_steps": 1,
-  "learning_rate": 0.00005,
-  "no_cuda": false
+  "eval_accumulation_steps": 8,
+  "learning_rate": 0.0005,
+  "no_cuda": false,
+
+  "early_stopping_patience": null,
+  "early_stopping_threshold": null,
+  "load_best_model_at_end": true
 }
