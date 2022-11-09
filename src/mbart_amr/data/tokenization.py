@@ -4,8 +4,8 @@ import re
 from pathlib import Path
 from typing import List, Optional, Union
 
-from mbart_amr.data.linearization import penmanstr2linearized
 from ftfy import fix_text
+from mbart_amr.data.linearization import penmanstr2linearized
 from transformers import BatchEncoding, MBartTokenizer
 
 

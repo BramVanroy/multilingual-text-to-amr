@@ -1,21 +1,21 @@
-"""Pretraining models for denoising multilingual language modeling on a text file or a dataset.
-"""
+"""Finetuning MBart models on multilingual datasets for text-to-AMR"""
 import logging
 import math
 import os
 import sys
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Optional
+from typing import List, Optional, Union
 
 import evaluate as evaluate
 import numpy as np
 import transformers
-
-from mbart_amr.data.tokenization import AMRMBartTokenizer
 from mbart_amr.data.dataset import AMRDataset, collate_amr
-from transformers import (HfArgumentParser, Seq2SeqTrainer, Seq2SeqTrainingArguments,
-                          is_torch_tpu_available, set_seed, MBartForConditionalGeneration, EarlyStoppingCallback)
+from mbart_amr.data.tokenization import AMRMBartTokenizer
+from mbart_amr.trainer import AMRTrainer, ExpandedSeq2SeqTrainingArguments
+from transformers import (EarlyStoppingCallback, HfArgumentParser,
+                          MBartForConditionalGeneration, Seq2SeqTrainer,
+                          is_torch_tpu_available, set_seed)
 from transformers.trainer_utils import get_last_checkpoint
 
 
@@ -46,10 +46,6 @@ class ModelArguments:
         default=None,
         metadata={"help": "Where do you want to store the pretrained models downloaded from huggingface.co"},
     )
-    use_fast_tokenizer: bool = field(
-        default=True,
-        metadata={"help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."},
-    )
     model_revision: str = field(
         default="main",
         metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
@@ -63,10 +59,6 @@ class ModelArguments:
             )
         },
     )
-    additional_tokens_smart_init: bool = field(
-        default=True,
-        metadata={"help": "Whether to automatically initialize new, special AMR tokens."},
-    )
 
 
 @dataclass
@@ -75,13 +67,26 @@ class DataTrainingArguments:
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
 
-    train_directory: Optional[str] = field(
-        default=None,
-        metadata={"help": "Directory that contains training data. Will recursively" " be traversed for *.txt files"},
+    src_langs: List[str] = field(
+        metadata={
+            "help": "A list of source languages that corresponds with the given order in"
+            " `train|validation directories`. Make sure that the right language code is used with"
+            " respect to the model that you are using."
+        },
     )
-    validation_directory: Optional[str] = field(
+    train_directories: Optional[List[Union[str, os.PathLike]]] = field(
         default=None,
-        metadata={"help": "Directory that contains validation data. Will" " recursively be traversed for *.txt files"},
+        metadata={
+            "help": "Directories that contains training data. Will recursively be traversed for *.txt files."
+            " One directory per source language."
+        },
+    )
+    validation_directories: Optional[List[Union[str, os.PathLike]]] = field(
+        default=None,
+        metadata={
+            "help": "Directory that contains validation data. Will recursively be traversed for *.txt files."
+            " One directory per source language."
+        },
     )
     input_max_seq_length: Optional[int] = field(
         default=None,
@@ -103,36 +108,23 @@ class DataTrainingArguments:
             )
         },
     )
-    max_train_samples: Optional[int] = field(
+    max_train_samples_per_language: Optional[int] = field(
         default=None,
         metadata={
             "help": (
                 "For debugging purposes or quicker training, truncate the number of training examples to this "
-                "value if set."
+                "value if set per given language."
             )
         },
     )
-    max_eval_samples: Optional[int] = field(
+    max_eval_samples_per_language: Optional[int] = field(
         default=None,
         metadata={
             "help": (
                 "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
-                "value if set."
+                "value if set per given language."
             )
         },
-    )
-
-
-@dataclass
-class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
-    early_stopping_patience: Optional[int] = field(
-        default=None,
-        metadata={"help": "Stop training when the evaluation metric worsens (instead of improves) for"
-                          " early_stopping_patience evaluation calls."},
-    )
-    early_stopping_threshold: Optional[float] = field(
-        default=None,
-        metadata={"help": "Denote how much the evaluation metric must improve to satisfy early stopping conditions."},
     )
 
 
@@ -200,7 +192,6 @@ def main():
     ############################
     tokenizer_kwargs = {
         "cache_dir": model_args.cache_dir,
-        "use_fast": model_args.use_fast_tokenizer,
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
     }
@@ -209,8 +200,7 @@ def main():
 
     # TODO: generalize `src_lang` to other languages. Probably in the dataset and then during collation
     # set the src_lang on the fly for each batch. tgt_lang is specified in tokenizer from_pretrained call
-    tokenizer = AMRMBartTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs,
-                                                  src_lang="en_XX")
+    tokenizer = AMRMBartTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs, src_lang="en_XX")
 
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
@@ -235,6 +225,7 @@ def main():
 
     acc_metric = evaluate.load("accuracy")
     sb_metric = evaluate.load("sacrebleu")
+
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
         if isinstance(preds, tuple):
@@ -267,37 +258,55 @@ def main():
     train_dataset = None
     validation_dataset = None
     if training_args.do_train:
-        train_dataset = AMRDataset(data_args.train_directory, max_samples=data_args.max_train_samples)
+        train_dataset = AMRDataset(
+            data_args.train_directories,
+            src_langs=data_args.src_langs,
+            max_samples_per_language=data_args.max_train_samples_per_language,
+        )
 
     if training_args.do_eval:
-        validation_dataset = AMRDataset(data_args.validation_directory, max_samples=data_args.max_eval_samples)
+        validation_dataset = AMRDataset(
+            data_args.validation_directories,
+            src_langs=data_args.src_langs,
+            max_samples_per_language=data_args.max_eval_samples_per_language,
+        )
 
     training_args.remove_unused_columns = False
     callbacks = []
     # If you want to use early stopping, both arguments have to be specified. Throw error if just one is specified.
     if training_args.early_stopping_patience is not None and training_args.early_stopping_threshold is not None:
-        callbacks.append(EarlyStoppingCallback(early_stopping_patience=training_args.early_stopping_patience,
-                                               early_stopping_threshold=training_args.early_stopping_threshold))
+        callbacks.append(
+            EarlyStoppingCallback(
+                early_stopping_patience=training_args.early_stopping_patience,
+                early_stopping_threshold=training_args.early_stopping_threshold,
+            )
+        )
     elif (training_args.early_stopping_patience is None or training_args.early_stopping_threshold is None) and not (
-            training_args.early_stopping_patience is None and training_args.early_stopping_threshold is None
+        training_args.early_stopping_patience is None and training_args.early_stopping_threshold is None
     ):
-        raise ValueError("Both 'early_stopping_patience' and 'early_stopping_threshold' must be given, or none of them."
-                         " If none are given, early stopping will not be used.")
+        raise ValueError(
+            "Both 'early_stopping_patience' and 'early_stopping_threshold' must be given, or none of them."
+            " If none are given, early stopping will not be used."
+        )
 
     # Initialize our Trainer
-    trainer = Seq2SeqTrainer(
+    trainer = AMRTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=validation_dataset,
         tokenizer=tokenizer,
-        data_collator=partial(collate_amr,
-                              tokenizer=tokenizer,
-                              input_max_seq_length=data_args.input_max_seq_length,
-                              output_max_seq_length=data_args.output_max_seq_length),
+        data_collator=partial(
+            collate_amr,
+            tokenizer=tokenizer,
+            input_max_seq_length=data_args.input_max_seq_length,
+            output_max_seq_length=data_args.output_max_seq_length,
+        ),
         compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
-        callbacks=callbacks
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics
+        if training_args.do_eval and not is_torch_tpu_available()
+        else None,
+        callbacks=callbacks,
     )
 
     # Training
@@ -323,10 +332,9 @@ def main():
 
         metrics = trainer.evaluate()
 
-        max_eval_samples = (
-            data_args.max_eval_samples if data_args.max_eval_samples is not None else len(validation_dataset)
-        )
-        metrics["eval_samples"] = min(max_eval_samples, len(validation_dataset))
+        # Will take max_eval_samples_per_language into consideration
+        # because we never add more samples to the dataset than needed
+        metrics["eval_samples"] = len(validation_dataset)
         try:
             perplexity = math.exp(metrics["eval_loss"])
         except OverflowError:
