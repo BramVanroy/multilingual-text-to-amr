@@ -291,7 +291,10 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=validation_dataset,
         tokenizer=tokenizer,
-        data_collator=partial(collate_amr, tokenizer, data_args.input_max_seq_length, data_args.output_max_seq_length),
+        data_collator=partial(collate_amr,
+                              tokenizer=tokenizer,
+                              input_max_seq_length=data_args.input_max_seq_length,
+                              output_max_seq_length=data_args.output_max_seq_length),
         compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
         callbacks=callbacks

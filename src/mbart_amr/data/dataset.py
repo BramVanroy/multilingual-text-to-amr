@@ -26,10 +26,16 @@ KEEP_KEYS = {
 }
 
 
-def collate_amr(tokenizer: AMRMBartTokenizer,
-                input_max_seq_length: Optional[int],
-                output_max_seq_length: Optional[int],
-                samples: List[dict]):
+def collate_amr(samples: List[dict],
+                tokenizer: AMRMBartTokenizer,
+                input_max_seq_length: Optional[int] = None,
+                output_max_seq_length: Optional[int] = None,
+                ):
+    print("TOKENIZER", type(tokenizer))
+    print("input", input_max_seq_length)
+    print("output", output_max_seq_length)
+    exit()
+
     """Collate a given batch from the dataset by 1. tokenizing a given sentence and getting its attention mask,
     token_ids, etc. for input; 2. linearizing and tokenizing the associated penman str as the labels.
 
