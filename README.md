@@ -115,6 +115,12 @@ https://github.com/amrisi/amr-guidelines/blob/master/amr.md
 
 ## TODO
 
+- add a shuffle argument to the sampler
+- make sure that sampler is also applied to the eval/test sets so that the batches are sorted (with shuffle false?)
+- make sure a pdin exists during iteration in dataset
+- add do_predict with test sets
+
+
 - postprocessing for invalid trees that the model may produce;
 - add smatch as metric;
 - add script to only run prediction on an already trained model so that we can go from text -> AMR. Must include postprocessing!

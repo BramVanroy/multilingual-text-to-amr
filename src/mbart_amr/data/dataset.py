@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 import penman
+import torch
 from ftfy import fix_text
 from mbart_amr.data.linearization import do_remove_wiki
 from mbart_amr.data.tokenization import AMRMBartTokenizer
@@ -62,17 +63,16 @@ def collate_amr(
         max_length=input_max_seq_length,
         return_tensors="pt",
     )
-    encoded_linearized = {
-        "labels": tokenizer.encode_penmanstrs(
+    labels = tokenizer.encode_penmanstrs(
             [s["penmanstr"] for s in samples],
             padding=True,
             truncation=True,
             max_length=output_max_seq_length,
             return_tensors="pt",
         ).input_ids
-    }
+    labels = torch.where(labels == tokenizer.pad_token_id, -100, labels)
 
-    return {**encoded_inputs, **encoded_linearized}
+    return {**encoded_inputs, "labels": labels}
 
 
 class AMRDataset(Dataset):
