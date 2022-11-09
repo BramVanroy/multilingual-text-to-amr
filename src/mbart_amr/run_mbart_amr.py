@@ -273,6 +273,17 @@ def main():
         validation_dataset = AMRDataset(data_args.validation_directory, max_samples=data_args.max_eval_samples)
 
     training_args.remove_unused_columns = False
+    callbacks = []
+    # If you want to use early stopping, both arguments have to be specified. Throw error if just one is specified.
+    if training_args.early_stopping_patience is not None and training_args.early_stopping_threshold is not None:
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=training_args.early_stopping_patience,
+                                               early_stopping_threshold=training_args.early_stopping_threshold))
+    elif (training_args.early_stopping_patience is None or training_args.early_stopping_threshold is None) and not (
+            training_args.early_stopping_patience is None and training_args.early_stopping_threshold is None
+    ):
+        raise ValueError("Both 'early_stopping_patience' and 'early_stopping_threshold' must be given, or none of them."
+                         " If none are given, early stopping will not be used.")
+
     # Initialize our Trainer
     trainer = Seq2SeqTrainer(
         model=model,
@@ -283,8 +294,7 @@ def main():
         data_collator=partial(collate_amr, tokenizer, data_args.input_max_seq_length, data_args.output_max_seq_length),
         compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=training_args.early_stopping_patience,
-                                         early_stopping_threshold=training_args.early_stopping_threshold)]
+        callbacks=callbacks
     )
 
     # Training
