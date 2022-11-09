@@ -39,12 +39,13 @@ setup(
         "transformers",
         "evaluate",
         "scikit-learn",
-        "datasets",
         "penman>=1.2.2",
         "networkx",
         "smatch",
         "tqdm",
-        "torch"
+        "torch",
+        "sacrebleu",
+        "sentencepiece"
     ],
     extras_require=extras,
 )
