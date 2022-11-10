@@ -29,6 +29,17 @@ pipeline. You can specify those with
 "max_eval_samples_per_language": null,
 ```
 
+I checked the input of the English AMR 3.0 corpus, and very few samples have a tokenized input (text) of more than
+`128`. However, I recommend to not change the output length (set it to `null` or leave it out), because that will 
+truncate the linearized tree (labels), which leads to an invalid reference tree!
+
+These defaults should be sensible:
+
+```json
+"input_max_seq_length": 128,
+"output_max_seq_length": null,
+```
+
 If you want to have a look at all the possible arguments, you can run:
 
 ```shell
