@@ -8,7 +8,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 
 def get_src_lang_grouped_indices(
-    src_langs: List[str],
+    dataset: AMRDataset,
     batch_size: int,
     keep_incomplete_batches: bool = False,
     shuffle: bool = True,
@@ -18,7 +18,7 @@ def get_src_lang_grouped_indices(
     may contain mixed languages, however, because they contain the data per language that did not fit in a single batch.
     By default, these are dropped. To include these incomplete batches, set 'keep_incomplete_batches = True'.
 
-    :param src_langs: a list of strings, indicating the source language of each sample
+    :param dataset: dataset to process
     :param batch_size: the batch size to use, must be same as in the dataloader
     :param keep_incomplete_batches: whether to keep incomplete batches. This will cause the final batch(es) to have data
     of different languages!
@@ -29,6 +29,8 @@ def get_src_lang_grouped_indices(
     :return: indices of the dataset, ordered in such a way so that they are homogenous in their source language (with
     the potential exception of the last batch(es))
     """
+    src_langs = [d["metadata"]["src_lang"] for d in dataset]
+
     # Per language, collect all the indices assosicated with that language
     lang_idxs = defaultdict(list)
     for idx, src_lang in enumerate(src_langs):
@@ -39,7 +41,7 @@ def get_src_lang_grouped_indices(
     # Iterate over a language and all its associated indices so that we can
     # 1. shuffle the data (could have done it outside the loop as well for ALL at once, but here we are)
     # 2. split the indices into batches. We keep track of full batches and incomplete ones so that we can
-    # 3. put all the incomplete batches near the end or drop them in case keep_incomplete_batches = False
+    # put all the incomplete batches near the end or drop them in case keep_incomplete_batches = False
     for lang, lang_idxs in lang_idxs.items():
         lang_idxs = torch.LongTensor(lang_idxs)
         if shuffle:
@@ -94,17 +96,17 @@ class SrcLangGroupedSampler(Sampler):
         generator=None,
     ):
         self.batch_size = batch_size
-        self.src_langs = [d["metadata"]["src_lang"] for d in dataset]
+        self.dataset = dataset
         self.keep_incomplete_batches = keep_incomplete_batches
         self.shuffle = shuffle
         self.generator = generator
 
     def __len__(self) -> int:
-        return len(self.src_langs)
+        return len(self.dataset)
 
     def __iter__(self) -> Iterator:
         indices = get_src_lang_grouped_indices(
-            self.src_langs,
+            self.dataset,
             self.batch_size,
             self.keep_incomplete_batches,
             shuffle=self.shuffle,
@@ -119,7 +121,7 @@ class DistributedSrcLangGroupedSampler(DistributedSampler):
     def __init__(self, batch_size: int, dataset: AMRDataset, *args, keep_incomplete_batches: bool = True, **kwargs):
         super().__init__(dataset, *args, **kwargs)
         self.batch_size = batch_size
-        self.src_langs = [d["metadata"]["src_lang"] for d in dataset]
+        self.dataset = dataset
         self.keep_incomplete_batches = keep_incomplete_batches
 
     def __iter__(self) -> Iterator:
@@ -127,7 +129,7 @@ class DistributedSrcLangGroupedSampler(DistributedSampler):
         g = torch.Generator()
         g.manual_seed(self.seed + self.epoch)
         indices = get_src_lang_grouped_indices(
-            self.src_langs, self.batch_size, self.keep_incomplete_batches, shuffle=self.shuffle, generator=g
+            self.dataset, self.batch_size, self.keep_incomplete_batches, shuffle=self.shuffle, generator=g
         )
 
         if not self.drop_last:

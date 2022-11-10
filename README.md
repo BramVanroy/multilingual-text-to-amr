@@ -115,9 +115,7 @@ https://github.com/amrisi/amr-guidelines/blob/master/amr.md
 
 ## TODO
 
-- make sure a pdin exists during iteration in dataset
 - add do_predict with test sets
-
 
 - postprocessing for invalid trees that the model may produce;
 - add smatch as metric;
