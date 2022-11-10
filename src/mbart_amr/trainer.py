@@ -4,10 +4,12 @@ from typing import Optional
 import torch
 from mbart_amr.data.sampler import (DistributedSrcLangGroupedSampler,
                                     SrcLangGroupedSampler)
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import (DataLoader, Dataset, RandomSampler,
+                              SequentialSampler)
 from torch.utils.data.distributed import DistributedSampler
 from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
-from transformers.trainer_pt_utils import DistributedSamplerWithLoop
+from transformers.trainer_pt_utils import (DistributedSamplerWithLoop,
+                                           ShardSampler)
 from transformers.trainer_utils import has_length
 from transformers.training_args import ParallelMode
 
@@ -39,8 +41,8 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
         default=True,
         metadata={
             "help": "Whether to shuffle the training set when 'keep_incomplete_batches' is enabled. If"
-                    " 'keep_incomplete_batches' is not enabled, the training set will always be shuffled."
-                    " The validation/test set will never be shuffled."
+            " 'keep_incomplete_batches' is not enabled, the training set will always be shuffled."
+            " The validation/test set will never be shuffled."
         },
     )
 
@@ -109,3 +111,34 @@ class AMRTrainer(Seq2SeqTrainer):
                     rank=self.args.process_index,
                     seed=seed,
                 )
+
+    def _get_eval_sampler(self, eval_dataset: Dataset) -> Optional[torch.utils.data.Sampler]:
+        if self.args.group_by_lang:
+            if self.args.world_size <= 1:
+                # We use batch_size * gradient_accumulation_steps as a single batch size
+                # so that every optimization step, we are optimizing for a single language
+                return SrcLangGroupedSampler(
+                    batch_size=self.args.per_device_eval_batch_size,
+                    keep_incomplete_batches=self.args.keep_incomplete_batches,
+                    dataset=eval_dataset,
+                    shuffle=False,
+                )
+            else:
+                return DistributedSrcLangGroupedSampler(
+                    batch_size=self.args.per_device_eval_batch_size,
+                    dataset=eval_dataset,
+                    num_replicas=self.args.world_size,
+                    rank=self.args.process_index,
+                    keep_incomplete_batches=self.args.keep_incomplete_batches,
+                    shuffle=False,
+                )
+
+        if self.args.world_size <= 1:
+            return SequentialSampler(eval_dataset)
+        else:
+            return ShardSampler(
+                eval_dataset,
+                batch_size=self.args.per_device_eval_batch_size,
+                num_processes=self.args.world_size,
+                process_index=self.args.process_index,
+            )

@@ -64,12 +64,12 @@ def collate_amr(
         return_tensors="pt",
     )
     labels = tokenizer.encode_penmanstrs(
-            [s["penmanstr"] for s in samples],
-            padding=True,
-            truncation=True,
-            max_length=output_max_seq_length,
-            return_tensors="pt",
-        ).input_ids
+        [s["penmanstr"] for s in samples],
+        padding=True,
+        truncation=True,
+        max_length=output_max_seq_length,
+        return_tensors="pt",
+    ).input_ids
     labels = torch.where(labels == tokenizer.pad_token_id, -100, labels)
 
     return {**encoded_inputs, "labels": labels}

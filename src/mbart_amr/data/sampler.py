@@ -104,7 +104,11 @@ class SrcLangGroupedSampler(Sampler):
 
     def __iter__(self) -> Iterator:
         indices = get_src_lang_grouped_indices(
-            self.src_langs, self.batch_size, self.keep_incomplete_batches, shuffle=self.shuffle, generator=self.generator
+            self.src_langs,
+            self.batch_size,
+            self.keep_incomplete_batches,
+            shuffle=self.shuffle,
+            generator=self.generator,
         )
         return iter(indices)
 
