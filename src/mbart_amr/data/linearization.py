@@ -10,6 +10,7 @@ from penman.tree import _default_variable_prefix, is_atomic
 def do_remove_wiki(penman_str: str):
     """Remove all wiki entrires from a given penman string. These are the items that start with ':wiki' and
     have a value after it that is enclosed in double quotation marks '"'.
+    TODO: in spring, they replace the wiki value with "+". Should we do that too? https://github.com/BramVanroy/spring/blob/main/spring_amr/penman.py
 
     :param penman_str: the given penman string
     :return: a string where all the wiki entries are removed
@@ -413,7 +414,9 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
         ref2varname[canon_ref.replace("-canonicalref", "")] = prev_token
 
     # Replace :ref tokens with the found varnames for that token, and remove the canonical ref tokens
-    penman_tokens = [ref2varname[t] if t in tokens_with_refs else t for t in penman_tokens if not t.endswith("-canonicalref")]
+    penman_tokens = [
+        ref2varname[t] if t in tokens_with_refs else t for t in penman_tokens if not t.endswith("-canonicalref")
+    ]
 
     return " ".join(penman_tokens)
 
