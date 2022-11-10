@@ -4,13 +4,18 @@ import math
 import os
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import partial
+from pathlib import Path
 from typing import List, Optional, Union
 
 import evaluate as evaluate
 import numpy as np
+import smatch
 import transformers
+from amr import AMR
 from mbart_amr.data.dataset import AMRDataset, collate_amr
+from mbart_amr.data.linearization import linearized2penmanstr
 from mbart_amr.data.tokenization import AMRMBartTokenizer
 from mbart_amr.trainer import AMRTrainer, ExpandedSeq2SeqTrainingArguments
 from transformers import (EarlyStoppingCallback, HfArgumentParser,
@@ -223,6 +228,60 @@ def main():
             logits = logits[0]
         return logits.argmax(dim=-1)
 
+    def calculate_smatch(references: List[str], predictions: List[str]):
+        total_match_num = total_test_num = total_gold_num = 0
+        n_invalid = 0
+        with Path(training_args.output_dir).joinpath("invalid-amrs.txt").open("a", encoding="utf-8") as fhout:
+            for sentid, (ref, pred) in enumerate(zip(references, predictions), 1):
+                try:
+                    ref_penman = linearized2penmanstr(ref)
+                    # smatch uses its own AMR parser behind-the-scenes instead of penman, so we use it
+                    # here to check if it's a valid tree. If note, this will return None
+                    if AMR.parse_AMR_line(ref_penman) is None:
+                        raise Exception
+                except Exception:
+                    print(ref)
+                    print(ref_penman)
+                    n_invalid += 1
+                    fhout.write(f"REF_ERROR\t{datetime.now().time()}\t{ref}\n")
+                    continue
+
+                try:
+                    pred_penman = linearized2penmanstr(pred)
+                    if AMR.parse_AMR_line(pred_penman) is None:
+                        raise Exception
+                except Exception:
+                    n_invalid += 1
+                    fhout.write(f"PRED_ERROR\t{datetime.now().time()}\t{pred}\n")
+                    continue
+
+                try:
+                    best_match_num, test_triple_num, gold_triple_num = smatch.get_amr_match(
+                        ref_penman, pred_penman, sent_num=sentid
+                    )
+                except Exception:
+                    n_invalid += 1
+                    # At this point, any error is probably caused by the prediction
+                    fhout.write(f"SMATCH_ERROR\t{datetime.now().time()}\t{pred_penman}\n")
+                    continue
+
+                total_match_num += best_match_num
+                total_test_num += test_triple_num
+                total_gold_num += gold_triple_num
+                # clear the matching triple dictionary for the next AMR pair
+                smatch.match_triple_dict.clear()
+
+            if n_invalid > 0:
+                logger.warning(
+                    f"{n_invalid:,} prediction(s) were not valid AMR. Smatch scores only reflect the performance"
+                    f" on valid AMR structures! Invalid structures have been appended to invalid-amrs.txt in the"
+                    f" output directory."
+                )
+
+        score = smatch.compute_f(total_match_num, total_test_num, total_gold_num)
+
+        return {"smatch_precision": score[0], "smatch_recall": score[1], "smatch_fscore": score[2]}
+
     acc_metric = evaluate.load("accuracy")
     sb_metric = evaluate.load("sacrebleu")
 
@@ -234,10 +293,10 @@ def main():
         # BLEU
         labels_for_bleu = np.where(labels != -100, labels, tokenizer.pad_token_id)
         preds_for_bleu = np.where(preds != -100, preds, tokenizer.pad_token_id)
-        ref_linearization = [tokenizer.decode_and_fix(l) for l in labels_for_bleu]
-        pred_linearization = [tokenizer.decode_and_fix(p) for p in preds_for_bleu]
+        ref_linearizations = [tokenizer.decode_and_fix(l) for l in labels_for_bleu]
+        pred_linearizations = [tokenizer.decode_and_fix(p) for p in preds_for_bleu]
 
-        sb = {"bleu": sb_metric.compute(predictions=pred_linearization, references=ref_linearization)["score"]}
+        sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
 
         # Accuracy: flatten and calculate accuracy on flattened arrays
         labels = labels.reshape(-1)
@@ -247,10 +306,9 @@ def main():
         preds = preds[mask]
         acc = acc_metric.compute(predictions=preds, references=labels)
 
-        # TODO: postprocess + calculate smatch
-        smatch = {}
+        smatch_score = calculate_smatch(ref_linearizations, pred_linearizations)
 
-        return {**acc, **sb}
+        return {**acc, **sb, **smatch_score}
 
     #######################
     # Load datasets #
@@ -344,12 +402,12 @@ def main():
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
-        kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "text2text-generation"}
+    kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "text2text-generation"}
 
-        if training_args.push_to_hub:
-            trainer.push_to_hub(**kwargs)
-        else:
-            trainer.create_model_card(**kwargs)
+    if training_args.push_to_hub:
+        trainer.push_to_hub(**kwargs)
+    else:
+        trainer.create_model_card(**kwargs)
 
 
 def _mp_fn(index):
