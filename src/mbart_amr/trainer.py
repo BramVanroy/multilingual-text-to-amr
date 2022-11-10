@@ -45,6 +45,13 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
             " The validation/test set will never be shuffled."
         },
     )
+    smart_initialization: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether to initialize the embeddings of the newly added tokens in a 'smart' way based on their"
+                    " semantics."
+        },
+    )
 
 
 class AMRTrainer(Seq2SeqTrainer):

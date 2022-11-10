@@ -23,6 +23,7 @@ from transformers import (EarlyStoppingCallback, HfArgumentParser,
                           is_torch_tpu_available, set_seed)
 from transformers.trainer_utils import get_last_checkpoint
 
+from mbart_amr.utils.smart_initialization import smart_initialization
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,9 @@ def main():
 
     model = MBartForConditionalGeneration.from_pretrained(model_args.model_name_or_path, **config_kwargs)
     model.resize_token_embeddings(len(tokenizer))
+
+    if training_args.smart_initialization:
+        model = smart_initialization(model, tokenizer)
 
     #######################
     # CUSTOM METRICS #
