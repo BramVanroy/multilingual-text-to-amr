@@ -41,11 +41,11 @@ setup(
         "scikit-learn",
         "penman>=1.2.2",
         "networkx",
+        "sacrebleu",
+        "sentencepiece"
         "smatch",
         "tqdm",
         "torch",
-        "sacrebleu",
-        "sentencepiece"
     ],
     extras_require=extras,
 )
