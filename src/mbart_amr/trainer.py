@@ -35,6 +35,14 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
             "help": "Whether to keep 'rest' batches at the end that can contain samples of different languages."
         },
     )
+    shuffle: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether to shuffle the training set when 'keep_incomplete_batches' is enabled. If"
+                    " 'keep_incomplete_batches' is not enabled, the training set will always be shuffled."
+                    " The validation/test set will never be shuffled."
+        },
+    )
 
 
 class AMRTrainer(Seq2SeqTrainer):
@@ -65,6 +73,7 @@ class AMRTrainer(Seq2SeqTrainer):
                     batch_size=self.args.train_batch_size * self.args.gradient_accumulation_steps,
                     keep_incomplete_batches=self.args.keep_incomplete_batches,
                     dataset=self.train_dataset,
+                    shuffle=self.args.shuffle,
                     generator=generator,
                 )
             else:
@@ -74,6 +83,7 @@ class AMRTrainer(Seq2SeqTrainer):
                     num_replicas=self.args.world_size,
                     rank=self.args.process_index,
                     keep_incomplete_batches=self.args.keep_incomplete_batches,
+                    shuffle=self.args.shuffle,
                     seed=seed,
                 )
 
