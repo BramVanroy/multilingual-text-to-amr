@@ -18,12 +18,13 @@ from mbart_amr.data.dataset import AMRDataset, collate_amr
 from mbart_amr.data.linearization import linearized2penmanstr
 from mbart_amr.data.tokenization import AMRMBartTokenizer
 from mbart_amr.trainer import AMRTrainer, ExpandedSeq2SeqTrainingArguments
+from mbart_amr.utils.smart_initialization import (freeze_encoder,
+                                                  smart_initialization)
 from transformers import (EarlyStoppingCallback, HfArgumentParser,
                           MBartForConditionalGeneration, Seq2SeqTrainer,
                           is_torch_tpu_available, set_seed)
 from transformers.trainer_utils import get_last_checkpoint
 
-from mbart_amr.utils.smart_initialization import smart_initialization
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,9 @@ def main():
 
     if training_args.smart_initialization:
         model = smart_initialization(model, tokenizer)
+
+    if training_args.freeze_encoder:
+        model = freeze_encoder(model)
 
     #######################
     # CUSTOM METRICS #

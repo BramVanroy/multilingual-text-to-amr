@@ -49,7 +49,13 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
         default=True,
         metadata={
             "help": "Whether to initialize the embeddings of the newly added tokens in a 'smart' way based on their"
-                    " semantics."
+            " semantics."
+        },
+    )
+    freeze_encoder: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to freeze the encoder and only train the decoder. The shared embeddings will not be frozen"
         },
     )
 

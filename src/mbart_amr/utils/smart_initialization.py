@@ -1,10 +1,10 @@
 import torch
-from transformers import PreTrainedModel, PreTrainedTokenizerBase, MBartForConditionalGeneration
-
 from mbart_amr.data.tokenization import AMRMBartTokenizer
+from transformers import (MBartForConditionalGeneration, PreTrainedModel,
+                          PreTrainedTokenizerBase)
 
 
-def smart_initialization(model: PreTrainedModel, tokenizer: PreTrainedTokenizerBase):
+def smart_initialization(model: MBartForConditionalGeneration, tokenizer: PreTrainedTokenizerBase):
     """Inspired by SPRING's implementation. We use noise in range -0.01, +0.01 though.
     :param model: the model whose added tokens to initialize
     :param tokenizer: the tokenizer, which also contains the new tokens
@@ -26,9 +26,9 @@ def smart_initialization(model: PreTrainedModel, tokenizer: PreTrainedTokenizerB
             elif token.startswith(":ARG"):
                 components = ["relation", "argument", str(int(token[4:]))]
             elif token.startswith(":ref"):
-                components = ["reference",  str(int(token[4:]))]
+                components = ["reference", str(int(token[4:]))]
             elif token.startswith(":sense"):
-                components = ["meaning",  str(int(token[6:]))]
+                components = ["meaning", str(int(token[6:]))]
             elif token == ":negation":
                 components = ["not"]
             elif token == ":year2":  # make explicit, otherwise it ends up as ["year2"]
@@ -58,9 +58,22 @@ def smart_initialization(model: PreTrainedModel, tokenizer: PreTrainedTokenizerB
         # Filter empty strings, possible after split
         components = " ".join([c for c in components if c])
         components_ids = tokenizer.encode(components, add_special_tokens=False)
-        components_vector = torch.stack([model.model.shared.weight.data[idx].clone() for idx in components_ids], dim=0).mean(dim=0)
+        components_vector = torch.stack(
+            [model.model.shared.weight.data[idx].clone() for idx in components_ids], dim=0
+        ).mean(dim=0)
         noise = torch.FloatTensor(components_vector).uniform_(-0.01, +0.01)
         components_vector = components_vector + noise
         model.model.shared.weight.data[token_id] = components_vector + noise
+
+    return model
+
+
+def freeze_encoder(model: MBartForConditionalGeneration):
+    """Freeze the encoder of the MBART model
+    :param model: MBART model
+    :return: the MBART model with frozen encoder (but in fact the freezing happens in-place!)
+    """
+    for param in model.model.encoder.parameters():
+        param.requires_grad = False
 
     return model
