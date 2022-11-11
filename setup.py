@@ -42,10 +42,15 @@ setup(
         "penman>=1.2.2",
         "networkx",
         "sacrebleu",
-        "sentencepiece"
+        "sentencepiece",
         "smatch",
         "tqdm",
         "torch",
     ],
     extras_require=extras,
+    entry_points={
+        "console_scripts": [
+            "run-mbart-amr = mbart_amr.run_mbart_amr:main",
+        ],
+    }
 )

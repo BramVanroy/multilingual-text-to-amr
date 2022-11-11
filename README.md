@@ -15,10 +15,10 @@ your data is and any other parameters. Note that for every language you can spec
 in that directory will be recursively included in the dataset. Make sure to also specify which source languages
 each dataset has! Specify those in `src_langs`.
 
-After completing the config file, simply run the entry point:
+After completing the config file, simply run the entry point on your config:
 
 ```shell
-python src/mbart_amr/run_mbart_amr.py example_config.json
+run-mbart-amr example_config.json
 ```
 
 For development, it can be useful to limit the training/evaluation samples to have a quick run through the whole
@@ -43,7 +43,7 @@ These defaults should be sensible:
 If you want to have a look at all the possible arguments, you can run:
 
 ```shell
-python src/mbart_amr/run_mbart_amr.py -h
+run-mbart-amr -h
 ```
 
 Out-of-the-box the code should be compatible with distributed systems although I have not tested this explicitly.
