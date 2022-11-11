@@ -65,7 +65,9 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
             "help": "The values balance the model confidence and the degeneration penalty in contrastive search"
                     " decoding. If a value is given together with 'topk', the generation will use contrastive"
                     " decoding. See https://huggingface.co/blog/introducing-csearch. For generating English, the paper"
-                    " authors suggest penalty_alpha=0.6 and top_k=4."
+                    " authors suggest penalty_alpha=0.6 and top_k=4. This only works if 'predict_with_generate' is"
+                    " enabled. Note that this will make evaluation very, very slow! Best to keep that just for"
+                    " predicting the test set."
         },
     )
     top_k: Optional[int] = field(
