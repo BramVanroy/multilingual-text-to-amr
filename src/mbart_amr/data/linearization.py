@@ -10,6 +10,7 @@ from penman.tree import _default_variable_prefix, is_atomic
 def do_remove_wiki(penman_str: str):
     """Remove all wiki entrires from a given penman string. These are the items that start with ':wiki' and
     have a value after it that is enclosed in double quotation marks '"'.
+    TODO: in spring, they replace the wiki value with "+". Should we do that too? https://github.com/BramVanroy/spring/blob/main/spring_amr/penman.py
 
     :param penman_str: the given penman string
     :return: a string where all the wiki entries are removed
@@ -400,18 +401,22 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
 
     # Link references: first get all unique references and the accompanying canonicalrefs
     # Then, for every canonical reference, find the variable name that is associated with it
-    all_refs = set([t.replace("-canonicalref", "") for t in penman_tokens if t.startswith(":ref")])
-    canon_refs = [f"{t}-canonicalref" for t in all_refs]
+    canon_refs = set([t for t in penman_tokens if t.startswith(":ref") and t.endswith("-canonicalref")])
+    tokens_with_refs = set([canon.replace("-canonicalref", "") for canon in canon_refs])
     ref2varname = {}
 
+    # For each canonical reference, get the corresponding tokenpython test
     for canon_ref in canon_refs:
         idx = penman_tokens.index(canon_ref)
+
         # The opening bracket is attached to the token, so remove that
         prev_token = penman_tokens[idx - 1].replace("(", "")
         ref2varname[canon_ref.replace("-canonicalref", "")] = prev_token
 
     # Replace :ref tokens with the found varnames for that token, and remove the canonical ref tokens
-    penman_tokens = [ref2varname[t] if t in all_refs else t for t in penman_tokens if not t.endswith("-canonicalref")]
+    penman_tokens = [
+        ref2varname[t] if t in tokens_with_refs else t for t in penman_tokens if not t.endswith("-canonicalref")
+    ]
 
     return " ".join(penman_tokens)
 

@@ -15,10 +15,10 @@ your data is and any other parameters. Note that for every language you can spec
 in that directory will be recursively included in the dataset. Make sure to also specify which source languages
 each dataset has! Specify those in `src_langs`.
 
-After completing the config file, simply run the entry point:
+After completing the config file, simply run the entry point on your config:
 
 ```shell
-python src/mbart_amr/run_mbart_amr.py example_config.json
+run-mbart-amr example_config.json
 ```
 
 For development, it can be useful to limit the training/evaluation samples to have a quick run through the whole
@@ -29,10 +29,21 @@ pipeline. You can specify those with
 "max_eval_samples_per_language": null,
 ```
 
+I checked the input of the English AMR 3.0 corpus, and very few samples have a tokenized input (text) of more than
+`128`. However, I recommend to not change the output length (set it to `null` or leave it out), because that will 
+truncate the linearized tree (labels), which leads to an invalid reference tree!
+
+These defaults should be sensible:
+
+```json
+"input_max_seq_length": 128,
+"output_max_seq_length": null,
+```
+
 If you want to have a look at all the possible arguments, you can run:
 
 ```shell
-python src/mbart_amr/run_mbart_amr.py -h
+run-mbart-amr -h
 ```
 
 Out-of-the-box the code should be compatible with distributed systems although I have not tested this explicitly.
@@ -116,7 +127,6 @@ https://github.com/amrisi/amr-guidelines/blob/master/amr.md
 ## TODO
 
 - postprocessing for invalid trees that the model may produce;
-- add smatch as metric;
 - add script to only run prediction on an already trained model so that we can go from text -> AMR. Must include postprocessing!
 - smart initialization of our special tokens by copying weights from the existing embedding to the new tokens;
 - add conditional decoding in beam search (if time)

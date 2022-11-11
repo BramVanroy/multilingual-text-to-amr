@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 import penman
+import torch
 from ftfy import fix_text
 from mbart_amr.data.linearization import do_remove_wiki
 from mbart_amr.data.tokenization import AMRMBartTokenizer
@@ -62,17 +63,16 @@ def collate_amr(
         max_length=input_max_seq_length,
         return_tensors="pt",
     )
-    encoded_linearized = {
-        "labels": tokenizer.encode_penmanstrs(
-            [s["penmanstr"] for s in samples],
-            padding=True,
-            truncation=True,
-            max_length=output_max_seq_length,
-            return_tensors="pt",
-        ).input_ids
-    }
+    labels = tokenizer.encode_penmanstrs(
+        [s["penmanstr"] for s in samples],
+        padding=True,
+        truncation=True,
+        max_length=output_max_seq_length,
+        return_tensors="pt",
+    ).input_ids
+    labels = torch.where(labels == tokenizer.pad_token_id, -100, labels)
 
-    return {**encoded_inputs, **encoded_linearized}
+    return {**encoded_inputs, "labels": labels}
 
 
 class AMRDataset(Dataset):
@@ -83,7 +83,7 @@ class AMRDataset(Dataset):
         remove_wiki: bool = False,
         max_samples_per_language: Optional[int] = None,
     ):
-        if len(dins) != len(src_langs):
+        if src_langs is None or len(dins) != len(src_langs):
             raise ValueError(
                 "The number of input directories (one per language) is not the same as the number of given"
                 " source languages. These have to be the same. Make sure that the given source languages"
@@ -100,6 +100,9 @@ class AMRDataset(Dataset):
         self.metadatas = []
 
         for src_lang, pdin in zip(self.src_langs, self.pdins):
+            if not pdin.exists():
+                raise FileNotFoundError(f"The given directory, {str(pdin)}, was not found.")
+
             n_samples = 0
             for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file"):
                 with pfin.open(encoding="utf-8") as fhin:
