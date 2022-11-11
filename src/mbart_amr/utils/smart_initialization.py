@@ -1,10 +1,9 @@
 import torch
 from mbart_amr.data.tokenization import AMRMBartTokenizer
-from transformers import (MBartForConditionalGeneration, PreTrainedModel,
-                          PreTrainedTokenizerBase)
+from transformers import MBartForConditionalGeneration
 
 
-def smart_initialization(model: MBartForConditionalGeneration, tokenizer: PreTrainedTokenizerBase):
+def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBartTokenizer):
     """Inspired by SPRING's implementation. We use noise in range -0.01, +0.01 though.
     :param model: the model whose added tokens to initialize
     :param tokenizer: the tokenizer, which also contains the new tokens
