@@ -71,13 +71,7 @@ class AMRMBartTokenizer(MBartTokenizer):
             inst.add_tokens(list(sorted(new_tokens)))
             print(f"Added {len(new_tokens):,} new tokens!")
 
-        inst.amr_code_id = inst.get_vocab()["amr_XX"]
-        # Dummy tgt_lang to avoid errors, but target token will be replaced with amr_XX in `encode_penmanstrs`
-        inst.tgt_lang = kwargs["tgt_lang"] if "tgt_lang" in kwargs and kwargs["tgt_lang"] else "nl_XX"
-
-        # Calling get_vocab every time in 'encode_penmanstrs' would be slow so we
-        # cache it - assuming that it will not change beyond this point
-        inst._vocab_after_added_amr = inst.get_vocab()
+        inst.tgt_lang = "amr_XX"
 
         return inst
 
@@ -89,12 +83,8 @@ class AMRMBartTokenizer(MBartTokenizer):
         :param token_ids: List of token ids
         :return: an output string, representing the linearized graph
         """
-        print(token_ids)
         if isinstance(token_ids[0], list):
             token_ids = token_ids[0]
-
-        # Filter the AMR token that we added in 'encode_penmanstrs'
-        token_ids = [idx for idx in token_ids if idx != self.amr_code_id]
 
         filtered_tokens = self.convert_ids_to_tokens(token_ids, skip_special_tokens=True)
         filtered_tokens = [
@@ -122,30 +112,17 @@ class AMRMBartTokenizer(MBartTokenizer):
         return text
 
     def encode_penmanstrs(
-            self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
+        self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
     ) -> BatchEncoding:
-        """Given one or several penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
+        """Given one or  penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
         as well as other important items such as attention masks.
-
-        NOTE: while we only use this method to generate `labels`, we are not regularly using the MBART tokenizer's
-        "target tokenizer" ability. The reason is that it is not straightforward to add a new language code to the
-        tokenizer, so we cannot just "amr_XX" as the target language. Instead, we use the `target_text` encoding
-        option (to make sure the format is correct) and then replace the current target language token ID with the
-        amr_XX one.
 
         See: _linearize_and_unescape()"""
         if isinstance(penman_strs, str):
             penman_strs = [penman_strs]
 
-        cur_tgt_lang_code = self._vocab_after_added_amr[self.tgt_lang]
         prepared_strs = [penmanstr2linearized(penman_str, remove_wiki=remove_wiki) for penman_str in penman_strs]
-        encoded = self(text_target=prepared_strs, **kwargs)
-
-        # Replace the given language code by the amr one
-        encoded["input_ids"] = [[self.amr_code_id if idx == cur_tgt_lang_code else idx for idx in input_ids]
-                                for input_ids in encoded["input_ids"]]
-
-        return encoded
+        return self(prepared_strs, **kwargs)
 
 
 def postprocess(text: str) -> str:
