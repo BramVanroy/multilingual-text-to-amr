@@ -205,9 +205,7 @@ def main():
     if not model_args.tokenizer_name and model_args.model_name_or_path:
         model_args.tokenizer_name = model_args.model_name_or_path
 
-    # TODO: generalize `src_lang` to other languages. Probably in the dataset and then during collation
-    # set the src_lang on the fly for each batch. tgt_lang is specified in tokenizer from_pretrained call
-    tokenizer = AMRMBartTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs, src_lang="en_XX")
+    tokenizer = AMRMBartTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs)
 
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
@@ -218,7 +216,11 @@ def main():
         model_args.config_name = model_args.model_name_or_path
 
     model = MBartForConditionalGeneration.from_pretrained(model_args.model_name_or_path, **config_kwargs)
-    model.resize_token_embeddings(len(tokenizer))
+    # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
+    # on a small vocab and want a smaller embedding size, remove this test.
+    embedding_size = model.get_input_embeddings().weight.shape[0]
+    if len(tokenizer) > embedding_size:
+        model.resize_token_embeddings(len(tokenizer))
 
     if training_args.smart_initialization:
         model = smart_initialization(model, tokenizer)
@@ -229,13 +231,6 @@ def main():
     #######################
     # CUSTOM METRICS #
     #######################
-    def preprocess_logits_for_metrics(logits, labels):
-        if isinstance(logits, tuple):
-            # Depending on the model and config, logits may contain extra tensors,
-            # like past_key_values, but logits always come first
-            logits = logits[0]
-        return logits.argmax(dim=-1)
-
     def calculate_smatch(references: List[str], predictions: List[str]):
         total_match_num = total_test_num = total_gold_num = 0
         n_invalid = 0
@@ -295,6 +290,7 @@ def main():
 
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
+
         if isinstance(preds, tuple):
             preds = preds[0]
 
@@ -307,16 +303,9 @@ def main():
         sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
 
         # Accuracy: flatten and calculate accuracy on flattened arrays
-        labels = labels.reshape(-1)
-        preds = preds.reshape(-1)
-        mask = labels != -100
-        labels = labels[mask]
-        preds = preds[mask]
-        acc = acc_metric.compute(predictions=preds, references=labels)
-
         smatch_score = calculate_smatch(ref_linearizations, pred_linearizations)
 
-        return {**acc, **sb, **smatch_score}
+        return {**sb, **smatch_score}
 
     #######################
     # Load datasets #
@@ -327,6 +316,9 @@ def main():
         train_dataset = AMRDataset(
             data_args.train_directories,
             src_langs=data_args.src_langs,
+            tokenizer=tokenizer,
+            input_max_seq_length=data_args.input_max_seq_length,
+            output_max_seq_length=data_args.output_max_seq_length,
             max_samples_per_language=data_args.max_train_samples_per_language,
         )
 
@@ -334,6 +326,9 @@ def main():
         validation_dataset = AMRDataset(
             data_args.validation_directories,
             src_langs=data_args.src_langs,
+            tokenizer=tokenizer,
+            input_max_seq_length=data_args.input_max_seq_length,
+            output_max_seq_length=data_args.output_max_seq_length,
             max_samples_per_language=data_args.max_eval_samples_per_language,
         )
 
@@ -362,16 +357,8 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=validation_dataset,
         tokenizer=tokenizer,
-        data_collator=partial(
-            collate_amr,
-            tokenizer=tokenizer,
-            input_max_seq_length=data_args.input_max_seq_length,
-            output_max_seq_length=data_args.output_max_seq_length,
-        ),
+        data_collator=partial(collate_amr, tokenizer=tokenizer),
         compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics
-        if training_args.do_eval and not is_torch_tpu_available()
-        else None,
         callbacks=callbacks,
         penalty_alpha=training_args.penalty_alpha,
         top_k=training_args.top_k
