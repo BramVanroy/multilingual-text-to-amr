@@ -71,6 +71,8 @@ class AMRMBartTokenizer(MBartTokenizer):
             inst.add_tokens(list(sorted(new_tokens)))
             print(f"Added {len(new_tokens):,} new tokens!")
 
+        # TODO: fix tokenization so that we are indeed using amr_XX as a token
+        # Currently this is not the case because we are just calling the regular tokenizer
         inst.tgt_lang = "amr_XX"
 
         return inst
