@@ -7,7 +7,7 @@ An adaptation of MBART to parse text into AMR for multiple languages.
 First install the package by running the following in the root directory where `setup.py` is present.
 
 ```shell
-pip install .
+pip install -e .
 ```
 
 Then, training or evaluating is as simple as updating the configuration file `example_config` to specify where
