@@ -46,7 +46,13 @@ If you want to have a look at all the possible arguments, you can run:
 run-mbart-amr -h
 ```
 
-Out-of-the-box the code should be compatible with distributed systems although I have not tested this explicitly.
+Out-of-the-box the code should be compatible with distributed systems although I have not tested this explicitly. The 
+following should work for single node, multi-gpu systems. Where `--nproc_per_node` is the number of GPUs
+and `OMP_NUM_THREADS` is the number of CPU threads divided by number of GPUs.
+
+```shell
+OMP_NUM_THREADS=6 python -m torch.distributed.run --standalone --nproc_per_node 2 src/mbart_amr/run_mbart_amr.py config.json
+```
 
 # Architecture and tokenizer
 For now, the MBART architecture can be used as-is with the exception of added vocabulary items (i.e. increasing the embedding size a

@@ -29,6 +29,10 @@ def main(*indirs: Union[str, PathLike], dout: Union[str, PathLike]):
     ft_datasets = {"train": [], "dev": [], "test": []}
     for indir in tqdm(indirs, unit="language", position=0):
         pdir = Path(indir).resolve()
+
+        if not pdir.exists():
+            raise ValueError(f"Path {str(pdir)} does not exist")
+
         amrs_dir_name = pdir.parent.name
         lang = amrs_dir_name.split("_")[-1] if "_" in amrs_dir_name else "en"
         lang_dir = pdout.joinpath(lang)
@@ -50,9 +54,9 @@ def main(*indirs: Union[str, PathLike], dout: Union[str, PathLike]):
 
 if __name__ == "__main__":
     main(
-        r"D:\corpora\amr_annotation_3.0\data\amrs\split",
-        r"D:\corpora\amr_annotation_3.0\data\amrs_nl\split",
-        r"D:\corpora\amr_annotation_3.0\data\amrs_es\split",
-        r"D:\corpora\amr_annotation_3.0\data\amrs_ga\split",
+        r"D:\corpora\amr_annotation_3.0\data\amrs\amrs_fixed\split",
+        r"D:\corpora\amr_annotation_3.0\data\amrs\amrs_nl\split",
+        r"D:\corpora\amr_annotation_3.0\data\amrs\amrs_es\split",
+        r"D:\corpora\amr_annotation_3.0\data\amrs\amrs_ga\split",
         dout=r"D:\corpora\amr_annotation_3.0\data\text",
     )

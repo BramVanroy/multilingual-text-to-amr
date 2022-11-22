@@ -21,7 +21,7 @@ from mbart_amr.trainer import AMRTrainer, ExpandedSeq2SeqTrainingArguments
 from mbart_amr.utils.smart_initialization import (freeze_encoder,
                                                   smart_initialization)
 from transformers import (EarlyStoppingCallback, HfArgumentParser,
-                          MBartForConditionalGeneration, Seq2SeqTrainer,
+                          MBartForConditionalGeneration,
                           is_torch_tpu_available, set_seed)
 from transformers.trainer_utils import get_last_checkpoint
 
@@ -373,6 +373,8 @@ def main():
         if training_args.do_eval and not is_torch_tpu_available()
         else None,
         callbacks=callbacks,
+        penalty_alpha=training_args.penalty_alpha,
+        top_k=training_args.top_k
     )
 
     # Training
