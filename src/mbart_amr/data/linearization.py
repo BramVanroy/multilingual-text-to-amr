@@ -230,7 +230,7 @@ def penmantree2linearized(penman_tree: Tree) -> str:
                         tokens.extend((match.group(1), f":sense{match.group(2)}"))
                 else:
                     tokens.append(node)
-            elif re.match(r"^[a-z]\d+$", node):  # In case a terminal refers to another token
+            elif re.match(r"^[a-z]\d*$", node):  # In case a terminal refers to another token
                 _maybe_add_reference(node)
                 tokens.append(references[node])
             # Special "literal" tokens do not have senses. These occur in e.g. :op or :wiki
@@ -263,7 +263,6 @@ def penmantree2linearized(penman_tree: Tree) -> str:
             tokens.append(":endrel")
 
     _iterate(penman_tree)
-
     # Remove references that only occur once
     # Every token "occurs" at least once (itself) but if no other occurrences -> remove
     refs_to_keep = sorted(
