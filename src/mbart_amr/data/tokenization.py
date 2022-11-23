@@ -7,6 +7,7 @@ import torch
 from ftfy import fix_text
 from mbart_amr.data.linearization import penmanstr2linearized
 from mbart_amr.data.tokens import TOKENS_TO_ADD
+
 from transformers import BatchEncoding, MBartTokenizer
 
 
@@ -74,53 +75,64 @@ class AMRMBartTokenizer(MBartTokenizer):
         # we cannot take that approach. Instead we will be replacing the special source language
         # token in "encode_penmanstrs" with our own, amr_XX one
         inst.amr_token = "amr_XX"
-        inst.amr_token_id = inst.convert_tokens_to_ids("amr_XX")
-        inst.tgt_lang = "amr_XX"
+        inst.amr_token_id = inst.convert_tokens_to_ids(inst.amr_token)
+        inst.tgt_lang = inst.amr_token
         inst.lang_ids = torch.LongTensor(list(inst.id_to_lang_code.keys()))
 
         return inst
 
-    def decode_and_fix(self, token_ids: List[int]) -> str:
-        """Modified from the original HF Tokenizer. Note that run fix_text on the deocded tokens if they
+    def decode_and_fix(self, token_ids: Union[List[List[int]], List[int], torch.Tensor]) -> List[str]:
+        """Modified from the original HF Tokenizer. Note the run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.
-        Note that this does not work on the batch level but on a single sequence!
 
-        :param token_ids: List of token ids
-        :return: an output string, representing the linearized graph
+        Works on both sequences or batches and therefore always returns a list.
+
+        :param token_ids: Tensor or list of token ids, potentially with a batch dimension
+        :return: a list of decoded AMR linearizations
         """
-        if isinstance(token_ids[0], list):
-            token_ids = token_ids[0]
 
-        filtered_tokens = self.convert_ids_to_tokens(token_ids, skip_special_tokens=True)
-        # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
-        filtered_tokens = [token for token in filtered_tokens if token != self.amr_token]
-        filtered_tokens = [
-            token if token in self.added_tokens_encoder else fix_text(token) for token in filtered_tokens
-        ]
+        if isinstance(token_ids, torch.Tensor):
+            if token_ids.dim() == 1:
+                token_ids = token_ids.unsqueeze(dim=0)
+        elif isinstance(token_ids[0], int):
+            token_ids = [token_ids]
 
-        # To avoid mixing byte-level and unicode for byte-level BPT
-        # we need to build string separately for added tokens and byte-level tokens
-        # cf. https://github.com/huggingface/transformers/issues/1133
-        sub_texts = []
-        current_sub_text = []
-        for token in filtered_tokens:
-            if token in self.added_tokens_encoder:
-                if current_sub_text:
-                    sub_texts.append(self.convert_tokens_to_string(current_sub_text))
-                    current_sub_text = []
-                sub_texts.append(token)
-            else:
-                current_sub_text.append(token)
-        if current_sub_text:
-            sub_texts.append(self.convert_tokens_to_string(current_sub_text))
+        if not isinstance(token_ids, torch.Tensor):
+            token_ids = torch.LongTensor(token_ids)
 
-        text = " ".join(sub_texts)
-        text = clean_up_tokenization(text)
+        linearized_amrs = []
+        for ids in token_ids:
+            filtered_tokens = self.convert_ids_to_tokens(ids, skip_special_tokens=True)
+            # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
+            filtered_tokens = [token for token in filtered_tokens if token != self.amr_token]
+            filtered_tokens = [
+                token if token in self.added_tokens_encoder else fix_text(token) for token in filtered_tokens
+            ]
 
-        return text
+            # To avoid mixing byte-level and unicode for byte-level BPT
+            # we need to build string separately for added tokens and byte-level tokens
+            # cf. https://github.com/huggingface/transformers/issues/1133
+            sub_texts = []
+            current_sub_text = []
+            for token in filtered_tokens:
+                if token in self.added_tokens_encoder:
+                    if current_sub_text:
+                        sub_texts.append(self.convert_tokens_to_string(current_sub_text))
+                        current_sub_text = []
+                    sub_texts.append(token)
+                else:
+                    current_sub_text.append(token)
+            if current_sub_text:
+                sub_texts.append(self.convert_tokens_to_string(current_sub_text))
+
+            text = " ".join(sub_texts)
+            text = clean_up_tokenization(text)
+            linearized_amrs.append(text)
+
+        return linearized_amrs
 
     def encode_penmanstrs(
-        self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
+            self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
     ) -> BatchEncoding:
         """Given one or  penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
         as well as other important items such as attention masks.

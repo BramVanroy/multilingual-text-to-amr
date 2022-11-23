@@ -12,6 +12,7 @@ from typing import List, Optional, Union
 import evaluate as evaluate
 import numpy as np
 import smatch
+import torch
 import transformers
 from amr import AMR
 from mbart_amr.data.dataset import AMRDataset, collate_amr
@@ -301,8 +302,8 @@ def main():
         # BLEU
         labels_for_bleu = np.where(labels != -100, labels, tokenizer.pad_token_id)
         preds_for_bleu = np.where(preds != -100, preds, tokenizer.pad_token_id)
-        ref_linearizations = [tokenizer.decode_and_fix(l) for l in labels_for_bleu]
-        pred_linearizations = [tokenizer.decode_and_fix(p) for p in preds_for_bleu]
+        ref_linearizations = tokenizer.decode_and_fix(labels_for_bleu)
+        pred_linearizations = tokenizer.decode_and_fix(preds_for_bleu)
 
         sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
 
