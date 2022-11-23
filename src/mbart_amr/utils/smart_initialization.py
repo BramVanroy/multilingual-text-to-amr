@@ -4,7 +4,7 @@ from transformers import MBartForConditionalGeneration
 
 
 def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBartTokenizer):
-    """Inspired by SPRING's implementation. We use noise in range -0.01, +0.01 though.
+    """Inspired by SPRING's implementation.
     :param model: the model whose added tokens to initialize
     :param tokenizer: the tokenizer, which also contains the new tokens
     :return: the model with updated weights for the added tokens
@@ -13,10 +13,8 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
     # index=vocab_size
     for token_id, token in enumerate(tokenizer.added_tokens_encoder, tokenizer.vocab_size):
         if token.startswith(":"):
-            if token == ":startrel":
-                components = [tokenizer.bos_token]
-            elif token == ":endrel":
-                components = [tokenizer.eos_token]
+            if token == ":endrel":
+                components = ["relation", tokenizer.eos_token]
             # str -> int -> str to normalize 01 -> 1
             elif token.startswith(":op"):
                 components = ["relation", "operator", str(int(token[3:]))]
@@ -35,7 +33,7 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
             elif token == ":prep-":
                 components = ["by"]  # random preposition
             elif token == ":conj-":
-                components = ["frame"]  # random unspecified conjunction "like"
+                components = ["whether"]  # random unspecified conjunction "whether"
             else:
                 components = ["relation"] + token.lstrip(":").split("-")
         else:
@@ -48,8 +46,8 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
             elif token == "amr-choice":
                 components = ["or"]
             elif token == "multi-sentence":
-                components = [tokenizer.bos_token]
-            elif token == "amr_XX":
+                components = ["relation", "multiple", "sentence"]
+            elif token == "amr_XX":  # AMR is most similar to English
                 components = ["en_XX"]
             else:
                 components = token.split("-")
@@ -60,7 +58,7 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
         components_vector = torch.stack(
             [model.model.shared.weight.data[idx].clone() for idx in components_ids], dim=0
         ).mean(dim=0)
-        noise = torch.FloatTensor(components_vector).uniform_(-0.01, +0.01)
+        noise = torch.FloatTensor(components_vector).uniform_(-0.1, +0.1)
         components_vector = components_vector + noise
         model.model.shared.weight.data[token_id] = components_vector + noise
 

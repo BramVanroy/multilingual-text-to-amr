@@ -6,6 +6,8 @@ import penman
 from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic
 
+from mbart_amr.data.tokens import ROLE_PREFIXES
+
 
 def do_remove_wiki(penman_str: str):
     """Remove all wiki entrires from a given penman string. These are the items that start with ':wiki' and
@@ -40,73 +42,6 @@ def is_number(maybe_number_str: str) -> bool:
         return True
     except ValueError:
         return False
-
-
-# Does not include :ref
-ROLES = [
-    ":ARG",
-    ":accompanier",
-    ":age",
-    ":beneficiary",
-    ":calendar",
-    ":century",
-    ":concession",
-    ":condition",
-    ":conj-",
-    ":consist-of",
-    ":day",
-    ":dayperiod",
-    ":decade",
-    ":degree",
-    ":destination",
-    ":direction",
-    ":domain",
-    ":duration",
-    ":endrel",
-    ":era",
-    ":example",
-    ":extent",
-    ":frequency",
-    ":instrument",
-    ":li",
-    ":location",
-    ":manner",
-    ":medium",
-    ":mod",
-    ":mode",
-    ":month",
-    ":name",
-    ":negation",
-    ":op",
-    ":ord",
-    ":part",
-    ":path",
-    ":polarity",
-    ":polite",
-    ":poss",
-    ":prep-",
-    ":purpose",
-    ":quant",
-    ":quarter",
-    ":range",
-    ":scale",
-    ":season",
-    ":sense",
-    ":snt",
-    ":source",
-    ":startrel",
-    ":subevent",
-    ":subset",
-    ":time",
-    ":timezone",
-    ":topic",
-    ":unit",
-    ":value",
-    ":weekday",
-    ":wiki",
-    ":year",
-    ":year2",
-]
 
 
 def tokenize_except_quotes(input_str: str) -> List[str]:
@@ -239,7 +174,6 @@ def penmantree2linearized(penman_tree: Tree) -> str:
             else:
                 tokens.append(node)
         else:
-            tokens.append(":startrel")
             if not isinstance(node, Tree):
                 node = Tree(node)
             # Varname is e.g. "d" for dog or "d2" for dragon
@@ -263,6 +197,8 @@ def penmantree2linearized(penman_tree: Tree) -> str:
             tokens.append(":endrel")
 
     _iterate(penman_tree)
+
+    tokens = tokens[:-1]  # Remove final :endrel (which closes the tree), which we do not need
     # Remove references that only occur once
     # Every token "occurs" at least once (itself) but if no other occurrences -> remove
     refs_to_keep = sorted(
@@ -285,26 +221,29 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
     if isinstance(tokens, str):
         tokens = tokenize_except_quotes(tokens)
 
+    # Remove any empty tokens, just to be sure
+    tokens = [t.strip() for t in tokens if t.strip() != ""]
+
     varcounter = Counter()  # To keep track of how often a var occurs so we can decide naming, e.g. dog -> d or d2?
     processed_tokens = set()  # Because we iteratively process tokens, we have to track which tokens we already did
 
     penman_tokens = []
 
     def _iterate(first_index: int = 0, level: int = 0):
-        """Iterate over all tokens, starting from a first_index. Whenever we encounter :startrel, we call _iterate
+        """Iterate over all tokens, starting from a first_index. Whenever we encounter a ROLE, we call _iterate
         again. That allows us to have more control over how to generate relationships in a recursive, tree-like manner.
 
         In hopes of making this clearer, here is a visualization of the processing of tokens A rel( B ) C depth-first.
-        First we encounter and process token A, then we encounter an opening rel token `srel` (actually `:startrel`).
+        First we encounter and process token A, then we encounter a ROLE token.
         Therefore, we will enter a new `_iterate` function, and find and process B. After B, we encounter a `:endrel`
         token to end the relationship (here `erel`), and therefore break out of this _iterate function. That leads us
         back to the initial _iterate function, where then continue with the next token in that loop, which would be B!
-        It would be B because this initial _iterate function had not seen B yet, as we had moved from srel into another
+        It would be B because this initial _iterate function had not seen B yet, as we had moved from ROLE into another
         _iterate call. So now that we are back, we need to skip B (because it was processed in the sub call) and move
         to processing C.
 
 
-        A---> srel ---> B (skip) -----> erel (skip) ---> C
+        A---> :ROLE ---> B (skip) -----> erel (skip) ---> C
                ↓                          ↑
                -------> B ------------> erel (break)
 
@@ -326,24 +265,52 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
 
             prev_token = tokens[token_idx - 1] if token_idx > 0 and not first_index == token_idx else None
             next_token = None
-
             if token_idx < len(tokens) - 1:
-                # A :ref can be inbetween tokens, but we can ignore those
-                if tokens[token_idx + 1].startswith(":ref"):
-                    next_token = tokens[token_idx + 2]
-                else:
-                    next_token = tokens[token_idx + 1]
+                next_token = tokens[token_idx + 1]
+
+            # Indicates whether there is a next token that does not start with :
+            # There can be a :ref token in between this next token and the current token though!
+            # So "next_not_ref_token" can be either the next token (+1) or the token next to that! (+2)
+            # Valid cases:
+            # :ARG0 :ref1 we: next token ref, token next to that does not start with :
+            # :purpose drink :sense01: next token not a ref, but it also does not start with :
+            next_not_ref_token = None
+            # A :ref can be inbetween tokens, but we can ignore those
+            if token_idx < len(tokens) - 2 and tokens[token_idx + 1].startswith(":ref") and not tokens[token_idx + 2].startswith(":"):
+                next_not_ref_token = tokens[token_idx + 2]
+            elif token_idx < len(tokens) - 1 and not tokens[token_idx + 1].startswith(":"):
+                next_not_ref_token = tokens[token_idx + 1]
 
             # Process each token
-            if token == ":startrel":
-                varname = ""
-                if next_token:  # Can be false if the string is malformed
-                    varname = _default_variable_prefix(next_token)
-                    varcounter[varname] += 1
-                    varname = varname if varcounter[varname] < 2 else f"{varname}{varcounter[varname]}"
-                penman_tokens.append("(" + varname)
-                _iterate(token_idx + 1, level + 1)
-                penman_tokens.append(")")
+            if token.startswith(ROLE_PREFIXES):
+                penman_tokens.append(f"\n{indent}\t{replace_of(token, reverse=True)}")
+
+                # Exceptions in which case we do not need to start a new branch
+                if next_token:
+                    if next_token.isdigit() or is_number(next_token):  # Numbers are mostly dealt with without /
+                        continue
+                    # Certain quantities, wiki entries.... E.g. "2/3"
+                    elif next_token.startswith('"') and next_token.endswith('"'):
+                        continue
+                    # Mode is always a single token, e.g. ":mode imperative"
+                    elif token == ":mode":
+                        continue
+                    # Wikis do not have an instance relation. Empty wikis look like `:wiki -`
+                    elif token == ":wiki":
+                        continue
+                    # Exceptionally, ARG can be unspecified - or +
+                    elif next_token in ("-", "+"):
+                        continue
+
+                # Add a branch when next_not_ref_token is not None, so either it is the next token or the token after
+                # that, depending on whether:
+                # - the next token is a ref, in which case the token after that can be selected but ONLY IF:
+                #       - the token after that (so current token + 2) does not start with :, e.g. ":ARG0 :ref1 we"
+                # - if the next token does not start with :, that is also a new branch (e.g. ":purpose drink :sense01")
+                if next_not_ref_token:
+                    penman_tokens.append("(")
+                    _iterate(token_idx + 1, level + 1)
+                    penman_tokens.append(")")
 
             # End of a relation
             elif (
@@ -356,12 +323,9 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
             # SENSE IDs: add the sense to the previous token
             elif match := re.match(r"^:sense(.+)", token):
                 penman_tokens[-1] = f"{penman_tokens[-1]}-{match.group(1)}"
-            # ROLES (that are not :refs)
-            elif token.startswith(tuple(ROLES)):
-                penman_tokens.append(f"\n{indent}{replace_of(token, reverse=True)}")
             # REFS
             elif token.startswith(":ref"):
-                if prev_token and prev_token.startswith(":"):  # This is a reference to another token
+                if next_token and next_token.startswith(":") or not next_token:  # This is a reference to another token
                     penman_tokens.append(token)
                 else:  # This is the original token that others refer to
                     penman_tokens.append(f"{token}-canonicalref")
@@ -371,32 +335,28 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                 # Certain quantities, wiki entries.... E.g. "2/3"
                 elif token.startswith('"') and token.endswith('"'):
                     penman_tokens.append(f" {token}")
-                # Many special roles have special values like "-" or numbers. E.g. `polarity -`, `:value 1`
-                elif prev_token is not None and prev_token in [
-                    ":polarity",
-                    ":mode",
-                    ":mod",
-                    ":polite",
-                    ":value",
-                    ":quant",
-                ]:
+                # Mode is always a single token, e.g. ":mode imperative"
+                elif prev_token is not None and prev_token == ":mode":
                     penman_tokens.append(f" {token}")
                 # Wikis do not have an instance relation. Empty wikis look like `:wiki -`
-                elif prev_token is not None and prev_token in [":wiki"]:
+                elif prev_token is not None and prev_token == ":wiki":
                     penman_tokens.append(f" {token}")
                 # Exceptionally, ARG can be unspecified - or +
-                elif token in ["-", "+"] and prev_token is not None and prev_token.startswith((":ARG")):
+                elif token in ("-", "+"):
                     penman_tokens.append(f" {token}")
-                elif prev_token is not None and prev_token.startswith(":ref"):
-                    penman_tokens.append(f"/ {token}")
-                # Variable names. If the previous token starts with a (, then that prev token is the variable
+                # Variable names. If the previous token is a ref, then that prev token is the variable
                 # and the current token is the actual token. This can be important for one-word tokens, e.g., (i / i)
-                elif re.match(r"^[a-z]\d*$", token) and (prev_token is not None and not prev_token.startswith("(")):
+                elif re.match(r"^[a-z]\d*$", token) and (prev_token is not None and not prev_token.startswith(":ref")):
                     penman_tokens.append(f" {token}")
-                else:
-                    penman_tokens.append(f"/ {token}")
+                else:  # A token and its reference
+                    varname = _default_variable_prefix(token)
+                    varcounter[varname] += 1
+                    varname = varname if varcounter[varname] < 2 else f"{varname}{varcounter[varname]}"
+                    penman_tokens.append(f"{varname} / {token}")
 
     _iterate()
+
+    penman_tokens = ["("] + penman_tokens + [")"]  # Add tree opening/closing parens
 
     # Link references: first get all unique references and the accompanying canonicalrefs
     # Then, for every canonical reference, find the variable name that is associated with it
@@ -404,13 +364,14 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
     tokens_with_refs = set([canon.replace("-canonicalref", "") for canon in canon_refs])
     ref2varname = {}
 
-    # For each canonical reference, get the corresponding tokenpython test
+    # For each canonical reference, get the corresponding token
     for canon_ref in canon_refs:
         idx = penman_tokens.index(canon_ref)
 
-        # The opening bracket is attached to the token, so remove that
-        prev_token = penman_tokens[idx - 1].replace("(", "")
-        ref2varname[canon_ref.replace("-canonicalref", "")] = prev_token
+        # The variable name is attached to the token that follows on the canonical reference,
+        # E.g., [..., ':ref1-canonicalref', 'w / we', ...]. So we get the next token and extract the varname
+        varname = penman_tokens[idx + 1].split("/")[0].strip()
+        ref2varname[canon_ref.replace("-canonicalref", "")] = varname
 
     # Replace :ref tokens with the found varnames for that token, and remove the canonical ref tokens
     penman_tokens = [
@@ -428,3 +389,5 @@ def linearized2penmantree(tokens: Union[str, List[str]]) -> Tree:
     """
     penman_str = linearized2penmanstr(tokens)
     return penman.parse(penman_str)
+
+

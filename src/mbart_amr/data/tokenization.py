@@ -8,6 +8,8 @@ from ftfy import fix_text
 from mbart_amr.data.linearization import penmanstr2linearized
 from transformers import BatchEncoding, MBartTokenizer
 
+from mbart_amr.data.tokens import TOKENS_TO_ADD
+
 
 def clean_up_tokenization(out_string: str) -> str:
     """Clean up a list of simple English tokenization artifacts like spaces before punctuations and abbreviated forms.
@@ -58,12 +60,7 @@ class AMRMBartTokenizer(MBartTokenizer):
     def from_pretrained(cls, *args, new_tokens_file: Optional[str] = None, **kwargs):
         inst = super().from_pretrained(*args, **kwargs)
 
-        new_tokens_file = (
-            new_tokens_file
-            if new_tokens_file
-            else Path(__file__).resolve().parent.parent.joinpath("data/vocab/additions.txt")
-        )
-        tokens_to_add = set([token for token in new_tokens_file.read_text(encoding="utf-8").splitlines() if token])
+        tokens_to_add = set(TOKENS_TO_ADD)
 
         voc = set(inst.get_vocab().keys())
         new_tokens = tokens_to_add - voc
@@ -125,11 +122,3 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         prepared_strs = [penmanstr2linearized(penman_str, remove_wiki=remove_wiki) for penman_str in penman_strs]
         return self(prepared_strs, **kwargs)
-
-
-def postprocess(text: str) -> str:
-    """
-    :param text:
-    :return:
-    """
-    pass
