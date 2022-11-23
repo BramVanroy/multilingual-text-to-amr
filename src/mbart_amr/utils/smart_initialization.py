@@ -13,9 +13,7 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
     # index=vocab_size
     for token_id, token in enumerate(tokenizer.added_tokens_encoder, tokenizer.vocab_size):
         if token.startswith(":"):
-            if token == ":startrel":
-                components = [tokenizer.bos_token]
-            elif token == ":endrel":
+            if token == ":endrel":
                 components = [tokenizer.eos_token]
             # str -> int -> str to normalize 01 -> 1
             elif token.startswith(":op"):
@@ -35,7 +33,7 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
             elif token == ":prep-":
                 components = ["by"]  # random preposition
             elif token == ":conj-":
-                components = ["frame"]  # random unspecified conjunction "like"
+                components = ["whether"]  # random unspecified conjunction "whether"
             else:
                 components = ["relation"] + token.lstrip(":").split("-")
         else:
@@ -48,8 +46,8 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
             elif token == "amr-choice":
                 components = ["or"]
             elif token == "multi-sentence":
-                components = [tokenizer.bos_token]
-            elif token == "amr_XX":
+                components = ["relation", "multiple", "sentence"]
+            elif token == "amr_XX":  # AMR is most similar to English
                 components = ["en_XX"]
             else:
                 components = token.split("-")
