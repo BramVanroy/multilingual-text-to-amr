@@ -69,7 +69,7 @@ class AMRMBartTokenizer(MBartTokenizer):
             print(f"Added {len(new_tokens):,} new tokens!")
 
         # Just adding amr_XX to voc and defining it here as the tgt_lang is not enough
-        # because we are always just calling the tokenizer (as it it were the source tokenizer)
+        # because we are always just calling the tokenizer (as if it were the source tokenizer)
         # However, we cannot even use it as a target tokenizer with tgt_lang amr_XX, because
         # the MBARTTokenizer only allows special language codes as tgt_lang for this purpose so
         # we cannot take that approach. Instead we will be replacing the special source language
