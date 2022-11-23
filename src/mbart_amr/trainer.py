@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from functools import partialmethod
-from typing import Optional, Dict, List
+from typing import Dict, List, Optional
 
 import torch
 from mbart_amr.data.sampler import (DistributedSrcLangGroupedSampler,
@@ -63,19 +63,19 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
         default=None,
         metadata={
             "help": "The values balance the model confidence and the degeneration penalty in contrastive search"
-                    " decoding. If a value is given together with 'topk', the generation will use contrastive"
-                    " decoding. See https://huggingface.co/blog/introducing-csearch. For generating English, the paper"
-                    " authors suggest penalty_alpha=0.6 and top_k=4. This only works if 'predict_with_generate' is"
-                    " enabled. Note that this will make evaluation very, very slow! Best to keep that just for"
-                    " predicting the test set."
+            " decoding. If a value is given together with 'topk', the generation will use contrastive"
+            " decoding. See https://huggingface.co/blog/introducing-csearch. For generating English, the paper"
+            " authors suggest penalty_alpha=0.6 and top_k=4. This only works if 'predict_with_generate' is"
+            " enabled. Note that this will make evaluation very, very slow! Best to keep that just for"
+            " predicting the test set."
         },
     )
     top_k: Optional[int] = field(
         default=None,
         metadata={
             "help": "The number of highest probability vocabulary tokens to keep for top-k-filtering. If a value is"
-                    " given together with 'penalty_alpha', the generation will use contrastive"
-                    " decoding. See 'penalty_alpha' for more."
+            " given together with 'penalty_alpha', the generation will use contrastive"
+            " decoding. See 'penalty_alpha' for more."
         },
     )
 
@@ -87,30 +87,24 @@ class AMRTrainer(Seq2SeqTrainer):
         self._top_k = top_k
 
     def evaluate(
-            self,
-            eval_dataset: Optional[Dataset] = None,
-            ignore_keys: Optional[List[str]] = None,
-            metric_key_prefix: str = "eval",
-            **gen_kwargs
+        self,
+        eval_dataset: Optional[Dataset] = None,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "eval",
+        **gen_kwargs,
     ) -> Dict[str, float]:
         gen_kwargs = {**gen_kwargs, "penalty_alpha": self._penalty_alpha, "top_k": self._top_k}
-        return super().evaluate(eval_dataset,
-                                ignore_keys,
-                                metric_key_prefix,
-                                **gen_kwargs)
+        return super().evaluate(eval_dataset, ignore_keys, metric_key_prefix, **gen_kwargs)
 
     def predict(
-            self,
-            eval_dataset: Optional[Dataset] = None,
-            ignore_keys: Optional[List[str]] = None,
-            metric_key_prefix: str = "eval",
-            **gen_kwargs
+        self,
+        eval_dataset: Optional[Dataset] = None,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "eval",
+        **gen_kwargs,
     ) -> Dict[str, float]:
         gen_kwargs = {**gen_kwargs, "penalty_alpha": self._penalty_alpha, "top_k": self._top_k}
-        return super().evaluate(eval_dataset,
-                                ignore_keys,
-                                metric_key_prefix,
-                                **gen_kwargs)
+        return super().evaluate(eval_dataset, ignore_keys, metric_key_prefix, **gen_kwargs)
 
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if self.train_dataset is None or not has_length(self.train_dataset):

@@ -89,3 +89,4 @@ ROLE_PREFIXES = (
     ":year",
     ":year2",
 )
+# fmt: on

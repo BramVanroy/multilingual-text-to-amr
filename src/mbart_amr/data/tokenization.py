@@ -6,9 +6,8 @@ from typing import List, Optional, Union
 import torch
 from ftfy import fix_text
 from mbart_amr.data.linearization import penmanstr2linearized
-from transformers import BatchEncoding, MBartTokenizer
-
 from mbart_amr.data.tokens import TOKENS_TO_ADD
+from transformers import BatchEncoding, MBartTokenizer
 
 
 def clean_up_tokenization(out_string: str) -> str:
@@ -121,7 +120,7 @@ class AMRMBartTokenizer(MBartTokenizer):
         return text
 
     def encode_penmanstrs(
-            self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
+        self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
     ) -> BatchEncoding:
         """Given one or  penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
         as well as other important items such as attention masks.
@@ -133,10 +132,7 @@ class AMRMBartTokenizer(MBartTokenizer):
             penman_strs = [penman_strs]
 
         prepared_strs = [penmanstr2linearized(penman_str, remove_wiki=remove_wiki) for penman_str in penman_strs]
-        encoded = self(prepared_strs, **kwargs,
-                       padding=True,
-                       truncation=True,
-                       return_tensors="pt")
+        encoded = self(prepared_strs, **kwargs, padding=True, truncation=True, return_tensors="pt")
 
         # We need to replace the final language token. Currently this is hard to implement in the HF model because
         # they use special language tokens for the language that you cannot easily modify

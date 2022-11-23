@@ -3,10 +3,9 @@ from collections import Counter
 from typing import Counter, List, Union
 
 import penman
+from mbart_amr.data.tokens import ROLE_PREFIXES
 from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic
-
-from mbart_amr.data.tokens import ROLE_PREFIXES
 
 
 def do_remove_wiki(penman_str: str):
@@ -276,7 +275,11 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
             # :purpose drink :sense01: next token not a ref, but it also does not start with :
             next_not_ref_token = None
             # A :ref can be inbetween tokens, but we can ignore those
-            if token_idx < len(tokens) - 2 and tokens[token_idx + 1].startswith(":ref") and not tokens[token_idx + 2].startswith(":"):
+            if (
+                token_idx < len(tokens) - 2
+                and tokens[token_idx + 1].startswith(":ref")
+                and not tokens[token_idx + 2].startswith(":")
+            ):
                 next_not_ref_token = tokens[token_idx + 2]
             elif token_idx < len(tokens) - 1 and not tokens[token_idx + 1].startswith(":"):
                 next_not_ref_token = tokens[token_idx + 1]
@@ -389,5 +392,3 @@ def linearized2penmantree(tokens: Union[str, List[str]]) -> Tree:
     """
     penman_str = linearized2penmanstr(tokens)
     return penman.parse(penman_str)
-
-
