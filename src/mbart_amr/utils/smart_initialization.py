@@ -4,7 +4,7 @@ from transformers import MBartForConditionalGeneration
 
 
 def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBartTokenizer):
-    """Inspired by SPRING's implementation. We use noise in range -0.01, +0.01 though.
+    """Inspired by SPRING's implementation.
     :param model: the model whose added tokens to initialize
     :param tokenizer: the tokenizer, which also contains the new tokens
     :return: the model with updated weights for the added tokens
@@ -58,7 +58,7 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
         components_vector = torch.stack(
             [model.model.shared.weight.data[idx].clone() for idx in components_ids], dim=0
         ).mean(dim=0)
-        noise = torch.FloatTensor(components_vector).uniform_(-0.01, +0.01)
+        noise = torch.FloatTensor(components_vector).uniform_(-0.1, +0.1)
         components_vector = components_vector + noise
         model.model.shared.weight.data[token_id] = components_vector + noise
 
