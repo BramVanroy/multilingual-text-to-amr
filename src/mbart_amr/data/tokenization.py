@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import List, Optional, Union
 
+import torch
 from ftfy import fix_text
 from mbart_amr.data.linearization import penmanstr2linearized
 from transformers import BatchEncoding, MBartTokenizer
@@ -68,9 +68,16 @@ class AMRMBartTokenizer(MBartTokenizer):
             inst.add_tokens(list(sorted(new_tokens)))
             print(f"Added {len(new_tokens):,} new tokens!")
 
-        # TODO: fix tokenization so that we are indeed using amr_XX as a token
-        # Currently this is not the case because we are just calling the regular tokenizer
+        # Just adding amr_XX to voc and defining it here as the tgt_lang is not enough
+        # because we are always just calling the tokenizer (as it it were the source tokenizer)
+        # However, we cannot even use it as a target tokenizer with tgt_lang amr_XX, because
+        # the MBARTTokenizer only allows special language codes as tgt_lang for this purpose so
+        # we cannot take that approach. Instead we will be replacing the special source language
+        # token in "encode_penmanstrs" with our own, amr_XX one
+        inst.amr_token = "amr_XX"
+        inst.amr_token_id = inst.convert_tokens_to_ids("amr_XX")
         inst.tgt_lang = "amr_XX"
+        inst.lang_ids = torch.LongTensor(list(inst.id_to_lang_code.keys()))
 
         return inst
 
@@ -86,9 +93,12 @@ class AMRMBartTokenizer(MBartTokenizer):
             token_ids = token_ids[0]
 
         filtered_tokens = self.convert_ids_to_tokens(token_ids, skip_special_tokens=True)
+        # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
+        filtered_tokens = [token for token in filtered_tokens if token != self.amr_token]
         filtered_tokens = [
             token if token in self.added_tokens_encoder else fix_text(token) for token in filtered_tokens
         ]
+
         # To avoid mixing byte-level and unicode for byte-level BPT
         # we need to build string separately for added tokens and byte-level tokens
         # cf. https://github.com/huggingface/transformers/issues/1133
@@ -111,14 +121,28 @@ class AMRMBartTokenizer(MBartTokenizer):
         return text
 
     def encode_penmanstrs(
-        self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
+            self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
     ) -> BatchEncoding:
         """Given one or  penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
         as well as other important items such as attention masks.
+
+        Note: padding=True, truncation=True, and return_tensors="pt" will always be enabled!
 
         See: _linearize_and_unescape()"""
         if isinstance(penman_strs, str):
             penman_strs = [penman_strs]
 
         prepared_strs = [penmanstr2linearized(penman_str, remove_wiki=remove_wiki) for penman_str in penman_strs]
-        return self(prepared_strs, **kwargs)
+        encoded = self(prepared_strs, **kwargs,
+                       padding=True,
+                       truncation=True,
+                       return_tensors="pt")
+
+        # We need to replace the final language token. Currently this is hard to implement in the HF model because
+        # they use special language tokens for the language that you cannot easily modify
+        # So we just do it as a post-processing step here: replacing the last token by the amr_XX ID
+        input_ids = encoded["input_ids"]
+        # Replace all the language IDs with the amr_token_id
+        input_ids[torch.isin(input_ids, self.lang_ids)] = self.amr_token_id
+
+        return encoded
