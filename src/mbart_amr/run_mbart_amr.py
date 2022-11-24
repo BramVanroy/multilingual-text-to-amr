@@ -249,8 +249,6 @@ def main():
                     if AMR.parse_AMR_line(ref_penman) is None:
                         raise Exception
                 except Exception:
-                    print(ref)
-                    print(ref_penman)
                     n_invalid += 1
                     fhout.write(f"REF_ERROR\t{datetime.now().time()}\t{ref}\n")
                     continue
@@ -282,14 +280,17 @@ def main():
 
             if n_invalid > 0:
                 logger.warning(
-                    f"{n_invalid:,} prediction(s) were not valid AMR. Smatch scores only reflect the performance"
-                    f" on valid AMR structures! Invalid structures have been appended to invalid-amrs.txt in the"
-                    f" output directory."
+                    f"{n_invalid:,} ({n_invalid/len(predictions)*100:.2f}%) prediction(s) were not valid AMR. Smatch "
+                    f" scores only reflect the performance on valid AMR structures! Invalid structures have been "
+                    f" appended to invalid-amrs.txt in the output directory."
                 )
 
         score = smatch.compute_f(total_match_num, total_test_num, total_gold_num)
 
-        return {"smatch_precision": score[0], "smatch_recall": score[1], "smatch_fscore": score[2]}
+        return {"smatch_precision": score[0],
+                "smatch_recall": score[1],
+                "smatch_fscore": score[2],
+                "ratio_invalid_amrs": n_invalid/len(predictions)*100}
 
     acc_metric = evaluate.load("accuracy")
     sb_metric = evaluate.load("sacrebleu")
