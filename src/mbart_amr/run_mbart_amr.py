@@ -222,7 +222,7 @@ def main():
     model.resize_token_embeddings(len(tokenizer))
 
     if training_args.smart_initialization:
-        model = smart_initialization(model, tokenizer)
+        model = smart_initialization(model, tokenizer, noise_range=training_args.noise_range)
 
     if training_args.freeze_encoder:
         model = freeze_encoder(model)

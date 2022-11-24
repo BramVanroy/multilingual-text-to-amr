@@ -3,10 +3,13 @@ from mbart_amr.data.tokenization import AMRMBartTokenizer
 from transformers import MBartForConditionalGeneration
 
 
-def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBartTokenizer):
-    """Inspired by SPRING's implementation.
+def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBartTokenizer, noise_range: float = 0.1):
+    """Inspired by SPRING's implementation but modifed in terms of tokens, meaning chunks, etc.
+
     :param model: the model whose added tokens to initialize
     :param tokenizer: the tokenizer, which also contains the new tokens
+    :param noise_range: we add noise to the tokens that are similar to other tokens from a uniform distribution
+    that spans [-noise_range, +noise_range]. The default is the default noise used in SPRING
     :return: the model with updated weights for the added tokens
     """
     # Vocab size if the size without the added tokens, so the first added token is at
@@ -14,7 +17,7 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
     for token_id, token in enumerate(tokenizer.added_tokens_encoder, tokenizer.vocab_size):
         if token.startswith(":"):
             if token == ":endrel":
-                components = ["relation", tokenizer.eos_token]
+                components = [tokenizer.eos_token]
             # str -> int -> str to normalize 01 -> 1
             elif token.startswith(":op"):
                 components = ["relation", "operator", str(int(token[3:]))]
@@ -58,9 +61,12 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
         components_vector = torch.stack(
             [model.model.shared.weight.data[idx].clone() for idx in components_ids], dim=0
         ).mean(dim=0)
-        noise = torch.FloatTensor(components_vector).uniform_(-0.1, +0.1)
-        components_vector = components_vector + noise
-        model.model.shared.weight.data[token_id] = components_vector + noise
+
+        if noise_range:
+            noise = torch.FloatTensor(components_vector).uniform_(-noise_range, +noise_range)
+            components_vector = components_vector + noise
+
+        model.model.shared.weight.data[token_id] = components_vector
 
     return model
 

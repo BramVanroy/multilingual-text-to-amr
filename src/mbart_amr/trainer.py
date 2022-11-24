@@ -53,6 +53,14 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
             " semantics."
         },
     )
+    noise_range: float = field(
+        default=0.1,
+        metadata={
+            "help": "The amount of noise to add during smart initialization to the tokens that are similar to other"
+                    " tokens. Noise is generated from a uniform distribution that spans [-noise_range, +noise_range]."
+                    " The default is the default noise used in SPRING"
+        },
+    )
     freeze_encoder: bool = field(
         default=False,
         metadata={
