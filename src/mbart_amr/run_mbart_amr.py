@@ -24,7 +24,7 @@ from mbart_amr.utils.smart_initialization import (freeze_encoder,
                                                   smart_initialization)
 from transformers import (EarlyStoppingCallback, HfArgumentParser,
                           MBartForConditionalGeneration,
-                          is_torch_tpu_available, set_seed)
+                          set_seed)
 from transformers.trainer_utils import get_last_checkpoint
 
 
