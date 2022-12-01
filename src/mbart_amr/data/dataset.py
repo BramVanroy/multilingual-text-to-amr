@@ -80,7 +80,7 @@ class AMRDataset(Dataset):
         remove_wiki: bool = False,
         max_samples_per_language: Optional[int] = None,
     ):
-        if src_langs is None or len(dins) != len(src_langs):
+        if src_langs is None or dins is None or len(dins) != len(src_langs):
             raise ValueError(
                 "The number of input directories (one per language) is not the same as the number of given"
                 " source languages. These have to be the same. Make sure that the given source languages"
