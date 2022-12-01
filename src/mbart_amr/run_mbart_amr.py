@@ -12,9 +12,10 @@ from typing import List, Optional, Union
 import evaluate as evaluate
 import numpy as np
 import smatch
-import torch
 import transformers
 from amr import AMR
+from tqdm import tqdm
+
 from mbart_amr.data.dataset import AMRDataset, collate_amr
 from mbart_amr.data.linearization import linearized2penmanstr
 from mbart_amr.data.tokenization import AMRMBartTokenizer
@@ -96,6 +97,23 @@ class DataTrainingArguments:
             " One directory per source language."
         },
     )
+    test_directories: Optional[List[Union[str, os.PathLike]]] = field(
+        default=None,
+        metadata={
+            "help": "Directory that contains test data. Will recursively be traversed for *.txt files."
+            " One directory per source language. Will only be used when using predict functionality."
+        },
+    )
+    test_data_has_labels: Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether or not the .txt files in the test_directories contain AMR data (so :sent sentences as well as"
+                "AMR graphs) or not (plain text files). The predictions will be written to an output file"
+                " test_predictions.txt. If AMR labels, the evaluation scores will also be printed."
+            )
+        },
+    )
     input_max_seq_length: Optional[int] = field(
         default=None,
         metadata={
@@ -130,6 +148,15 @@ class DataTrainingArguments:
         metadata={
             "help": (
                 "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
+                "value if set per given language."
+            )
+        },
+    )
+    max_test_samples_per_language: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": (
+                "For debugging purposes, truncate the number of test examples to this "
                 "value if set per given language."
             )
         },
@@ -206,8 +233,6 @@ def main():
     if not model_args.tokenizer_name and model_args.model_name_or_path:
         model_args.tokenizer_name = model_args.model_name_or_path
 
-    # TODO: generalize `src_lang` to other languages. Probably in the dataset and then during collation
-    # set the src_lang on the fly for each batch. tgt_lang is specified in tokenizer from_pretrained call
     tokenizer = AMRMBartTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs, src_lang="en_XX")
 
     config_kwargs = {
@@ -230,17 +255,13 @@ def main():
     #######################
     # CUSTOM METRICS #
     #######################
-    def preprocess_logits_for_metrics(logits, labels):
-        if isinstance(logits, tuple):
-            # Depending on the model and config, logits may contain extra tensors,
-            # like past_key_values, but logits always come first
-            logits = logits[0]
-        return logits.argmax(dim=-1)
-
     def calculate_smatch(references: List[str], predictions: List[str]):
         total_match_num = total_test_num = total_gold_num = 0
         n_invalid = 0
-        with Path(training_args.output_dir).joinpath("invalid-amrs.txt").open("a", encoding="utf-8") as fhout:
+        pdout = Path(training_args.output_dir)
+        with pdout.joinpath("invalid-amrs.txt").open("a", encoding="utf-8") as fh_invalid, pdout.joinpath(
+            "valid-amrs.txt"
+        ).open("a", encoding="utf-8") as fh_valid:
             for sentid, (ref, pred) in enumerate(zip(references, predictions), 1):
                 try:
                     ref_penman = linearized2penmanstr(ref)
@@ -250,7 +271,7 @@ def main():
                         raise Exception
                 except Exception:
                     n_invalid += 1
-                    fhout.write(f"REF_ERROR\t{datetime.now().time()}\t{ref}\n")
+                    fh_invalid.write(f"REF_ERROR\t{datetime.now().time()}\t{ref}\n")
                     continue
 
                 try:
@@ -259,7 +280,7 @@ def main():
                         raise Exception
                 except Exception:
                     n_invalid += 1
-                    fhout.write(f"PRED_ERROR\t{datetime.now().time()}\t{pred}\n")
+                    fh_invalid.write(f"PRED_ERROR\t{datetime.now().time()}\t{pred}\n")
                     continue
 
                 try:
@@ -269,7 +290,7 @@ def main():
                 except Exception:
                     n_invalid += 1
                     # At this point, any error is probably caused by the prediction
-                    fhout.write(f"SMATCH_ERROR\t{datetime.now().time()}\t{pred_penman}\n")
+                    fh_invalid.write(f"SMATCH_ERROR\t{datetime.now().time()}\t{pred_penman}\n")
                     continue
 
                 total_match_num += best_match_num
@@ -277,26 +298,30 @@ def main():
                 total_gold_num += gold_triple_num
                 # clear the matching triple dictionary for the next AMR pair
                 smatch.match_triple_dict.clear()
+                # First the prediction, then the reference AMR
+                fh_valid.write(f"{pred_penman}\n{ref_penman}\n\n")
 
             if n_invalid > 0:
                 logger.warning(
-                    f"{n_invalid:,} ({n_invalid/len(predictions)*100:.2f}%) prediction(s) were not valid AMR. Smatch "
+                    f"{n_invalid:,} ({n_invalid / len(predictions) * 100:.2f}%) prediction(s) were not valid AMR. Smatch "
                     f" scores only reflect the performance on valid AMR structures! Invalid structures have been "
                     f" appended to invalid-amrs.txt in the output directory."
                 )
 
         score = smatch.compute_f(total_match_num, total_test_num, total_gold_num)
 
-        return {"smatch_precision": score[0],
-                "smatch_recall": score[1],
-                "smatch_fscore": score[2],
-                "ratio_invalid_amrs": n_invalid/len(predictions)*100}
+        return {
+            "smatch_precision": score[0],
+            "smatch_recall": score[1],
+            "smatch_fscore": score[2],
+            "ratio_invalid_amrs": n_invalid / len(predictions) * 100,
+        }
 
-    acc_metric = evaluate.load("accuracy")
     sb_metric = evaluate.load("sacrebleu")
 
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
+
         if isinstance(preds, tuple):
             preds = preds[0]
 
@@ -305,20 +330,11 @@ def main():
         preds_for_bleu = np.where(preds != -100, preds, tokenizer.pad_token_id)
         ref_linearizations = tokenizer.decode_and_fix(labels_for_bleu)
         pred_linearizations = tokenizer.decode_and_fix(preds_for_bleu)
-
         sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
-
-        # Accuracy: flatten and calculate accuracy on flattened arrays
-        labels = labels.reshape(-1)
-        preds = preds.reshape(-1)
-        mask = labels != -100
-        labels = labels[mask]
-        preds = preds[mask]
-        acc = acc_metric.compute(predictions=preds, references=labels)
 
         smatch_score = calculate_smatch(ref_linearizations, pred_linearizations)
 
-        return {**acc, **sb, **smatch_score}
+        return {**sb, **smatch_score}
 
     #######################
     # Load datasets #
@@ -337,6 +353,13 @@ def main():
             data_args.validation_directories,
             src_langs=data_args.src_langs,
             max_samples_per_language=data_args.max_eval_samples_per_language,
+        )
+
+    if training_args.do_predict:
+        test_dataset = AMRDataset(
+            data_args.test_directories,
+            src_langs=data_args.src_langs,
+            max_samples_per_language=data_args.max_test_samples_per_language,
         )
 
     training_args.remove_unused_columns = False
@@ -370,13 +393,8 @@ def main():
             input_max_seq_length=data_args.input_max_seq_length,
             output_max_seq_length=data_args.output_max_seq_length,
         ),
-        compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics
-        if training_args.do_eval and not is_torch_tpu_available()
-        else None,
+        compute_metrics=compute_metrics if training_args.predict_with_generate else None,
         callbacks=callbacks,
-        penalty_alpha=training_args.penalty_alpha,
-        top_k=training_args.top_k,
     )
 
     # Training
@@ -397,10 +415,18 @@ def main():
         trainer.save_state()
 
     # Evaluation
+    max_length = training_args.generation_max_length
+    num_beams = training_args.generation_num_beams
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
-
-        metrics = trainer.evaluate()
+        metrics = trainer.evaluate(
+            max_length=max_length,
+            num_beams=num_beams,
+            penalty_alpha=training_args.penalty_alpha,
+            top_k=training_args.top_k,
+            do_sample=training_args.do_sample,
+            top_p=training_args.top_p,
+        )
 
         # Will take max_eval_samples_per_language into consideration
         # because we never add more samples to the dataset than needed
@@ -413,6 +439,35 @@ def main():
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
+
+    if training_args.do_predict:
+        logger.info("*** Predict ***")
+        predict_results = trainer.predict(
+            test_dataset,
+            max_length=max_length,
+            num_beams=num_beams,
+            penalty_alpha=training_args.penalty_alpha,
+            top_k=training_args.top_k,
+            do_sample=training_args.do_sample,
+            top_p=training_args.top_p,
+        )
+        metrics = predict_results.metrics
+        trainer.log_metrics("predict", metrics)
+        trainer.save_metrics("predict", metrics)
+        if trainer.is_world_process_zero():
+            pf_predictions = Path(training_args.output_dir).joinpath("generated_predictions.txt")
+            logger.info(f"Writing predictions to file {str(pf_predictions)}")
+            preds_linearized = tokenizer.decode_and_fix(predict_results.predictions, pbar=True)
+            with pf_predictions.open("w", encoding="utf-8") as fh_preds:
+                for pred_linearized in preds_linearized:
+                    try:
+                        pred_penman = linearized2penmanstr(pred_linearized)
+                        if AMR.parse_AMR_line(pred_penman) is None:
+                            raise Exception
+                        fh_preds.write(f"{pred_penman}\n")
+                    except Exception:
+                        fh_preds.write(f"INVALID_AMR\t{pred_linearized}\n")
+                        continue
 
     kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "text2text-generation"}
 
