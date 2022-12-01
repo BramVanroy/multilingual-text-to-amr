@@ -3,11 +3,13 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Union
 
+import numpy as np
 import torch
 from ftfy import fix_text
+from tqdm import tqdm
+
 from mbart_amr.data.linearization import penmanstr2linearized
 from mbart_amr.data.tokens import TOKENS_TO_ADD
-
 from transformers import BatchEncoding, MBartTokenizer
 
 
@@ -64,6 +66,7 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         voc = set(inst.get_vocab().keys())
         new_tokens = tokens_to_add - voc
+
         if new_tokens:
             inst.add_tokens(list(sorted(new_tokens)))
             print(f"Added {len(new_tokens):,} new tokens!")
@@ -81,19 +84,22 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         return inst
 
-    def decode_and_fix(self, token_ids: Union[List[List[int]], List[int], torch.Tensor]) -> List[str]:
+    def decode_and_fix(self, token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray], pbar: bool = False) -> List[str]:
         """Modified from the original HF Tokenizer. Note the run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.
 
         Works on both sequences or batches and therefore always returns a list.
 
         :param token_ids: Tensor or list of token ids, potentially with a batch dimension
+        :param pbar: Whether to show a progressbar during decoding
         :return: a list of decoded AMR linearizations
         """
-
         if isinstance(token_ids, torch.Tensor):
             if token_ids.dim() == 1:
                 token_ids = token_ids.unsqueeze(dim=0)
+        elif isinstance(token_ids, np.ndarray):
+            if token_ids.ndim == 1:
+                token_ids = np.expand_dims(token_ids, axis=0)
         elif isinstance(token_ids[0], int):
             token_ids = [token_ids]
 
@@ -101,7 +107,7 @@ class AMRMBartTokenizer(MBartTokenizer):
             token_ids = torch.LongTensor(token_ids)
 
         linearized_amrs = []
-        for ids in token_ids:
+        for ids in tqdm(token_ids, desc="Decoding", disable=not pbar):
             filtered_tokens = self.convert_ids_to_tokens(ids, skip_special_tokens=True)
             # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
             filtered_tokens = [token for token in filtered_tokens if token != self.amr_token]
@@ -132,7 +138,7 @@ class AMRMBartTokenizer(MBartTokenizer):
         return linearized_amrs
 
     def encode_penmanstrs(
-            self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
+        self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
     ) -> BatchEncoding:
         """Given one or  penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
         as well as other important items such as attention masks.
