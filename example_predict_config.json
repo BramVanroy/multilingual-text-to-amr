@@ -6,7 +6,7 @@
   "keep_incomplete_batches": true,
   "group_by_lang": false,
 
-  "output_dir": "path/to/output/dir",
+  "output_dir":  "path/to/dir/with/trained/model",
   "do_train": false,
   "do_eval": true,
   "do_predict": true,
@@ -25,7 +25,7 @@
 
   "no_cuda": false,
 
-  "predict_with_generate": false,
+  "predict_with_generate": true,
   "generation_max_length": 180,
   "generation_num_beams": 5,
   "penalty_alpha": 0.6,
