@@ -10,15 +10,22 @@ First install the package by running the following in the root directory where `
 pip install -e .
 ```
 
-Then, training or evaluating is as simple as updating the configuration file `example_config` to specify where
+# Training
+
+In my experience it is best to keep two config files: one for training, with greedy decoding (no beam search or sampling),
+and one for a final evaluation or predicting data from a file, with more complex generation options. During training
+the model will not use the given generation strategy but during the evaluation stage of training (after every `eval_steps`), it will!The reason is that
+beam decoding or other elaborate decoding strategies are memory hungry and slow.
+
+Then, training is as simple as updating the configuration file `example_train_config.json` to specify where
 your data is and any other parameters. Note that for every language you can specify a directory. All .txt files
 in that directory will be recursively included in the dataset. Make sure to also specify which source languages
 each dataset has! Specify those in `src_langs`.
 
-After completing the config file, simply run the entry point on your config:
+After completing the config file, and making sure that `do_train` is enabled, simply run the entry point on your config:
 
 ```shell
-run-mbart-amr example_config.json
+run-mbart-amr example_train_config.json
 ```
 
 For development, it can be useful to limit the training/evaluation samples to have a quick run through the whole
@@ -40,6 +47,35 @@ These defaults should be sensible:
 "output_max_seq_length": null,
 ```
 
+During training, the model will evaluation itself on the validation set every `eval_steps` steps. When
+`predict_with_generate` is enabled, it will calculate BLEU and SMATCH scores (otherwise just loss). However, consider
+that this will make use of generation functionality and if poor parameters are chosen (e.g. many beams), this can be
+very slow!
+
+- `do_sample`: whether to use sampling during generation (evaluation/prediction)
+- `top_k`: the number of highest probability vocabulary tokens to keep for top-k sampling if do_sample=True
+(evaluation/prediction). If a value is given together with 'penalty_alpha', the generation will use contrastive
+decoding. See 'penalty_alpha' for more.
+- `top_p`: the percentage of highest probability vocabulary tokens to keep for top-p sampling if do_sample=True
+(evaluation/prediction). In other words: sample from the most probable vocabulary items that, combined, account
+for p%
+- `penalty_alpha`: the values balance the model confidence and the degeneration penalty in contrastive search decoding 
+(evaluation/prediction). If a value is given together with 'topk', the generation will use contrastive decoding.
+See https://huggingface.co/blog/introducing-csearch. For generating English, the paper authors suggest penalty_alpha=0.6
+and top_k=4
+- `generation_num_beams`: number of beams to use
+- `generation_max_length`: max length to generate
+
+Specifically, these options allow you to use different generation strategies (only when `predict_with_generate`
+is enabled!):
+
+- *greedy decoding* if `num_beams=1` and`do_sample=False`
+- *contrastive search* if `penalty_alpha>0.` and `top_k>1`
+- *multinomial sampling* if `num_beams=1` and `do_sample=True`, given `top_p` and/or `top_k` values
+- *beam-search decoding* if `num_beams>1` and `do_sample=False`
+- *beam-search multinomial sampling* if`num_beams>1` and `do_sample=True`
+
+
 If you want to have a look at all the possible arguments, you can run:
 
 ```shell
@@ -53,6 +89,19 @@ and `OMP_NUM_THREADS` is the number of CPU threads divided by number of GPUs.
 ```shell
 OMP_NUM_THREADS=6 python -m torch.distributed.run --standalone --nproc_per_node 2 src/mbart_amr/run_mbart_amr.py config.json
 ```
+
+# Predictions and evaluation
+
+While the training procedure above will "evaluate" itself every `eval_steps` steps on the given evaluation set,
+the pipeline has two additional options for running a final full evaluation on the trained model, and performing
+evaluation/predictions on a given test set. This is done through the `do_eval` and `do_predict` options.
+
+I recommend to only enable these options (together or separately) after training, if you intend getting metric scores
+for the evaluation and prediction sets on the final model. Make sure to enable `predict_with_generate` if you wish to
+receive BLEU and  SMATCH scores. In this event, for `do_predict`, the predictions on the test set will also be written
+to an output file in the target directory. For generation options, see the section above.
+
+To be entirely sure about the performance for each language, it is best to evaluate each language separately! 
 
 # Architecture and tokenizer
 For now, the MBART architecture can be used as-is with the exception of added vocabulary items (i.e. increasing the embedding size a
