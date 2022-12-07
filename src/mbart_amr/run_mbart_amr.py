@@ -303,9 +303,9 @@ def main():
 
             if n_invalid > 0:
                 logger.warning(
-                    f"{n_invalid:,} ({n_invalid / len(predictions) * 100:.2f}%) prediction(s) were not valid AMR. Smatch "
-                    f" scores only reflect the performance on valid AMR structures! Invalid structures have been "
-                    f" appended to invalid-amrs.txt in the output directory."
+                    f"{n_invalid:,} ({n_invalid / len(predictions) * 100:.2f}%) prediction(s) were not valid AMR. "
+                    f" Smatch  scores only reflect the performance on valid AMR structures! Invalid structures have"
+                    f" been appended to invalid-amrs.txt in the output directory."
                 )
 
         score = smatch.compute_f(total_match_num, total_test_num, total_gold_num)
@@ -318,6 +318,7 @@ def main():
         }
 
     sb_metric = evaluate.load("sacrebleu")
+    acc_metric = evaluate.load("accuracy")
 
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
@@ -333,6 +334,18 @@ def main():
         sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
 
         smatch_score = calculate_smatch(ref_linearizations, pred_linearizations)
+
+        # We can only calculate accuracy when we have the same number of predicted tokens and reference tokens
+        # which is the case when predict_with_generate is false
+        if not training_args.predict_with_generate:
+            # Accuracy: flatten and calculate accuracy on flattened arrays
+            labels = labels.reshape(-1)
+            preds = preds.reshape(-1)
+            mask = labels != -100
+            labels = labels[mask]
+            preds = preds[mask]
+            acc = acc_metric.compute(predictions=preds, references=labels)
+            return {**acc, **sb, **smatch_score}
 
         return {**sb, **smatch_score}
 
@@ -393,7 +406,7 @@ def main():
             input_max_seq_length=data_args.input_max_seq_length,
             output_max_seq_length=data_args.output_max_seq_length,
         ),
-        compute_metrics=compute_metrics if training_args.predict_with_generate else None,
+        compute_metrics=compute_metrics,
         callbacks=callbacks,
     )
 
