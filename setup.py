@@ -7,7 +7,7 @@ from src.mbart_amr import __version__
 extras = {"style": ["flake8", "isort", "black"]}
 
 setup(
-    name="amr_bart",
+    name="mbart_amr",
     version=__version__,
     description="",
     long_description=Path("README.md").read_text(encoding="utf-8"),
@@ -36,17 +36,17 @@ setup(
     },
     python_requires=">=3.8",
     install_requires=[
-        "ftfy",
-        "transformers",
         "evaluate",
-        "scikit-learn",
-        "penman>=1.2.2",
+        "ftfy",
         "networkx",
+        "penman>=1.2.2",
         "sacrebleu",
+        "scikit-learn",
         "sentencepiece",
         "smatch",
-        "tqdm",
         "torch",
+        "tqdm",
+        "transformers",
     ],
     extras_require=extras,
     entry_points={
