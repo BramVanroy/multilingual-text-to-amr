@@ -11,7 +11,7 @@ from penman.tree import _default_variable_prefix, is_atomic
 def do_remove_wiki(penman_str: str):
     """Remove all wiki entrires from a given penman string. These are the items that start with ':wiki' and
     have a value after it that is enclosed in double quotation marks '"'.
-    TODO: in spring, they replace the wiki value with "+". Should we do that too? https://github.com/BramVanroy/spring/blob/main/spring_amr/penman.py
+    TODO: in spring, they replace the wiki value with "+". Should we do that too?
 
     :param penman_str: the given penman string
     :return: a string where all the wiki entries are removed
