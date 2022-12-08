@@ -14,7 +14,6 @@ import numpy as np
 import smatch
 import transformers
 from amr import AMR
-from tqdm import tqdm
 
 from mbart_amr.data.dataset import AMRDataset, collate_amr
 from mbart_amr.data.linearization import linearized2penmanstr
@@ -361,18 +360,14 @@ def main():
             max_samples_per_language=data_args.max_train_samples_per_language,
         )
 
-    if training_args.do_eval:
+    # Always validate during training
+    # So with --do_train we also use the validation set
+    # but with --do_eval we get a final performance of the best model on the validation set
+    if training_args.do_train or training_args.do_eval:
         validation_dataset = AMRDataset(
             data_args.validation_directories,
             src_langs=data_args.src_langs,
             max_samples_per_language=data_args.max_eval_samples_per_language,
-        )
-
-    if training_args.do_predict:
-        test_dataset = AMRDataset(
-            data_args.test_directories,
-            src_langs=data_args.src_langs,
-            max_samples_per_language=data_args.max_test_samples_per_language,
         )
 
     training_args.remove_unused_columns = False
@@ -455,32 +450,40 @@ def main():
 
     if training_args.do_predict:
         logger.info("*** Predict ***")
-        predict_results = trainer.predict(
-            test_dataset,
-            max_length=max_length,
-            num_beams=num_beams,
-            penalty_alpha=training_args.penalty_alpha,
-            top_k=training_args.top_k,
-            do_sample=training_args.do_sample,
-            top_p=training_args.top_p,
-        )
-        metrics = predict_results.metrics
-        trainer.log_metrics("predict", metrics)
-        trainer.save_metrics("predict", metrics)
-        if trainer.is_world_process_zero():
-            pf_predictions = Path(training_args.output_dir).joinpath("generated_predictions.txt")
-            logger.info(f"Writing predictions to file {str(pf_predictions)}")
-            preds_linearized = tokenizer.decode_and_fix(predict_results.predictions, pbar=True)
-            with pf_predictions.open("w", encoding="utf-8") as fh_preds:
-                for pred_linearized in preds_linearized:
-                    try:
-                        pred_penman = linearized2penmanstr(pred_linearized)
-                        if AMR.parse_AMR_line(pred_penman) is None:
-                            raise Exception
-                        fh_preds.write(f"{pred_penman}\n")
-                    except Exception:
-                        fh_preds.write(f"INVALID_AMR\t{pred_linearized}\n")
-                        continue
+        # Loop over every language separately to avoid missing batches from the dataloader
+        # and to keep track of the performance of each language separately
+        for lang, directory in zip(data_args.src_langs, data_args.test_directories):
+            test_dataset = AMRDataset(
+                directory,
+                src_langs=[lang],
+                max_samples_per_language=data_args.max_test_samples_per_language,
+            )
+            predict_results = trainer.predict(
+                test_dataset,
+                max_length=max_length,
+                num_beams=num_beams,
+                penalty_alpha=training_args.penalty_alpha,
+                top_k=training_args.top_k,
+                do_sample=training_args.do_sample,
+                top_p=training_args.top_p,
+            )
+            metrics = predict_results.metrics
+            trainer.log_metrics(f"predict_{lang}", metrics)
+            trainer.save_metrics(f"predict_{lang}", metrics)
+            if trainer.is_world_process_zero():
+                pf_predictions = Path(training_args.output_dir).joinpath(f"generated_predictions_{lang}.txt")
+                logger.info(f"Writing predictions for {lang} to file {str(pf_predictions)}")
+                preds_linearized = tokenizer.decode_and_fix(predict_results.predictions, pbar=True)
+                with pf_predictions.open("w", encoding="utf-8") as fh_preds:
+                    for pred_linearized in preds_linearized:
+                        try:
+                            pred_penman = linearized2penmanstr(pred_linearized)
+                            if AMR.parse_AMR_line(pred_penman) is None:
+                                raise Exception
+                            fh_preds.write(f"{pred_penman}\n")
+                        except Exception:
+                            fh_preds.write(f"INVALID_AMR\t{pred_linearized}\n")
+                            continue
 
     kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "text2text-generation"}
 
