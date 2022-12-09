@@ -21,14 +21,14 @@ TOKENS_TO_ADD = (
     ":sense1", ":sense2", ":sense3", ":sense4", ":sense5", ":sense6", ":sense7", ":sense8", ":sense9",
     # References to track coreference
     ":ref1", ":ref2", ":ref3", ":ref4", ":ref5", ":ref6", ":ref7", ":ref8", ":ref9",
-    # To indicate the end of a branch
-    ":endrel",
+    # To indicate the start/end of a branch
+    ":startrel", ":endrel",
     # Special language token for AMR
     "amr_XX"
 )
 
 # Prefixes to roles, used in delinearization
-# Do not include :ref, :endrel, :sense
+# Do not include :ref, :startrel, :endrel, :sense
 ROLE_PREFIXES = (
     ":ARG",
     ":accompanier",

@@ -15,7 +15,6 @@ from transformers import BatchEncoding, MBartTokenizer
 
 def clean_up_tokenization(out_string: str) -> str:
     """Clean up a list of simple English tokenization artifacts like spaces before punctuations and abbreviated forms.
-
     :param out_string: the text to clean up
     :return: the cleaned-up string
     """
@@ -144,8 +143,7 @@ class AMRMBartTokenizer(MBartTokenizer):
         as well as other important items such as attention masks.
 
         Note: padding=True, truncation=True, and return_tensors="pt" will always be enabled!
-
-        See: _linearize_and_unescape()"""
+        """
         if isinstance(penman_strs, str):
             penman_strs = [penman_strs]
 
