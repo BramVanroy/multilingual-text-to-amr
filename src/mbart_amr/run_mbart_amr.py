@@ -246,6 +246,10 @@ def main():
     model.resize_token_embeddings(len(tokenizer))
 
     if training_args.smart_initialization:
+        if Path(model_args.model_name_or_path).exists() or (training_args.do_eval and not training_args.do_train):
+            logger.warning("You have enabled smart initialization but you seem to be loading a model that you have"
+                           " already trained. This may lead to worse-than-expected performance because you will be"
+                           " effectively overwriting the token embeddings of the added tokens")
         model = smart_initialization(model, tokenizer, noise_range=training_args.noise_range)
 
     if training_args.freeze_encoder:
