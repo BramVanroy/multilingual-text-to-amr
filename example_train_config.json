@@ -38,7 +38,7 @@
   "early_stopping_threshold": null,
   "load_best_model_at_end": true,
 
-  "predict_with_generate": true,
+  "predict_with_generate": false,
   "generation_max_length": 180,
   "generation_num_beams": 1,
   "do_sample": false
