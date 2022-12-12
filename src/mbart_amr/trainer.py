@@ -76,29 +76,33 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
     do_sample: Optional[bool] = field(
         default=False,
         metadata={
-            "help": "Whether to use sampling during generation (evaluation/prediction). Only works if predict_with_generate=True."
+            "help": "Whether to use sampling during generation (evaluation/prediction). Only works if"
+            " predict_with_generate=True."
         },
     )
     penalty_alpha: Optional[float] = field(
         default=None,
         metadata={
             "help": "The values balance the model confidence and the degeneration penalty in contrastive search"
-            " decoding (evaluation/prediction). If a value is given together with 'topk', the generation will use contrastive"
-            " decoding. See https://huggingface.co/blog/introducing-csearch. For generating English, the paper"
-            " authors suggest penalty_alpha=0.6 and top_k=4. Only works if predict_with_generate=True."
+            " decoding (evaluation/prediction). If a value is given together with 'topk', the generation will use"
+            " contrastive decoding. See https://huggingface.co/blog/introducing-csearch. For generating English,"
+            " the paper authors suggest penalty_alpha=0.6 and top_k=4. Only works if predict_with_generate=True."
         },
     )
     top_k: Optional[int] = field(
         default=None,
         metadata={
-            "help": "The number of highest probability vocabulary tokens to keep for top-k sampling if do_sample=True (evaluation/prediction)."
-            " If a value is given together with 'penalty_alpha', the generation will use contrastive decoding. See 'penalty_alpha' for more. Only works if predict_with_generate=True."
+            "help": "The number of highest probability vocabulary tokens to keep for top-k sampling if do_sample=True"
+            " (evaluation/prediction). If a value is given together with 'penalty_alpha', the generation will"
+            " use contrastive decoding. See 'penalty_alpha' for more. Only works if predict_with_generate=True."
         },
     )
     top_p: Optional[float] = field(
         default=None,
         metadata={
-            "help": "The percentage of highest probability vocabulary tokens to keep for top-p sampling if do_sample=True (evaluation/prediction). In other words: sample from the most probable vocabulary items that, combined, account for p%. Only works if predict_with_generate=True."
+            "help": "The percentage of highest probability vocabulary tokens to keep for top-p sampling if"
+            " do_sample=True (evaluation/prediction). In other words: sample from the most probable vocabulary"
+            " items that, combined, account for p%. Only works if predict_with_generate=True."
         },
     )
 

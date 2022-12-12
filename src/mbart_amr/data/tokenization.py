@@ -6,10 +6,9 @@ from typing import List, Optional, Union
 import numpy as np
 import torch
 from ftfy import fix_text
-from tqdm import tqdm
-
 from mbart_amr.data.linearization import penmanstr2linearized
 from mbart_amr.data.tokens import TOKENS_TO_ADD
+from tqdm import tqdm
 from transformers import BatchEncoding, MBartTokenizer
 
 
@@ -83,7 +82,9 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         return inst
 
-    def decode_and_fix(self, token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray], pbar: bool = False) -> List[str]:
+    def decode_and_fix(
+        self, token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray], pbar: bool = False
+    ) -> List[str]:
         """Modified from the original HF Tokenizer. Note the run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.
 

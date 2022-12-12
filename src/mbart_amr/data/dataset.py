@@ -1,6 +1,5 @@
 import logging
 from collections import Counter
-from math import ceil
 from os import PathLike
 from pathlib import Path
 from typing import List, Optional, Union

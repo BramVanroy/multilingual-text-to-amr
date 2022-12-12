@@ -289,7 +289,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
 
             # End of a relation
             elif (
-                    token == ":endrel"
+                token == ":endrel"
             ):  # Stop processing because we have now processed a whole :startrel -> :endrel chunk
                 break
             # Handle the special token :negation, which indicate s negative polarity
