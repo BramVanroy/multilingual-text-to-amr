@@ -14,7 +14,6 @@ import numpy as np
 import smatch
 import transformers
 from amr import AMR
-
 from mbart_amr.data.dataset import AMRDataset, collate_amr
 from mbart_amr.data.linearization import linearized2penmanstr
 from mbart_amr.data.tokenization import AMRMBartTokenizer
@@ -22,8 +21,7 @@ from mbart_amr.trainer import AMRTrainer, ExpandedSeq2SeqTrainingArguments
 from mbart_amr.utils.smart_initialization import (freeze_encoder,
                                                   smart_initialization)
 from transformers import (EarlyStoppingCallback, HfArgumentParser,
-                          MBartForConditionalGeneration,
-                          set_seed)
+                          MBartForConditionalGeneration, set_seed)
 from transformers.trainer_utils import get_last_checkpoint
 
 
@@ -170,6 +168,11 @@ class DataTrainingArguments:
             )
         },
     )
+    remove_wiki: Optional[bool] = field(
+        default=True,
+        metadata={"help": ("Whether to remove the special 'wiki:' tags from the AMR.")},
+    )
+
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, ExpandedSeq2SeqTrainingArguments))
@@ -256,9 +259,11 @@ def main():
 
     if training_args.smart_initialization:
         if Path(model_args.model_name_or_path).exists() or (training_args.do_eval and not training_args.do_train):
-            logger.warning("You have enabled smart initialization but you seem to be loading a model that you have"
-                           " already trained. This may lead to worse-than-expected performance because you will be"
-                           " effectively overwriting the token embeddings of the added tokens")
+            logger.warning(
+                "You have enabled smart initialization but you seem to be loading a model that you have"
+                " already trained. This may lead to worse-than-expected performance because you will be"
+                " effectively overwriting the token embeddings of the added tokens"
+            )
         model = smart_initialization(model, tokenizer, noise_range=training_args.noise_range)
 
     if training_args.freeze_encoder:
@@ -378,6 +383,7 @@ def main():
         train_dataset = AMRDataset(
             data_args.train_directories,
             src_langs=data_args.src_langs,
+            remove_wiki=data_args.remove_wiki,
             max_samples_per_language=data_args.max_train_samples_per_language,
         )
 
@@ -388,6 +394,7 @@ def main():
         validation_dataset = AMRDataset(
             data_args.validation_directories,
             src_langs=data_args.src_langs,
+            remove_wiki=data_args.remove_wiki,
             max_samples_per_language=data_args.max_eval_samples_per_language,
         )
 
@@ -426,7 +433,9 @@ def main():
         # if we use `predict_with_generate`, the returned values are the generated tokens
         # if we do not use `predict_with_generate`, the returned values are logits, so we need to to argmax
         # oursleves via the 'preprocess_logits_for_metrics' function
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics if not training_args.predict_with_generate else None,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics
+        if not training_args.predict_with_generate
+        else None,
         callbacks=callbacks,
     )
 
@@ -481,6 +490,7 @@ def main():
             test_dataset = AMRDataset(
                 directory,
                 src_langs=[lang],
+                remove_wiki=data_args.remove_wiki,
                 max_samples_per_language=data_args.max_test_samples_per_language,
             )
             predict_results = trainer.predict(

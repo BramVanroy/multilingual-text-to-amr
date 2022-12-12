@@ -12,6 +12,7 @@ def get_src_lang_grouped_indices(
     batch_size: int,
     keep_incomplete_batches: bool = False,
     shuffle: bool = True,
+    group_by_length: bool = True,
     generator=None,
 ):
     """Group the data by the source language, so that each batch consists the same language only. The final few batches
@@ -25,6 +26,7 @@ def get_src_lang_grouped_indices(
     :param shuffle: whether to shuffle the indices per language and then shuffle the batches across all languages as
     well as the rest category language batch(es). In the rest category that means that all data points per-language are
     kept together but that the order of the languages can shuffle.
+    :param group_by_length: whether to try and group batches by similar input and output lengths
     :param generator: optional torch generator
     :return: indices of the dataset, ordered in such a way so that they are homogenous in their source language (with
     the potential exception of the last batch(es))
@@ -44,11 +46,19 @@ def get_src_lang_grouped_indices(
     # put all the incomplete batches near the end or drop them in case keep_incomplete_batches = False
     for lang, lang_idxs in lang_idxs.items():
         lang_idxs = torch.LongTensor(lang_idxs)
+
         if shuffle:
             # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
             # Do shuffle within a language
             indices = torch.randperm(lang_idxs.size(0), generator=generator)
             lang_idxs = lang_idxs[indices]
+
+        if group_by_length:
+            # Using character lengths for sentences, because tokens might be split up into arbitrary number of tokens
+            # N. characters seems a better approximation of relative lengths
+            lengthed = [(idx, len(dataset[idx]["sentence"]), len(dataset[idx]["penmanstr"])) for idx in lang_idxs]
+            # Sort by input and output lengths, and extract lang_idxs
+            lang_idxs = torch.LongTensor([tup[0] for tup in sorted(lengthed, key=lambda tup: tup[1:], reverse=True)])
 
         for batch in lang_idxs.split(batch_size, dim=0):
             if batch.size(0) == batch_size:
@@ -89,16 +99,18 @@ class SrcLangGroupedSampler(Sampler):
 
     def __init__(
         self,
-        batch_size: int,
         dataset: AMRDataset,
+        batch_size: int,
         keep_incomplete_batches: bool = False,
         shuffle: bool = True,
+        group_by_length: bool = True,
         generator=None,
     ):
-        self.batch_size = batch_size
         self.dataset = dataset
+        self.batch_size = batch_size
         self.keep_incomplete_batches = keep_incomplete_batches
         self.shuffle = shuffle
+        self.group_by_length = group_by_length
         self.generator = generator
 
     def __len__(self) -> int:
@@ -110,6 +122,7 @@ class SrcLangGroupedSampler(Sampler):
             self.batch_size,
             self.keep_incomplete_batches,
             shuffle=self.shuffle,
+            group_by_length=self.group_by_length,
             generator=self.generator,
         )
         return iter(indices)
@@ -118,18 +131,32 @@ class SrcLangGroupedSampler(Sampler):
 class DistributedSrcLangGroupedSampler(DistributedSampler):
     """Sampler that samples indices in a way that groups together source languages while also having some randomness"""
 
-    def __init__(self, batch_size: int, dataset: AMRDataset, *args, keep_incomplete_batches: bool = True, **kwargs):
+    def __init__(
+        self,
+        dataset: AMRDataset,
+        batch_size: int,
+        *args,
+        keep_incomplete_batches: bool = True,
+        group_by_length: bool = True,
+        **kwargs,
+    ):
         super().__init__(dataset, *args, **kwargs)
         self.batch_size = batch_size
         self.dataset = dataset
         self.keep_incomplete_batches = keep_incomplete_batches
+        self.group_by_length = group_by_length
 
     def __iter__(self) -> Iterator:
         # Deterministically shuffle based on epoch and seed
         g = torch.Generator()
         g.manual_seed(self.seed + self.epoch)
         indices = get_src_lang_grouped_indices(
-            self.dataset, self.batch_size, self.keep_incomplete_batches, shuffle=self.shuffle, generator=g
+            self.dataset,
+            self.batch_size,
+            keep_incomplete_batches=self.keep_incomplete_batches,
+            shuffle=self.shuffle,
+            group_by_length=self.group_by_length,
+            generator=g,
         )
 
         if not self.drop_last:

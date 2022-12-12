@@ -1,19 +1,16 @@
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Union, Any, List
+from typing import Optional
 
 import torch
-from torch import nn
-
 from mbart_amr.data.dataset import AMRDataset
 from mbart_amr.data.sampler import (DistributedSrcLangGroupedSampler,
                                     SrcLangGroupedSampler)
-from torch.utils.data import (DataLoader, Dataset, RandomSampler,
-                              SequentialSampler)
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
 from transformers.trainer_pt_utils import (DistributedSamplerWithLoop,
                                            ShardSampler)
-from transformers.trainer_utils import PredictionOutput, has_length
+from transformers.trainer_utils import has_length
 from transformers.training_args import ParallelMode
 
 
@@ -33,6 +30,12 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
     group_by_lang: bool = field(
         default=True,
         metadata={"help": "Whether to try to create batches of homogenous languages."},
+    )
+    group_by_length: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether to try to create batches of homogenous lengths (only works together with 'group_by_lang')."
+        },
     )
     keep_incomplete_batches: bool = field(
         default=False,
@@ -129,6 +132,7 @@ class AMRTrainer(Seq2SeqTrainer):
                     keep_incomplete_batches=self.args.keep_incomplete_batches,
                     dataset=self.train_dataset,
                     shuffle=self.args.shuffle,
+                    group_by_length=self.args.group_by_length,
                     generator=generator,
                 )
             else:
@@ -139,6 +143,7 @@ class AMRTrainer(Seq2SeqTrainer):
                     rank=self.args.process_index,
                     keep_incomplete_batches=self.args.keep_incomplete_batches,
                     shuffle=self.args.shuffle,
+                    group_by_length=self.args.group_by_length,
                     seed=seed,
                 )
 
@@ -175,6 +180,7 @@ class AMRTrainer(Seq2SeqTrainer):
                     keep_incomplete_batches=self.args.keep_incomplete_batches,
                     dataset=eval_dataset,
                     shuffle=False,
+                    group_by_length=self.args.group_by_length,
                 )
             else:
                 return DistributedSrcLangGroupedSampler(
@@ -184,6 +190,7 @@ class AMRTrainer(Seq2SeqTrainer):
                     rank=self.args.process_index,
                     keep_incomplete_batches=self.args.keep_incomplete_batches,
                     shuffle=False,
+                    group_by_length=self.args.group_by_length,
                 )
 
         if self.args.world_size <= 1:
