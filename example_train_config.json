@@ -19,18 +19,18 @@
   "save_total_limit": 5,
   "num_train_epochs": 1,
 
-  "per_device_train_batch_size": 1,
+  "per_device_train_batch_size": 4,
   "per_device_eval_batch_size": 4,
   "input_max_seq_length": 128,
-  "output_max_seq_length": null,
+  "output_max_seq_length": 180,
 
   "max_train_samples_per_language": null,
   "max_eval_samples_per_language": null,
   "max_test_samples_per_language": null,
 
   "max_grad_norm": 2.5,
-  "gradient_accumulation_steps": 8,
-  "eval_accumulation_steps": 8,
+  "gradient_accumulation_steps": 4,
+  "eval_accumulation_steps": 4,
   "learning_rate": 0.0001,
   "no_cuda": false,
 
