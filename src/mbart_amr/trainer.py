@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Dict, Union, Any, List
 
 import torch
+from torch import nn
+
 from mbart_amr.data.dataset import AMRDataset
 from mbart_amr.data.sampler import (DistributedSrcLangGroupedSampler,
                                     SrcLangGroupedSampler)
@@ -193,3 +195,46 @@ class AMRTrainer(Seq2SeqTrainer):
                 num_processes=self.args.world_size,
                 process_index=self.args.process_index,
             )
+
+    def prediction_step(self,
+                        model: nn.Module,
+                        inputs: Dict[str, Union[torch.Tensor, Any]],
+                        prediction_loss_only: bool,
+                        ignore_keys: Optional[List[str]] = None):
+        print("input size prediction", inputs["input_ids"].size())
+        print_used_ram()
+        print_used_vram()
+        return super(AMRTrainer, self).prediction_step(model, inputs, prediction_loss_only, ignore_keys)
+
+
+import math
+import psutil
+from pynvml import nvmlDeviceGetCount, nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
+
+def format_bytes(nbytes: int) -> str:
+    if nbytes == 0:
+        return "0 B"
+
+    unit = ("B", "kB", "MB", "GB", "TB")
+    nunit = int(math.floor(math.log(nbytes, 1024)))
+    nsize = round(nbytes/(math.pow(1024, nunit)), 2)
+    return f"{nsize:.2f} {unit[nunit]}"
+
+
+def print_used_ram():
+    ram = psutil.virtual_memory()
+    print("CPU used memory:", format_bytes(ram[3]))
+    print("CPU used memory (%):", f"{ram[3]*100/ram[0]:.2f}%")
+
+
+def print_used_vram():
+    nvmlInit()
+
+    if nvmlDeviceGetCount() < 1:
+        return None
+
+    h = nvmlDeviceGetHandleByIndex(0)
+    info = nvmlDeviceGetMemoryInfo(h)
+
+    print(f"GPU used memory:", format_bytes(info.used))
+    print(f"GPU used memory (%):", f"{info.used*100/info.total:.2f}%")
