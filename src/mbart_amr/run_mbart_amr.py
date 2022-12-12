@@ -336,11 +336,15 @@ def main():
     sb_metric = evaluate.load("sacrebleu")
     acc_metric = evaluate.load("accuracy")
 
+    def preprocess_logits_for_metrics(logits, labels):
+        if isinstance(logits, tuple):
+            # Depending on the model and config, logits may contain extra tensors,
+            # like past_key_values, but logits always come first
+            logits = logits[0]
+        return logits.argmax(dim=-1)
+
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
-
-        if isinstance(preds, tuple):
-            preds = preds[0]
 
         # BLEU
         labels_for_bleu = np.where(labels != -100, labels, tokenizer.pad_token_id)
@@ -419,6 +423,10 @@ def main():
             output_max_seq_length=data_args.output_max_seq_length,
         ),
         compute_metrics=compute_metrics,
+        # if we use `predict_with_generate`, the returned values are the generated tokens
+        # if we do not use `predict_with_generate`, the returned values are logits, so we need to to argmax
+        # oursleves via the 'preprocess_logits_for_metrics' function
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics if not training_args.predict_with_generate else None,
         callbacks=callbacks,
     )
 
