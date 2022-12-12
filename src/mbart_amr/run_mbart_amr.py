@@ -160,7 +160,16 @@ class DataTrainingArguments:
             )
         },
     )
-
+    save_amrs: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to save (in)valid generated AMRs to a file 'invalid-amrs.txt' in the output directory."
+                " During prediction ('--do_predict') predictions are written to 'generated_predictions_{lang}'"
+                " regardless of this flag."
+            )
+        },
+    )
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, ExpandedSeq2SeqTrainingArguments))
@@ -274,7 +283,8 @@ def main():
                         raise Exception
                 except Exception:
                     n_invalid += 1
-                    fh_invalid.write(f"REF_ERROR\t{datetime.now().time()}\t{ref}\n")
+                    if data_args.save_amrs:
+                        fh_invalid.write(f"REF_ERROR\t{datetime.now().time()}\t{ref}\n")
                     continue
 
                 try:
@@ -283,7 +293,8 @@ def main():
                         raise Exception
                 except Exception:
                     n_invalid += 1
-                    fh_invalid.write(f"PRED_ERROR\t{datetime.now().time()}\t{pred}\n")
+                    if data_args.save_amrs:
+                        fh_invalid.write(f"PRED_ERROR\t{datetime.now().time()}\t{pred}\n")
                     continue
 
                 try:
@@ -293,7 +304,8 @@ def main():
                 except Exception:
                     n_invalid += 1
                     # At this point, any error is probably caused by the prediction
-                    fh_invalid.write(f"SMATCH_ERROR\t{datetime.now().time()}\t{pred_penman}\n")
+                    if data_args.save_amrs:
+                        fh_invalid.write(f"SMATCH_ERROR\t{datetime.now().time()}\t{pred_penman}\n")
                     continue
 
                 total_match_num += best_match_num
@@ -302,7 +314,8 @@ def main():
                 # clear the matching triple dictionary for the next AMR pair
                 smatch.match_triple_dict.clear()
                 # First the prediction, then the reference AMR
-                fh_valid.write(f"{pred_penman}\n{ref_penman}\n\n")
+                if data_args.save_amrs:
+                    fh_valid.write(f"{pred_penman}\n{ref_penman}\n\n")
 
             if n_invalid > 0:
                 logger.warning(
