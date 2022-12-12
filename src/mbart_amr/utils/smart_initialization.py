@@ -17,7 +17,9 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
     for token_id, token in enumerate(tokenizer.added_tokens_encoder, tokenizer.vocab_size):
         if token.startswith(":"):
             if token == ":endrel":
-                components = [tokenizer.eos_token]
+                components = ["relation", "end", tokenizer.eos_token]
+            if token == ":startrel":
+                components = ["relation", "start", tokenizer.eos_token]
             # str -> int -> str to normalize 01 -> 1
             elif token.startswith(":op"):
                 components = ["relation", "operator", str(int(token[3:]))]
