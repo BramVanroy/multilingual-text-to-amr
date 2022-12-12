@@ -2,6 +2,9 @@ runs*
 wandb*
 Pipfile*
 data/*
+*config.json
+!example_train_config.json
+!example_predict_config.json
 
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio, WebStorm and Rider
 # Reference: https://intellij-support.jetbrains.com/hc/en-us/articles/206544839
