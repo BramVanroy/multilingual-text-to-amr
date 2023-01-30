@@ -78,8 +78,8 @@ def get_src_lang_grouped_indices(
         raise ValueError(
             "Your total batch_size (batch_size * accumulation_steps) is larger than your number of samples per language."
             " This means we can only generate incomplete batches. But because 'keep_incomplete_batches' is False, those"
-            " are ignored. As a result, no data will be used. Try lowering the total batch size, or add more data."
-            " (Check that you have not set max_train_samples to a low value!)"
+            " are ignored. As a result, no data will be used. Try lowering the total batch size, add more data, or"
+            " - if doing predictions - set keep_incomplete_batches to True."
         )
 
     if keep_incomplete_batches and rest_batches:

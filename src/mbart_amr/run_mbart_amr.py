@@ -189,7 +189,7 @@ def main():
 
         # Find all other CLI arguments, i.e. the ones that follow the config file
         config_arg_idx = sys.argv.index(config_file)
-        other_args = sys.argv[config_arg_idx+1:]
+        other_args = sys.argv[config_arg_idx + 1 :]
 
         # Find the argument names on CLI, i.e., those starting with -- (e.g., `output_dir`, or `fp16`)
         # arg[2:] to remove "--"
@@ -200,9 +200,11 @@ def main():
         # do not specify the required argument on the CLI
         # We assume here that all "required" fields require one single argument, here just a dummy
         # Do NOT generate the dummy argument if it is already given as an arg in arg_names
-        required_args = [(act.option_strings[0], "dummy")
-                         for act in parser._actions
-                         if act.required and not any(act_s[2:] in arg_names for act_s in act.option_strings)]
+        required_args = [
+            (act.option_strings[0], "dummy")
+            for act in parser._actions
+            if act.required and not any(act_s[2:] in arg_names for act_s in act.option_strings)
+        ]
         required_args = [arg for req_dummy_args in required_args for arg in req_dummy_args]  # Flatten
 
         # Parse the `cli_args` (actual CLI args + dummy required args) into dataclasses
@@ -497,6 +499,13 @@ def main():
         trainer.save_metrics("train", metrics)
         trainer.save_state()
 
+        kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "text2text-generation"}
+
+        if training_args.push_to_hub:
+            trainer.push_to_hub(**kwargs)
+        else:
+            trainer.create_model_card(**kwargs)
+
     # Evaluation
     max_length = training_args.generation_max_length
     num_beams = training_args.generation_num_beams
@@ -533,6 +542,7 @@ def main():
                 src_langs=[lang],
                 remove_wiki=data_args.remove_wiki,
                 max_samples_per_language=data_args.max_test_samples_per_language,
+                is_predict=True,
             )
             predict_results = trainer.predict(
                 test_dataset,
@@ -548,8 +558,12 @@ def main():
             trainer.save_metrics(f"predict_{lang}", metrics)
             if trainer.is_world_process_zero():
                 pf_predictions = Path(training_args.output_dir).joinpath(f"generated_predictions_{lang}.txt")
-                logger.info(f"Writing predictions for {lang} to file {str(pf_predictions)}")
+                logger.info(f"Writing predictions for {lang} to file {pf_predictions.stem}*")
+
                 preds_linearized = tokenizer.decode_and_fix(predict_results.predictions, pbar=True)
+                Path(training_args.output_dir).joinpath(f"generated_predictions_{lang}_raw.txt").write_text(
+                    "\n".join(preds_linearized) + "\n", encoding="utf-8"
+                )
                 with pf_predictions.open("w", encoding="utf-8") as fh_preds:
                     for pred_linearized in preds_linearized:
                         try:
@@ -560,13 +574,6 @@ def main():
                         except Exception:
                             fh_preds.write(f"INVALID_AMR\t{pred_linearized}\n")
                             continue
-
-    kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "text2text-generation"}
-
-    if training_args.push_to_hub:
-        trainer.push_to_hub(**kwargs)
-    else:
-        trainer.create_model_card(**kwargs)
 
 
 def _mp_fn(index):

@@ -62,13 +62,17 @@ def collate_amr(
         max_length=input_max_seq_length,
         return_tensors="pt",
     )
-    labels = tokenizer.encode_penmanstrs(
-        [s["penmanstr"] for s in samples],
-        max_length=output_max_seq_length,
-    ).input_ids
-    labels = torch.where(labels == tokenizer.pad_token_id, -100, labels)
 
-    return {**encoded_inputs, "labels": labels}
+    if len([s["penmanstr"] for s in samples if s["penmanstr"]]):
+        labels = tokenizer.encode_penmanstrs(
+            [s["penmanstr"] for s in samples],
+            max_length=output_max_seq_length,
+        ).input_ids
+        labels = torch.where(labels == tokenizer.pad_token_id, -100, labels)
+
+        return {**encoded_inputs, "labels": labels}
+    else:
+        return {**encoded_inputs}
 
 
 class AMRDataset(Dataset):
@@ -78,6 +82,7 @@ class AMRDataset(Dataset):
         src_langs: List[str],
         remove_wiki: bool = False,
         max_samples_per_language: Optional[int] = None,
+        is_predict: bool = False,
     ):
         if src_langs is None or dins is None or len(dins) != len(src_langs):
             raise ValueError(
@@ -102,22 +107,31 @@ class AMRDataset(Dataset):
             n_samples = 0
             for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file"):
                 with pfin.open(encoding="utf-8") as fhin:
-                    for tree in penman.iterparse(fhin):
-                        tree.reset_variables()
-                        # NOTE: the fix_text is important to make sure the reference tree also is correctly formed, e.g.
-                        # (':op2', '"d’Intervention"'), -> (':op2', '"d\'Intervention"'),
-                        penman_str = fix_text(penman.format(tree))
-                        if self.remove_wiki:
-                            penman_str = do_remove_wiki(penman_str)
-                        self.sentences.append(tree.metadata["snt"])
-                        self.penmanstrs.append(penman_str)
-                        metadata = {**tree.metadata, "src_lang": src_lang}
-                        self.metadatas.append(metadata)
+                    if is_predict:
+                        for line in fhin:
+                            self.sentences.append(line.strip())
+                            metadata = {"src_lang": src_lang}
+                            self.metadatas.append(metadata)
+                            n_samples += 1
+                            if self.max_samples_per_language and n_samples == self.max_samples_per_language:
+                                break
+                    else:
+                        for tree in penman.iterparse(fhin):
+                            tree.reset_variables()
+                            # NOTE: the fix_text is important to make sure the reference tree also is correctly formed, e.g.
+                            # (':op2', '"d’Intervention"'), -> (':op2', '"d\'Intervention"'),
+                            penman_str = fix_text(penman.format(tree))
+                            if self.remove_wiki:
+                                penman_str = do_remove_wiki(penman_str)
+                            self.sentences.append(tree.metadata["snt"])
+                            self.penmanstrs.append(penman_str)
+                            metadata = {**tree.metadata, "src_lang": src_lang}
+                            self.metadatas.append(metadata)
 
-                        n_samples += 1
+                            n_samples += 1
 
-                        if self.max_samples_per_language and n_samples == self.max_samples_per_language:
-                            break
+                            if self.max_samples_per_language and n_samples == self.max_samples_per_language:
+                                break
 
                 if self.max_samples_per_language and n_samples == self.max_samples_per_language:
                     break
@@ -129,6 +143,6 @@ class AMRDataset(Dataset):
         return {
             "id": idx,
             "sentence": self.sentences[idx],
-            "penmanstr": self.penmanstrs[idx],
+            "penmanstr": self.penmanstrs[idx] if idx < len(self.penmanstrs) else None,  # No penmans in predict-mode
             "metadata": self.metadatas[idx],
         }
