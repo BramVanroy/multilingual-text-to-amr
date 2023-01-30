@@ -81,21 +81,21 @@ class DataTrainingArguments:
             " respect to the model that you are using."
         },
     )
-    train_directories: Optional[List[Union[str, os.PathLike]]] = field(
+    train_directories: Optional[List[str]] = field(
         default=None,
         metadata={
             "help": "Directories that contains training data. Will recursively be traversed for *.txt files."
             " One directory per source language."
         },
     )
-    validation_directories: Optional[List[Union[str, os.PathLike]]] = field(
+    validation_directories: Optional[List[str]] = field(
         default=None,
         metadata={
             "help": "Directory that contains validation data. Will recursively be traversed for *.txt files."
             " One directory per source language."
         },
     )
-    test_directories: Optional[List[Union[str, os.PathLike]]] = field(
+    test_directories: Optional[List[str]] = field(
         default=None,
         metadata={
             "help": "Directory that contains test data. Will recursively be traversed for *.txt files."
