@@ -1,10 +1,14 @@
+import logging
 from collections import defaultdict
-from typing import Iterator, List
+from typing import Iterator
 
 import torch
 from mbart_amr.data.dataset import AMRDataset
 from torch.utils.data import Sampler
 from torch.utils.data.distributed import DistributedSampler
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_src_lang_grouped_indices(
@@ -32,6 +36,16 @@ def get_src_lang_grouped_indices(
     the potential exception of the last batch(es))
     """
     src_langs = [d["metadata"]["src_lang"] for d in dataset]
+    is_predict = len([d["penmanstr"] for d in dataset if d["penmanstr"]]) == 0
+
+    if is_predict:
+        logger.warning(
+            "Detected 'predict' mode, so switching defaults to: group_by_length=False, "
+            " keep_incomplete_batches=True, shuffle=False"
+        )
+        group_by_length = False
+        keep_incomplete_batches = True
+        shuffle = False
 
     # Per language, collect all the indices assosicated with that language
     lang_idxs = defaultdict(list)
