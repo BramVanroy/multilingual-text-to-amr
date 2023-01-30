@@ -1,4 +1,5 @@
 """Finetuning MBart models on multilingual datasets for text-to-AMR"""
+import dataclasses
 import logging
 import math
 import os
@@ -176,10 +177,50 @@ class DataTrainingArguments:
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, ExpandedSeq2SeqTrainingArguments))
-    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        # If we pass only one argument to the script and it's the path to a json file,
-        # let's parse it to get our arguments.
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+
+    try:
+        # Assumes that the first .json file is the config file (if any)
+        config_file = next(iter(arg for arg in sys.argv if arg.endswith(".json")))
+    except StopIteration:
+        config_file = None
+
+    if config_file:
+        config_args = parser.parse_json_file(json_file=os.path.abspath(config_file))
+
+        # Find all other CLI arguments, i.e. the ones that follow the config file
+        config_arg_idx = sys.argv.index(config_file)
+        other_args = sys.argv[config_arg_idx+1:]
+
+        # Find the argument names on CLI, i.e., those starting with -- (e.g., `output_dir`, or `fp16`)
+        # arg[2:] to remove "--"
+        arg_names = {arg[2:] for arg in other_args if arg.startswith("--")}
+
+        # Get the required arguments from the parser so that we can generate dummy values
+        # This is needed for the next step, otherwise we get "xxx is a required argument" if we
+        # do not specify the required argument on the CLI
+        # We assume here that all "required" fields require one single argument, here just a dummy
+        # Do NOT generate the dummy argument if it is already given as an arg in arg_names
+        required_args = [(act.option_strings[0], "dummy")
+                         for act in parser._actions
+                         if act.required and not any(act_s[2:] in arg_names for act_s in act.option_strings)]
+        required_args = [arg for req_dummy_args in required_args for arg in req_dummy_args]  # Flatten
+
+        # Parse the `cli_args` (actual CLI args + dummy required args) into dataclasses
+        cli_args = other_args + required_args
+        cli_args = parser.parse_args_into_dataclasses(args=cli_args, look_for_args_file=False)
+
+        # Iterate over couples of dataclasses, where the first one is the initial one from config
+        # and the second one is the one with CLI args + dummy required arguments
+        # In this loop, we replace values in cfg_dc with the ones from the CLI
+        # but only if they were _real_ CLI arguments (not the required dummies we generated)
+        all_args = []
+        for cfg_dc, cli_dc in zip(config_args, cli_args):
+            # Filter the loaded `other_args` to only the arguments that were specified on the command-line (`arg_names`)
+            cli_d = {k: v for k, v in dataclasses.asdict(cli_dc).items() if k in arg_names}
+            # Replace the values in the config-loaded args with the ones loaded from cli
+            all_args.append(dataclasses.replace(cfg_dc, **cli_d))
+
+        model_args, data_args, training_args = all_args
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
