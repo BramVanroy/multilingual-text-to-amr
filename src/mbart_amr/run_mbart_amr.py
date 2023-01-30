@@ -529,7 +529,7 @@ def main():
         # and to keep track of the performance of each language separately
         for lang, directory in zip(data_args.src_langs, data_args.test_directories):
             test_dataset = AMRDataset(
-                directory,
+                [directory],
                 src_langs=[lang],
                 remove_wiki=data_args.remove_wiki,
                 max_samples_per_language=data_args.max_test_samples_per_language,
