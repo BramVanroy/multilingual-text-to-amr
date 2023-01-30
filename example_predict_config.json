@@ -1,14 +1,14 @@
 {
   "model_name_or_path": "path/to/dir/with/trained/model",
-  "validation_directories": ["path/to/amrs/dev"],
   "test_directories": ["path/to/amrs/test"],
   "src_langs": ["en_XX"],
+  "smart_initialization": false
   "keep_incomplete_batches": true,
   "group_by_lang": false,
 
   "output_dir":  "path/to/dir/with/trained/model",
   "do_train": false,
-  "do_eval": true,
+  "do_eval": false,
   "do_predict": true,
   "report_to": "none",
 
@@ -18,12 +18,6 @@
   "per_device_eval_batch_size": 4,
   "input_max_seq_length": 128,
   "output_max_seq_length": null,
-
-  "max_train_samples_per_language": null,
-  "max_eval_samples_per_language": 16,
-  "max_test_samples_per_language": 16,
-
-  "no_cuda": false,
 
   "predict_with_generate": true,
   "generation_max_length": 180,
