@@ -57,7 +57,7 @@ def clean_up_tokenization(out_string: str) -> str:
 
 class AMRMBartTokenizer(MBartTokenizer):
     @classmethod
-    def from_pretrained(cls, *args, new_tokens_file: Optional[str] = None, **kwargs):
+    def from_pretrained(cls, *args, **kwargs):
         inst = super().from_pretrained(*args, **kwargs)
 
         tokens_to_add = set(TOKENS_TO_ADD)
