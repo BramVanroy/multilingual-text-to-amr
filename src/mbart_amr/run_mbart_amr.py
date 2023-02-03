@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 
 import evaluate as evaluate
 import numpy as np

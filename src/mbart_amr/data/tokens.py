@@ -1,6 +1,16 @@
 # fmt: off
 # Tokens to add to the tokenizer
-TOKENS_TO_ADD = (
+LANG_CODE = "amr_XX"
+START = ":startrel"
+END = ":endrel"
+# Word senses
+SENSES = (":sense00", ":sense01", ":sense02", ":sense03", ":sense04", ":sense05", ":sense06", ":sense07", ":sense08",
+          ":sense09", ":sense1", ":sense2", ":sense3", ":sense4", ":sense5", ":sense6", ":sense7", ":sense8", ":sense9")
+
+# References to track coreference
+REFS = (":ref1", ":ref2", ":ref3", ":ref4", ":ref5", ":ref6", ":ref7", ":ref8", ":ref9")
+
+ROLES = (
     # ARGs
     ":ARG0", ":ARG1", ":ARG2", ":ARG3", ":ARG4", ":ARG5", ":ARG6", ":ARG7", ":ARG8", ":ARG9",
     # Other roles
@@ -14,17 +24,19 @@ TOKENS_TO_ADD = (
     ":op1", ":op2", ":op3", ":op4", ":op5", ":op6", ":op7", ":op8", ":op9",
     # Sentence IDs
     ":snt1", ":snt2", ":snt3", ":snt4", ":snt5", ":snt6", ":snt7", ":snt8", ":snt9",
-    # Special tokens and frames
-    "-91", "-quantity", "-entity", "~~of", ":prep-", ":conj-", "amr-unknown", "amr-choice", "multi-sentence", ":negation",
-    # Word senses
-    ":sense00", ":sense01", ":sense02", ":sense03", ":sense04", ":sense05", ":sense06", ":sense07", ":sense08", ":sense09",
-    ":sense1", ":sense2", ":sense3", ":sense4", ":sense5", ":sense6", ":sense7", ":sense8", ":sense9",
-    # References to track coreference
-    ":ref1", ":ref2", ":ref3", ":ref4", ":ref5", ":ref6", ":ref7", ":ref8", ":ref9",
-    # To indicate the start/end of a branch
-    ":startrel", ":endrel",
-    # Special language token for AMR
-    "amr_XX"
+)
+
+# Special tokens and frames
+SPECIALS = ("-91", "-quantity", "-entity", "~~of", ":prep-", ":conj-", "amr-unknown", "amr-choice", "multi-sentence", ":negation")
+
+TOKENS_TO_ADD = (LANG_CODE, START, END) + SENSES + REFS + ROLES + REFS + SPECIALS
+
+# Roles that are also valid if that have a number after it, e.g. :ARG1 + 12
+# (Note that :ARG0 is not included!)
+QUANTI_ROLES = (
+    ":ARG1", ":ARG2", ":ARG3", ":ARG4", ":ARG5", ":ARG6", ":ARG7", ":ARG8", ":ARG9",
+    ":op1", ":op2", ":op3", ":op4", ":op5", ":op6", ":op7", ":op8", ":op9",
+    ":snt1", ":snt2", ":snt3", ":snt4", ":snt5", ":snt6", ":snt7", ":snt8", ":snt9"
 )
 
 # Prefixes to roles, used in delinearization

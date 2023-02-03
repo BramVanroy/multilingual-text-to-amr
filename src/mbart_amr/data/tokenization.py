@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional, Union
+from typing import List, Union
 
 import numpy as np
 import torch
 from ftfy import fix_text
 from mbart_amr.data.linearization import penmanstr2linearized
-from mbart_amr.data.tokens import TOKENS_TO_ADD
+from mbart_amr.data.tokens import TOKENS_TO_ADD, LANG_CODE
 from tqdm import tqdm
 from transformers import BatchEncoding, MBartTokenizer
 
@@ -75,7 +75,7 @@ class AMRMBartTokenizer(MBartTokenizer):
         # the MBARTTokenizer only allows special language codes as tgt_lang for this purpose so
         # we cannot take that approach. Instead we will be replacing the special source language
         # token in "encode_penmanstrs" with our own, amr_XX one
-        inst.amr_token = "amr_XX"
+        inst.amr_token = LANG_CODE
         inst.amr_token_id = inst.convert_tokens_to_ids(inst.amr_token)
         inst.tgt_lang = inst.amr_token
         inst.lang_ids = torch.LongTensor(list(inst.id_to_lang_code.keys()))
@@ -140,7 +140,7 @@ class AMRMBartTokenizer(MBartTokenizer):
     def encode_penmanstrs(
         self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
     ) -> BatchEncoding:
-        """Given one or  penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
+        """Given one or more penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
         as well as other important items such as attention masks.
 
         Note: padding=True, truncation=True, and return_tensors="pt" will always be enabled!

@@ -7,6 +7,8 @@ from mbart_amr.data.tokens import ROLE_PREFIXES
 from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic
 
+from mbart_amr.utils import is_number
+
 
 def do_remove_wiki(penman_str: str):
     """Remove all wiki entrires from a given penman string. These are the items that start with ':wiki' and
@@ -25,22 +27,6 @@ def do_remove_metadata(penman_str: str):
     :return: a string where all the lines that start with '#' are removed
     """
     return re.sub(r"^#.*\n", "", penman_str, flags=re.MULTILINE)
-
-
-def is_number(maybe_number_str: str) -> bool:
-    """Check whether a given string is a number. We do not consider special cases such as 'infinity' and 'nan',
-    which technically are floats. We do consider, however, floats like '1.23'.
-    :param maybe_number_str: a string that might be a number
-    :return: whether the given number is indeed a number
-    """
-    if maybe_number_str in ["infinity", "nan"]:
-        return False
-
-    try:
-        float(maybe_number_str)
-        return True
-    except ValueError:
-        return False
 
 
 def tokenize_except_quotes(input_str: str) -> List[str]:
