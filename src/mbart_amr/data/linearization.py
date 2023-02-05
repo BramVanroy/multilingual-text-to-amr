@@ -154,7 +154,7 @@ def penmantree2linearized(penman_tree: Tree) -> str:
                 tokens.append(references[node])
             # Special "literal" tokens do not have senses. These occur in e.g. :op or :wiki
             elif node.startswith('"') and node.endswith('"'):
-                tokens.append(node)
+                tokens.extend([":startlit", node[1:-1], ":endlit"])
             else:
                 tokens.append(node)
         else:
@@ -242,6 +242,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
         """
         nonlocal penman_tokens
         indent = "\t" * level
+        lit_open = False
         # Iterate from a given start index to the end of all tokens but we can break out if we encounter an :endrel
         for token_idx in range(first_index, len(tokens)):
             # Outer loops should not process tokens that were processed in internal loops
@@ -278,6 +279,12 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                 token == ":endrel"
             ):  # Stop processing because we have now processed a whole :startrel -> :endrel chunk
                 break
+            elif token == ":startlit":
+                lit_open = True
+                penman_tokens.append('"')
+            elif token == ":endlit":
+                lit_open = False
+                penman_tokens[-1] = f'{penman_tokens[-1]}"'  # just add a closing quote
             # Handle the special token :negation, which indicate s negative polarity
             elif token == ":negation":
                 penman_tokens.append(":polarity -")
@@ -294,7 +301,12 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                 else:  # This is the original token that others refer to
                     penman_tokens.append(f"{token}-canonicalref")
             else:  # TOKENS: many exceptions where we do not need the instance / separator
-                if token.isdigit() or is_number(token):  # Numbers are mostly dealt with without /
+                if lit_open:  # Literals
+                    if penman_tokens[-1] == '"':  # If this is the first token after the opening quote, no space needed
+                        penman_tokens[-1] = f'{penman_tokens[-1]}{token}'
+                    else:
+                        penman_tokens[-1] = f'{penman_tokens[-1]} {token}'
+                elif token.isdigit() or is_number(token):  # Numbers are mostly dealt with without /
                     penman_tokens.append(f" {token}")
                 # Certain quantities, wiki entries.... E.g. "2/3"
                 elif token.startswith('"') and token.endswith('"'):
@@ -310,7 +322,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                 ]:
                     penman_tokens.append(f" {token}")
                 # Wikis do not have an instance relation. Empty wikis look like `:wiki -`
-                elif prev_token is not None and prev_token in [":wiki"]:
+                elif prev_token is not None and prev_token == ":wiki":
                     penman_tokens.append(f" {token}")
                 # Exceptionally, ARG can be unspecified - or +
                 elif token in ["-", "+"] and prev_token is not None and prev_token.startswith((":ARG")):

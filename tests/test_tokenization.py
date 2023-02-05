@@ -28,7 +28,7 @@ def main(indir: str):
                     original_tree = penman.parse(penman_str)
 
                     encoded = tokenizer.encode_penmanstrs(penman_str, remove_wiki=remove_wiki)
-                    decoded = tokenizer.decode_and_fix(encoded.input_ids)
+                    decoded = tokenizer.decode_and_fix(encoded.input_ids)[0]
 
                     try:
                         delinearized_penman_str = linearized2penmanstr(decoded)

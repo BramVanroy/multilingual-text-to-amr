@@ -39,9 +39,12 @@ def clean_up_tokenization(out_string: str) -> str:
     # AMR specific
     # Generic prepositions/conunctions, e.g. `:prep-by` or `:conj-as-if`
     out_string = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", out_string)
-    # Merging e.g. :ARG1 2 into :ARG12. But only if the next token is a :startrel and not
+    # Merging e.g. :ARG1 2 into :ARG12. But only if the next token is a :startrel or :startlit and not
     # any other relation (starting with :)
-    out_string = re.sub(r":(ARG|op|snt)(\d+)?\s+(\d+) (?:(?!:)|(?=:startrel))", r":\1\2\3 ", out_string)
+    out_string = re.sub(r":(ARG|op|snt)(\d+)?\s+(\d+) (?:(?!:)|(?=:startrel|:startlit))", r":\1\2\3 ", out_string)
+
+    # Adding space before/after :startlit/:endlit
+    out_string = re.sub(r":(startlit|endlit)", r" :\1 ", out_string)
 
     # Merging e.g. :sense1 2 into :sense12
     out_string = re.sub(r":(sense|ref)(\d+)\s+(\d+)", r":\1\2\3", out_string)

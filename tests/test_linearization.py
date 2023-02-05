@@ -33,6 +33,7 @@ def main(indir: str):
                         print(tree.metadata)
                         print(original_tree)
                         print(delinearized_tree)
+                        print(linearized)
                         raise ValueError("Tree mismatch between original tree and delinearized tree")
 
                     try:

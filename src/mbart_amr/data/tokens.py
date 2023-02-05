@@ -1,8 +1,11 @@
 # fmt: off
 # Tokens to add to the tokenizer
 LANG_CODE = "amr_XX"
-START = ":startrel"
-END = ":endrel"
+STARTREL = ":startrel"
+ENDREL = ":endrel"
+STARTLIT = ":startlit"
+ENDLIT = ":endlit"
+
 # Word senses
 SENSES = (":sense00", ":sense01", ":sense02", ":sense03", ":sense04", ":sense05", ":sense06", ":sense07", ":sense08",
           ":sense09", ":sense1", ":sense2", ":sense3", ":sense4", ":sense5", ":sense6", ":sense7", ":sense8", ":sense9")
@@ -29,7 +32,7 @@ ROLES = (
 # Special tokens and frames
 SPECIALS = ("-91", "-quantity", "-entity", "~~of", ":prep-", ":conj-", "amr-unknown", "amr-choice", "multi-sentence", ":negation")
 
-TOKENS_TO_ADD = (LANG_CODE, START, END) + SENSES + REFS + ROLES + REFS + SPECIALS
+TOKENS_TO_ADD = (LANG_CODE, STARTREL, ENDREL, STARTLIT, ENDLIT) + SENSES + REFS + ROLES + REFS + SPECIALS
 
 # Roles that are also valid if that have a number after it, e.g. :ARG1 + 12
 # (Note that :ARG0 is not included!)

@@ -20,14 +20,14 @@ from mbart_amr.data.linearization import linearized2penmanstr
 from mbart_amr.data.tokenization import AMRMBartTokenizer
 from transformers import MBartForConditionalGeneration, LogitsProcessor, LogitsProcessorList
 
-from mbart_amr.data.tokens import START, END, LANG_CODE, SENSES, ROLES
+from mbart_amr.data.tokens import STARTREL, ENDREL, LANG_CODE, SENSES, ROLES
 from mbart_amr.utils import ends_in_valid_role
 
 
 class AMRLogitsProcessor(LogitsProcessor):
     def __init__(self, tokenizer: AMRMBartTokenizer, max_length: int):
-        self.start_idx = tokenizer.convert_tokens_to_ids(START)
-        self.end_idx = tokenizer.convert_tokens_to_ids(END)
+        self.start_idx = tokenizer.convert_tokens_to_ids(STARTREL)
+        self.end_idx = tokenizer.convert_tokens_to_ids(ENDREL)
         self.lang_idx = tokenizer.convert_tokens_to_ids(LANG_CODE)
         self.tokenizer = tokenizer
         self.sense_idxs = tokenizer.convert_tokens_to_ids(SENSES)
