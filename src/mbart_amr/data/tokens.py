@@ -8,8 +8,7 @@ STARTLIT = ":startlit"
 ENDLIT = ":endlit"
 
 # -00 is a valid sense!
-SENSES = (":sense00", ":sense01", ":sense02", ":sense03", ":sense04", ":sense05", ":sense06", ":sense07", ":sense08",
-          ":sense09", ":sense1", ":sense2", ":sense3", ":sense4", ":sense5", ":sense6", ":sense7", ":sense8", ":sense9")
+SENSES = (":sense0", ":sense1", ":sense2", ":sense3", ":sense4", ":sense5", ":sense6", ":sense7", ":sense8", ":sense9")
 REFS = (":ref1", ":ref2", ":ref3", ":ref4", ":ref5", ":ref6", ":ref7", ":ref8", ":ref9")
 ARGS = (":ARG0", ":ARG1", ":ARG2", ":ARG3", ":ARG4", ":ARG5", ":ARG6", ":ARG7", ":ARG8", ":ARG9")
 OPS = (":op1", ":op2", ":op3", ":op4", ":op5", ":op6", ":op7", ":op8", ":op9")
@@ -45,7 +44,10 @@ SENT_NUM_PREFIXES = SENTS
 def _make_prefixes():
     """Make a tuple of numberless prefixes (e.g. :ARG but not :ARG1) to be used
     in the delinearization process Using regex/len checking to be as robust as possible
-    so that the vocabulary can be changed if wanted."""
+    so that the vocabulary can be changed if wanted.
+
+    Included: args, ops, sents, "other_roles", and special_prefixes
+    """
     no_number_prefixes = []
     for token_type in (ARGS, OPS, SENTS):
         unique = tuple(set(re.sub(r"\d+", "", token) for token in token_type))

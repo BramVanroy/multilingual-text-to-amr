@@ -1,6 +1,6 @@
 import re
 from collections import Counter
-from typing import Counter, List, Union
+from typing import Counter, List, Union, Literal
 
 import penman
 from mbart_amr.data.tokens import ROLE_NONUM_PREFIXES, STARTREL, ENDREL, ENDLIT, STARTLIT
@@ -8,6 +8,20 @@ from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic
 
 from mbart_amr.utils import is_number
+
+
+def do_reformat_senseid(idx: str, to: Literal["linearized", "penman"] = "linearized"):
+    if to == "linearized":
+        if len(idx) == 2:  # turn "01" into "1"
+            if idx.startswith("0"):
+                return idx[1:]
+    elif to == "penman":
+        if len(idx) == 1:  # turn "1" into "01"
+            return f"0{idx}"
+    else:
+        raise ValueError("'to' must be one of 'linearized' or 'penman'")
+
+    return idx
 
 
 def do_remove_wiki(penman_str: str):
@@ -146,7 +160,8 @@ def penmantree2linearized(penman_tree: Tree) -> str:
                     if match.group(2) == "91":
                         tokens.append(node)
                     else:
-                        tokens.extend((match.group(1), f":sense{match.group(2)}"))
+                        senseid = do_reformat_senseid(match.group(2), to="linearized")
+                        tokens.extend((match.group(1), f":sense{senseid}"))
                 else:
                     tokens.append(node)
             elif re.match(r"^[a-z]\d*$", node):  # In case a terminal refers to another token
@@ -290,7 +305,8 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                 penman_tokens.append(":polarity -")
             # SENSE IDs: add the sense to the previous token
             elif match := re.match(r"^:sense(.+)", token):
-                penman_tokens[-1] = f"{penman_tokens[-1]}-{match.group(1)}"
+                senseid = do_reformat_senseid(match.group(1), to="penman")
+                penman_tokens[-1] = f"{penman_tokens[-1]}-{senseid}"
             # ROLES (that are not :refs)
             elif token.startswith(ROLE_NONUM_PREFIXES):
                 penman_tokens.append(f"\n{indent}{replace_of(token, reverse=True)}")
