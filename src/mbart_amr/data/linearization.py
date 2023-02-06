@@ -3,7 +3,7 @@ from collections import Counter
 from typing import Counter, List, Union
 
 import penman
-from mbart_amr.data.tokens import ROLE_PREFIXES
+from mbart_amr.data.tokens import ROLE_NONUM_PREFIXES, STARTREL, ENDREL, ENDLIT, STARTLIT
 from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic
 
@@ -154,11 +154,11 @@ def penmantree2linearized(penman_tree: Tree) -> str:
                 tokens.append(references[node])
             # Special "literal" tokens do not have senses. These occur in e.g. :op or :wiki
             elif node.startswith('"') and node.endswith('"'):
-                tokens.extend([":startlit", node[1:-1], ":endlit"])
+                tokens.extend([STARTLIT, node[1:-1], ENDLIT])
             else:
                 tokens.append(node)
         else:
-            tokens.append(":startrel")
+            tokens.append(STARTREL)
             if not isinstance(node, Tree):
                 node = Tree(node)
             # Varname is e.g. "d" for dog or "d2" for dragon
@@ -179,7 +179,7 @@ def penmantree2linearized(penman_tree: Tree) -> str:
 
                 _iterate(targetnode, relation_type == "/")
 
-            tokens.append(":endrel")
+            tokens.append(ENDREL)
 
     _iterate(penman_tree)
 
@@ -215,8 +215,8 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
     # It is expected that the first token is not :startrel, because in linearlization we
     # explicitly remove first and last :start/endrels because they take up space in the sequence
     # So here we can add them again if needed
-    if tokens[0] != ":startrel":
-        tokens = [":startrel"] + tokens + [":endrel"]
+    if tokens[0] != STARTREL:
+        tokens = [STARTREL] + tokens + [ENDREL]
 
     varcounter = Counter()  # To keep track of how often a var occurs so we can decide naming, e.g. dog -> d or d2?
     processed_tokens = set()  # Because we iteratively process tokens, we have to track which tokens we already did
@@ -264,7 +264,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                     next_token = tokens[token_idx + 1]
 
             # Process each token
-            if token == ":startrel":
+            if token == STARTREL:
                 varname = ""
                 if next_token:  # Can be false if the string is malformed
                     varname = _default_variable_prefix(next_token)
@@ -276,13 +276,13 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
 
             # End of a relation
             elif (
-                token == ":endrel"
+                token == ENDREL
             ):  # Stop processing because we have now processed a whole :startrel -> :endrel chunk
                 break
-            elif token == ":startlit":
+            elif token == STARTLIT:
                 lit_open = True
                 penman_tokens.append('"')
-            elif token == ":endlit":
+            elif token == ENDLIT:
                 lit_open = False
                 penman_tokens[-1] = f'{penman_tokens[-1]}"'  # just add a closing quote
             # Handle the special token :negation, which indicate s negative polarity
@@ -292,7 +292,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
             elif match := re.match(r"^:sense(.+)", token):
                 penman_tokens[-1] = f"{penman_tokens[-1]}-{match.group(1)}"
             # ROLES (that are not :refs)
-            elif token.startswith(ROLE_PREFIXES):
+            elif token.startswith(ROLE_NONUM_PREFIXES):
                 penman_tokens.append(f"\n{indent}{replace_of(token, reverse=True)}")
             # REFS
             elif token.startswith(":ref"):

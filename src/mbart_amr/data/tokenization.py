@@ -63,8 +63,8 @@ class AMRMBartTokenizer(MBartTokenizer):
     def from_pretrained(cls, *args, **kwargs):
         inst = super().from_pretrained(*args, **kwargs)
 
+        # Only add tokens that are not in the vocabulary yet
         tokens_to_add = set(TOKENS_TO_ADD)
-
         voc = set(inst.get_vocab().keys())
         new_tokens = tokens_to_add - voc
 
