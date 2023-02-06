@@ -118,15 +118,19 @@ class AMRDataset(Dataset):
                     else:
                         for tree in penman.iterparse(fhin):
                             tree.reset_variables()
-                            # NOTE: the fix_text is important to make sure the reference tree also is correctly formed, e.g.
-                            # (':op2', '"d’Intervention"'), -> (':op2', '"d\'Intervention"'),
+                            metadata = {**tree.metadata, "src_lang": src_lang}
+                            self.metadatas.append(metadata)
+                            self.sentences.append(tree.metadata["snt"])
+                            # It seems that some AMR is unparseable in some cases due to metadata (?; e.g. in test set)
+                            # so we empty the metadata before continuing
+                            tree.metadata = {}
+
+                            # NOTE: the fix_text is important to make sure the reference tree also is correctly formed,
+                            # e.g. (':op2', '"d’Intervention"'), -> (':op2', '"d\'Intervention"'),
                             penman_str = fix_text(penman.format(tree))
                             if self.remove_wiki:
                                 penman_str = do_remove_wiki(penman_str)
-                            self.sentences.append(tree.metadata["snt"])
                             self.penmanstrs.append(penman_str)
-                            metadata = {**tree.metadata, "src_lang": src_lang}
-                            self.metadatas.append(metadata)
 
                             n_samples += 1
 
