@@ -4,7 +4,7 @@ from transformers import MBartForConditionalGeneration
 
 
 def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBartTokenizer, noise_range: float = 0.1):
-    """Inspired by SPRING's implementation but modifed in terms of tokens, meaning chunks, etc.
+    """
 
     :param model: the model whose added tokens to initialize
     :param tokenizer: the tokenizer, which also contains the new tokens
@@ -20,21 +20,20 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
                 components = ["relation", "end", tokenizer.eos_token]
             elif token == ":startrel":
                 components = ["relation", "start", tokenizer.eos_token]
+            elif token == ":endlit":
+                components = ["relation", "end", "literal", '"']
             elif token == ":startlit":
                 components = ["relation", "start", "literal", '"']
-            elif token == ":endlit":
-                components = ["relation", "start", "literal", '"']
-            # str -> int -> str to normalize 01 -> 1
             elif token.startswith(":op"):
-                components = ["relation", "operator", str(int(token[3:]))]
+                components = ["relation", "operator", str(token[3:])]
             elif token.startswith(":snt"):
-                components = ["relation", "sentence", str(int(token[4:]))]
+                components = ["relation", "sentence", str(token[4:])]
             elif token.startswith(":ARG"):
-                components = ["relation", "argument", str(int(token[4:]))]
+                components = ["relation", "argument", str(token[4:])]
             elif token.startswith(":ref"):
-                components = ["reference", str(int(token[4:]))]
+                components = ["reference", str(token[4:])]
             elif token.startswith(":sense"):
-                components = ["meaning", str(int(token[6:]))]
+                components = ["meaning", str(token[6:])]
             elif token == ":negation":
                 components = ["not"]
             elif token == ":year2":  # make explicit, otherwise it ends up as ["year2"]
