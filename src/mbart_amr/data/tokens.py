@@ -1,7 +1,8 @@
 # fmt: off
 import re
 
-LANG_CODE = "amr_XX"
+
+AMR_LANG_CODE = "amr_XX"
 STARTREL = ":startrel"
 ENDREL = ":endrel"
 STARTLIT = ":startlit"
@@ -27,11 +28,16 @@ OTHER_ROLES = (
 PREP_PREFIX = ":prep-"
 FRAME_ID = "-91"
 OF_SUFFIX = "~~of"
-SPECIAL_SUFFIXES = ("-quantity", "-entity")
-SPECIALS = ("amr-unknown", "amr-choice", "multi-sentence", ":negation")
+MULTI_SENTENCE = "multi-sentence"
+UNKOWN = "amr-unknown"
+CHOICE = "amr-choice"
+NEGATION = ":negation"
 
-TOKENS_TO_ADD = ((LANG_CODE, STARTREL, ENDREL, STARTLIT, ENDLIT) + SENSES + REFS + ARGS + OPS + SENTS + OTHER_ROLES
-                 + (PREP_PREFIX, FRAME_ID, OF_SUFFIX) + SPECIAL_SUFFIXES + SPECIALS)
+SPECIAL_SUFFIXES = ("-quantity", "-entity")
+
+
+TOKENS_TO_ADD = ((AMR_LANG_CODE, STARTREL, ENDREL, STARTLIT, ENDLIT) + SENSES + REFS + ARGS + OPS + SENTS + OTHER_ROLES
+                 + (PREP_PREFIX, FRAME_ID, OF_SUFFIX, MULTI_SENTENCE, UNKOWN, CHOICE, NEGATION) + SPECIAL_SUFFIXES)
 
 # NUMBERED PREFIXES: special tokens that are also valid if they have another number after them
 # Only for SENSE and ARG these are different than their full list: we only want those ending in 1...9

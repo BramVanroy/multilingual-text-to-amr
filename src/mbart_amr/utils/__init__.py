@@ -1,3 +1,7 @@
+import torch
+from transformers import LogitsProcessor, MBartTokenizer
+
+
 def is_number(maybe_number_str: str) -> bool:
     """Check whether a given string is a number. We do not consider special cases such as 'infinity' and 'nan',
     which technically are floats. We do consider, however, floats like '1.23'.
@@ -12,3 +16,33 @@ def is_number(maybe_number_str: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def can_be_generated(
+    input_ids: torch.LongTensor,
+    logitsprocessor: LogitsProcessor,
+    tokenizer: MBartTokenizer,
+    max_length: int,
+    verbose: bool = False,
+):
+    fake_scores = torch.FloatTensor(1, len(tokenizer)).uniform_(-20, +20)
+    for idx in range(1, min(input_ids.size(1), max_length)):
+        scores = logitsprocessor(input_ids[:, :idx], fake_scores.clone())
+        next_idx = input_ids[0, idx]
+
+        if torch.isinf(scores[0, next_idx]):
+            if verbose:
+                print(
+                    f"NOT POSSIBLE: {debug_decode(input_ids, tokenizer)}\nAfter {debug_decode(input_ids[:, :idx], tokenizer)},\n    {debug_decode(input_ids[:, idx], tokenizer)} was not allowed"
+                )
+            return False
+
+    return True
+
+
+def debug_decode(input_ids: torch.LongTensor, tokenizer: MBartTokenizer, skip_special_tokens: bool = False):
+    return tokenizer.decode_and_fix(input_ids, skip_special_tokens=skip_special_tokens)[0]
+
+
+def debug_build_ids_for_labels(linearized: str, tokenizer: MBartTokenizer):
+    return tokenizer(f"amr_XX {linearized}", add_special_tokens=False, return_tensors="pt").input_ids
