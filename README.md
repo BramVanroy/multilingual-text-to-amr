@@ -118,7 +118,7 @@ is paramount to make sure that everything is working well to solve spacing issue
 
 This approach was tested on the whole AMR 3.0 corpus. It can successfully go from all trees, to a linearized 
 version, to a tokenized version, back to a linearized version, and back to the same original tree. See 
-[this test](tests/test_tokenization.py).
+[this test](tests/test_tokenization_corpus.py).
 
 # Linearization
 
@@ -134,7 +134,7 @@ A linearized tree can be turned back into a tree by `linearized2penmantree()`. R
 because of the `:startrel` and `:endrel` tokens, we are still capable of correctly putting a tree together again.
 
 This approach was tested on the whole AMR 3.0 corpus. It can successfully go from all trees, to a linearized 
-version, and back to the same original tree. See [this test](tests/test_linearization.py).
+version, and back to the same original tree. See [this test](tests/test_linearization_corpus.py).
 
 
 # Caveats on using the linearizer and tokenizer with the AMR corpus
