@@ -66,11 +66,10 @@ class AMRMBartTokenizer(MBartTokenizer):
         # Only add tokens that are not in the vocabulary yet
         tokens_to_add = set(TOKENS_TO_ADD)
         voc = set(inst.get_vocab().keys())
-        new_tokens = tokens_to_add - voc
+        new_tokens = list(sorted(tokens_to_add - voc))
 
         if new_tokens:
-            inst.add_tokens(list(sorted(new_tokens)))
-            print(f"Added {len(new_tokens):,} new tokens!")
+            inst.add_tokens(new_tokens)
 
         # Just adding amr_XX to voc and defining it here as the tgt_lang is not enough
         # because we are always just calling the tokenizer (as if it were the source tokenizer)
@@ -86,7 +85,8 @@ class AMRMBartTokenizer(MBartTokenizer):
         return inst
 
     def decode_and_fix(
-        self, token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray], pbar: bool = False
+        self, token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray], pbar: bool = False,
+            skip_special_tokens: bool = True
     ) -> List[str]:
         """Modified from the original HF Tokenizer. Note the run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.
@@ -111,9 +111,10 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         linearized_amrs = []
         for ids in tqdm(token_ids, desc="Decoding", disable=not pbar):
-            filtered_tokens = self.convert_ids_to_tokens(ids, skip_special_tokens=True)
-            # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
-            filtered_tokens = [token for token in filtered_tokens if token != self.amr_token]
+            filtered_tokens = self.convert_ids_to_tokens(ids, skip_special_tokens=skip_special_tokens)
+            if skip_special_tokens:
+                # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
+                filtered_tokens = [token for token in filtered_tokens if token != self.amr_token]
             filtered_tokens = [
                 token if token in self.added_tokens_encoder else fix_text(token) for token in filtered_tokens
             ]
