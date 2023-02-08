@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from ftfy import fix_text
 from mbart_amr.data.linearization import penmanstr2linearized
-from mbart_amr.data.tokens import TOKENS_TO_ADD, LANG_CODE
+from mbart_amr.data.tokens import AMR_LANG_CODE, TOKENS_TO_ADD
 from tqdm import tqdm
 from transformers import BatchEncoding, MBartTokenizer
 
@@ -77,7 +77,7 @@ class AMRMBartTokenizer(MBartTokenizer):
         # the MBARTTokenizer only allows special language codes as tgt_lang for this purpose so
         # we cannot take that approach. Instead we will be replacing the special source language
         # token in "encode_penmanstrs" with our own, amr_XX one
-        inst.amr_token = LANG_CODE
+        inst.amr_token = AMR_LANG_CODE
         inst.amr_token_id = inst.convert_tokens_to_ids(inst.amr_token)
         inst.tgt_lang = inst.amr_token
         inst.lang_ids = torch.LongTensor(list(inst.id_to_lang_code.keys()))
@@ -85,8 +85,10 @@ class AMRMBartTokenizer(MBartTokenizer):
         return inst
 
     def decode_and_fix(
-        self, token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray], pbar: bool = False,
-            skip_special_tokens: bool = True
+        self,
+        token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray],
+        pbar: bool = False,
+        skip_special_tokens: bool = True,
     ) -> List[str]:
         """Modified from the original HF Tokenizer. Note the run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.

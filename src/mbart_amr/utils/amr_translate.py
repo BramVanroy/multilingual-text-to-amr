@@ -12,8 +12,7 @@ from typing import List, Union
 
 import torch
 from tqdm import tqdm
-from transformers import (AutoModelForSeq2SeqLM, AutoTokenizer,
-                          PreTrainedModel, PreTrainedTokenizer)
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizer
 
 
 def batch_sentences(sentences, batch_size: int = 32):

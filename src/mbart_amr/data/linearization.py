@@ -1,13 +1,12 @@
 import re
 from collections import Counter
-from typing import Counter, List, Union, Literal
+from typing import Counter, List, Literal, Union
 
 import penman
-from mbart_amr.data.tokens import ROLE_NONUM_PREFIXES, STARTREL, ENDREL, ENDLIT, STARTLIT
+from mbart_amr.data.tokens import ENDLIT, ENDREL, ROLE_NONUM_PREFIXES, STARTLIT, STARTREL
+from mbart_amr.utils import is_number
 from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic
-
-from mbart_amr.utils import is_number
 
 
 def do_reformat_senseid(idx: str, to: Literal["linearized", "penman"] = "linearized"):
@@ -290,9 +289,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                 penman_tokens.append(")")
 
             # End of a relation
-            elif (
-                token == ENDREL
-            ):  # Stop processing because we have now processed a whole :startrel -> :endrel chunk
+            elif token == ENDREL:  # Stop processing because we have now processed a whole :startrel -> :endrel chunk
                 break
             elif token == STARTLIT:
                 lit_open = True
@@ -319,15 +316,16 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
             else:  # TOKENS: many exceptions where we do not need the instance / separator
                 if lit_open:  # Literals
                     if penman_tokens[-1] == '"':  # If this is the first token after the opening quote, no space needed
-                        penman_tokens[-1] = f'{penman_tokens[-1]}{token}'
+                        penman_tokens[-1] = f"{penman_tokens[-1]}{token}"
                     else:
-                        penman_tokens[-1] = f'{penman_tokens[-1]} {token}'
+                        penman_tokens[-1] = f"{penman_tokens[-1]} {token}"
                 elif token.isdigit() or is_number(token):  # Numbers are mostly dealt with without /
                     penman_tokens.append(f" {token}")
                 # Certain quantities, wiki entries.... E.g. "2/3"
                 elif token.startswith('"') and token.endswith('"'):
                     penman_tokens.append(f" {token}")
                 # Many special roles have special values like "-" or numbers. E.g. `polarity -`, `:value 1`
+                # that do not need an instance /
                 elif prev_token is not None and prev_token in [
                     ":polarity",
                     ":mode",
@@ -335,13 +333,14 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                     ":polite",
                     ":value",
                     ":quant",
+                    ":wiki",
                 ]:
                     penman_tokens.append(f" {token}")
-                # Wikis do not have an instance relation. Empty wikis look like `:wiki -`
-                elif prev_token is not None and prev_token == ":wiki":
+                # OPs do not have an instance relation
+                elif prev_token is not None and prev_token.startswith(":op"):
                     penman_tokens.append(f" {token}")
                 # Exceptionally, ARG can be unspecified - or +
-                elif token in ["-", "+"] and prev_token is not None and prev_token.startswith((":ARG")):
+                elif token in ["-", "+"] and prev_token is not None and prev_token.startswith(":ARG"):
                     penman_tokens.append(f" {token}")
                 elif prev_token is not None and prev_token.startswith(":ref"):
                     penman_tokens.append(f"/ {token}")

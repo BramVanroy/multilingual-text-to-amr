@@ -1,5 +1,4 @@
 import torch
-
 from mbart_amr.constraints.base import AMRLogitsProcessorBase, input_ids_counts
 from mbart_amr.data.tokenization import AMRMBartTokenizer
 
@@ -22,28 +21,36 @@ class OpenCloseTokenProcessor(AMRLogitsProcessorBase):
             if uniq_counts[self.start_rel_idx] == uniq_counts[self.end_rel_idx]:
                 logits[self.end_rel_idx] = float("-inf")
                 if self.debug:
-                    print(f"start_rel_idx == end_rel_idx\tDISABLE: {self._debug_decode([self.end_rel_idx])}\n"
-                          f"{self._debug_decode(inputs)}")
+                    print(
+                        f"start_rel_idx == end_rel_idx\tDISABLE: {self._debug_decode([self.end_rel_idx])}\n"
+                        f"{self._debug_decode(inputs)}"
+                    )
 
             # Can't generate a close rel tag directly after an open tag
             if last_item == self.start_rel_idx:
                 logits[self.end_rel_idx] = float("-inf")
                 if self.debug:
-                    print(f"last_item == start_rel_idx\tDISABLE: {self._debug_decode([self.end_rel_idx])}\n"
-                          f"{self._debug_decode(inputs)}")
+                    print(
+                        f"last_item == start_rel_idx\tDISABLE: {self._debug_decode([self.end_rel_idx])}\n"
+                        f"{self._debug_decode(inputs)}"
+                    )
 
             # LITs: Can't generate a closing lit tag if we have no "open" tag
             if uniq_counts[self.start_lit_idx] == uniq_counts[self.end_lit_idx]:
                 logits[self.end_lit_idx] = float("-inf")
                 if self.debug:
-                    print(f"start_lit_idx == end_lit_idx\tDISABLE: {self._debug_decode([self.end_lit_idx])}\n"
-                          f"{self._debug_decode(inputs)}")
+                    print(
+                        f"start_lit_idx == end_lit_idx\tDISABLE: {self._debug_decode([self.end_lit_idx])}\n"
+                        f"{self._debug_decode(inputs)}"
+                    )
 
             # Unlike in REL, we cannot open multiple embedded LITs, so open lit not possible if another is open
             if uniq_counts[self.start_lit_idx] > uniq_counts[self.end_lit_idx]:
                 logits[self.start_lit_idx] = float("-inf")
                 if self.debug:
-                    print(f"start_lit_idx > end_lit_idx\tDISABLE: {self._debug_decode([self.start_lit_idx])}\n"
-                          f"{self._debug_decode(inputs)}")
+                    print(
+                        f"start_lit_idx > end_lit_idx\tDISABLE: {self._debug_decode([self.start_lit_idx])}\n"
+                        f"{self._debug_decode(inputs)}"
+                    )
 
         return scores

@@ -1,9 +1,8 @@
-from typing import Union, List
+from typing import List, Union
 
 import torch
-
 from mbart_amr.data.tokenization import AMRMBartTokenizer
-from mbart_amr.data.tokens import REFS, PREP_PREFIX
+from mbart_amr.data.tokens import PREP_PREFIX, REFS
 from mbart_amr.utils import is_number
 
 
