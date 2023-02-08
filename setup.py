@@ -5,6 +5,7 @@ from src.mbart_amr import __version__
 
 
 extras = {"style": ["flake8", "isort", "black"]}
+extras["dev"] = extras["style"] + ["pytest"]
 
 setup(
     name="mbart_amr",
