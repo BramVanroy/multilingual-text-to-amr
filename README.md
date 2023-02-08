@@ -179,7 +179,7 @@ decoded_penman = linearized2penmanstr(decoded)
 
 https://github.com/amrisi/amr-guidelines/blob/master/amr.md
 
-## Added tokens
+## Added tokens: THIS SECTION IS OUTDATED
 
 Sources:
 
