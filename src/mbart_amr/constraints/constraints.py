@@ -12,13 +12,11 @@ Parse corpus as linearized and check what's possible and what's not
 
 
 """
-from collections import defaultdict
-
 import torch
-
+from mbart_amr.constraints import FirstTokenProcessor, OpenCloseTokenProcessor
 from mbart_amr.data.linearization import linearized2penmanstr
 from mbart_amr.data.tokenization import AMRMBartTokenizer
-from transformers import MBartForConditionalGeneration, LogitsProcessor, LogitsProcessorList
+from transformers import LogitsProcessor, LogitsProcessorList, MBartForConditionalGeneration
 
 
 class AMRLogitsProcessor(LogitsProcessor):
@@ -61,5 +59,5 @@ def main():
     print(linearized2penmanstr(decoded))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
