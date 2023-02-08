@@ -4,7 +4,7 @@ from transformers import MBartForConditionalGeneration
 
 
 def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBartTokenizer, noise_range: float = 0.1):
-    """
+    """Initialize the new tokens based on their content, i.e. averaging the embeddings of its components
 
     :param model: the model whose added tokens to initialize
     :param tokenizer: the tokenizer, which also contains the new tokens
@@ -19,7 +19,7 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
             if token == ":endrel":
                 components = ["relation", "end", tokenizer.eos_token]
             elif token == ":startrel":
-                components = ["relation", "start", tokenizer.eos_token]
+                components = ["relation", "start", tokenizer.eos_token]  # BOS is never used in MBART
             elif token == ":endlit":
                 components = ["relation", "end", "literal", '"']
             elif token == ":startlit":
@@ -35,20 +35,20 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
             elif token.startswith(":sense"):
                 components = ["meaning", str(token[6:])]
             elif token == ":negation":
-                components = ["not"]
+                components = ["not", "no"]
             elif token == ":year2":  # make explicit, otherwise it ends up as ["year2"]
                 components = ["year"]
             elif token == ":prep-":
-                components = ["by"]  # random preposition
-            elif token == ":conj-":
-                components = ["whether"]  # random unspecified conjunction "whether"
+                components = ["by", "in", "near", "on", "at", "with"]  # random prepositions
+            elif token == ":conj-as-if":
+                components = ["as-if", "as if"]
             else:
                 components = ["relation"] + token.lstrip(":").split("-")
         else:
             if token == "-91":
                 components = ["frame"]
             elif token == "~~of":
-                components = ["relation", "of"]
+                components = ["relation", "of", "have"]
             elif token == "amr-unknown":
                 components = ["?"]
             elif token == "amr-choice":
