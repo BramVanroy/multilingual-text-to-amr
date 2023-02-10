@@ -3,8 +3,9 @@ from typing import Dict
 
 import torch
 from mbart_amr.data.tokenization import AMRMBartTokenizer
-from mbart_amr.data.tokens import (ENDLIT, ENDREL, AMR_LANG_CODE, OF_SUFFIX, REFS,
-                                   SENSES, STARTLIT, STARTREL, MULTI_SENTENCE, UNKOWN, CHOICE)
+from mbart_amr.data.tokens import (AMR_LANG_CODE, CHOICE, ENDLIT, ENDREL,
+                                   MULTI_SENTENCE, OF_SUFFIX, REFS, SENSES,
+                                   STARTLIT, STARTREL, UNKOWN)
 from transformers import LogitsProcessor
 
 

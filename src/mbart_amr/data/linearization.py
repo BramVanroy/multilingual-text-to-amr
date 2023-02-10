@@ -3,7 +3,8 @@ from collections import Counter
 from typing import Counter, List, Literal, Union
 
 import penman
-from mbart_amr.data.tokens import ENDLIT, ENDREL, ROLE_NONUM_PREFIXES, STARTLIT, STARTREL
+from mbart_amr.data.tokens import (ENDLIT, ENDREL, ROLE_NONUM_PREFIXES,
+                                   STARTLIT, STARTREL)
 from mbart_amr.utils import is_number
 from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic

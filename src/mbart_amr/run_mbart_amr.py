@@ -19,8 +19,10 @@ from mbart_amr.data.dataset import AMRDataset, collate_amr
 from mbart_amr.data.linearization import linearized2penmanstr
 from mbart_amr.data.tokenization import AMRMBartTokenizer
 from mbart_amr.trainer import AMRTrainer, ExpandedSeq2SeqTrainingArguments
-from mbart_amr.utils.smart_initialization import freeze_encoder, smart_initialization
-from transformers import EarlyStoppingCallback, HfArgumentParser, MBartForConditionalGeneration, set_seed
+from mbart_amr.utils.smart_initialization import (freeze_encoder,
+                                                  smart_initialization)
+from transformers import (EarlyStoppingCallback, HfArgumentParser,
+                          MBartForConditionalGeneration, set_seed)
 from transformers.trainer_utils import get_last_checkpoint
 
 
