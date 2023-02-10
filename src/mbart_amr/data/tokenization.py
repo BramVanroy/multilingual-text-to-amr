@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from ftfy import fix_text
 
-from mbart_amr.data.linearization import penmanstr2linearized
+from mbart_amr.data.linearization import penmanstr2linearized, tokenize_except_quotes
 from tqdm import tqdm
 from transformers import BatchEncoding, MBartTokenizer
 from mbart_amr.data.tokens import (AMR_LANG_CODE, CHOICE, ENDLIT, ENDREL,
@@ -64,6 +64,53 @@ def clean_up_tokenization(out_string: str) -> str:
 
     return out_string
 
+
+def fix_refs_text(linearized: str) -> str:
+    """It is possible that :refs are generated as a reference with a referent is present.
+    References occur after roles, e.g. :ARG1 :ref1, whereas canonical referents are
+    at the start of the sequence or after a :startrel. But a reference can only occur if
+    a canonical referent is also present. This method removes :refXX and their preceding role
+    if no corresponding canonical referent can be found.
+    """
+    tokens = tokenize_except_quotes(linearized)
+    def has_canonincal_ref(t):
+        """Iterate over all the tokens and look for tokens that have the same name, e.g. ":ref1".
+        If such a ref exists that has a :startrel as the previous token or is at the start of the tree,
+        then that is the canonical reference token for the given token.
+        """
+        for idx in range(len(tokens)-1):
+            token = tokens[idx]
+            if token == t:
+                if idx == 0:
+                    return True
+
+                prev_token = tokens[idx-1] if idx > 0 else None
+
+                if prev_token and prev_token == ":startrel":
+                    return True
+
+        return False
+
+
+    fixed_tokens = []
+    # Iterate over all tokens. Especially consider refs
+    for idx in range(len(tokens)):
+        token = tokens[idx]
+        prev_token = tokens[idx-1] if idx > 0 else None
+
+        # If this token is a ref...
+        if token.startswith(":ref") and prev_token is not None:
+            # and the prev token was a special token but not a startrel...
+            if prev_token.startswith(":") and prev_token != ":startrel":
+                # and no canonical reference is present...
+                if not has_canonincal_ref(token):
+                    # remove this ref and its preceding role
+                    fixed_tokens.pop()
+                    continue
+
+        fixed_tokens.append(token)
+
+    return " ".join(fixed_tokens)
 
 class AMRMBartTokenizer(MBartTokenizer):
     @classmethod
@@ -154,7 +201,7 @@ class AMRMBartTokenizer(MBartTokenizer):
                 continue
 
             if do_post_process:
-                ids = self.postprocess(ids)
+                ids = self.postprocess_idxs(ids)
 
             ids = ids.tolist()
             ids = self.convert_ids_to_tokens(ids)
@@ -181,6 +228,8 @@ class AMRMBartTokenizer(MBartTokenizer):
 
             text = " ".join(sub_texts)
             text = clean_up_tokenization(text)
+            if do_post_process:
+                text = fix_refs_text(text)
             linearized_amrs.append(text)
 
         return linearized_amrs
@@ -217,7 +266,7 @@ class AMRMBartTokenizer(MBartTokenizer):
         return input_ids[~torch.isin(input_ids, self.all_special_ids_tensor)]
 
 
-    def postprocess(self, input_ids: torch.LongTensor) -> torch.LongTensor:
+    def postprocess_idxs(self, input_ids: torch.LongTensor) -> torch.LongTensor:
         last_item = input_ids[-1].item()
 
         role_ending, idx = self.ends_in_role(input_ids, return_primary_idx=True)
