@@ -65,13 +65,15 @@ def clean_up_tokenization(out_string: str) -> str:
     return out_string
 
 
-def fix_refs_text(linearized: str) -> str:
+def postprocess_text(linearized: str, debug: bool = True) -> str:
     """It is possible that :refs are generated as a reference with a referent is present.
     References occur after roles, e.g. :ARG1 :ref1, whereas canonical referents are
     at the start of the sequence or after a :startrel. But a reference can only occur if
     a canonical referent is also present. This method removes :refXX and their preceding role
     if no corresponding canonical referent can be found.
     """
+    if debug:
+        print("BEFORE TEXT POSTPROCESS", linearized)
     tokens = tokenize_except_quotes(linearized)
     def has_canonincal_ref(t):
         """Iterate over all the tokens and look for tokens that have the same name, e.g. ":ref1".
@@ -91,7 +93,6 @@ def fix_refs_text(linearized: str) -> str:
 
         return False
 
-
     fixed_tokens = []
     # Iterate over all tokens. Especially consider refs
     for idx in range(len(tokens)):
@@ -107,10 +108,22 @@ def fix_refs_text(linearized: str) -> str:
                     # remove this ref and its preceding role
                     fixed_tokens.pop()
                     continue
+        elif token[0].isdigit() and not is_number(token):  # e.g. "2/3"
+            fixed_tokens.extend([":startlit", token, ":endlit"])
+            continue
 
         fixed_tokens.append(token)
 
-    return " ".join(fixed_tokens)
+    fixed_tokens = " ".join(fixed_tokens)
+
+    # If non-special, space-separated tokens occur without LIT around them, join them together with a dash
+    # E.g., ":ARG6 EX1 3PB :ARG7 :ref4 :endrel" -> ":ARG6 :startlit EX1 3PB :endlit :ARG7 :ref4 :endrel"
+    fixed_tokens = re.sub(r"(?<!:startlit) ((?:[^: ][^ ]* ){2,})(?!:endlit)", r" :startlit \1:endlit ", fixed_tokens)
+
+    if debug:
+        print("AFTER TEXT POSTPROCESS", fixed_tokens)
+
+    return fixed_tokens
 
 class AMRMBartTokenizer(MBartTokenizer):
     @classmethod
@@ -229,7 +242,7 @@ class AMRMBartTokenizer(MBartTokenizer):
             text = " ".join(sub_texts)
             text = clean_up_tokenization(text)
             if do_post_process:
-                text = fix_refs_text(text)
+                text = postprocess_text(text)
             linearized_amrs.append(text)
 
         return linearized_amrs
