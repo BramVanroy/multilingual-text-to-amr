@@ -1,17 +1,3 @@
-"""
-Also read AMR guidelines
-Parse corpus as linearized and check what's possible and what's not
----
-
-2. Sense-ids only possible after tokens that are not special :ARG tokens and not double quotes
-3. Opened `"` quotes need to be closed before a relation is started + open/close should match
-4. REF can only follow after a role or after a startrel
-5. Something about :wiki? (always followed by `"` or "-")
-6. Sometimes :ARG can be followed by "-"
-7. Check whether/which relations are always followed by a non-special token
-
-
-"""
 import torch
 from mbart_amr.constraints import FirstTokenProcessor, OpenCloseTokenProcessor
 from mbart_amr.constraints.allowed import AllowedTokensProcessor

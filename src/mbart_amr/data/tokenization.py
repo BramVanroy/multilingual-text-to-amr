@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import List, Union
 
 import numpy as np
 import torch
 from ftfy import fix_text
+
 from mbart_amr.data.linearization import penmanstr2linearized
-from mbart_amr.data.tokens import AMR_LANG_CODE, TOKENS_TO_ADD
 from tqdm import tqdm
 from transformers import BatchEncoding, MBartTokenizer
+from mbart_amr.data.tokens import (AMR_LANG_CODE, CHOICE, ENDLIT, ENDREL,
+                                   MULTI_SENTENCE, OF_SUFFIX, REFS, SENSES,
+                                   STARTLIT, STARTREL, UNKOWN, TOKENS_TO_ADD)
+from mbart_amr.utils import input_ids_counts
 
+
+logger = logging.getLogger(__name__)
 
 def clean_up_tokenization(out_string: str) -> str:
     """Clean up a list of simple English tokenization artifacts like spaces before punctuations and abbreviated forms.
@@ -59,17 +66,17 @@ def clean_up_tokenization(out_string: str) -> str:
 
 
 class AMRMBartTokenizer(MBartTokenizer):
-    @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        inst = super().from_pretrained(*args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         # Only add tokens that are not in the vocabulary yet
         tokens_to_add = set(TOKENS_TO_ADD)
-        voc = set(inst.get_vocab().keys())
+        voc = set(self.get_vocab().keys())
         new_tokens = list(sorted(tokens_to_add - voc))
 
         if new_tokens:
-            inst.add_tokens(new_tokens)
+            self.add_tokens(new_tokens)
+            logger.info(f"Added {len(new_tokens)} new tokens to tokenizer")
 
         # Just adding amr_XX to voc and defining it here as the tgt_lang is not enough
         # because we are always just calling the tokenizer (as if it were the source tokenizer)
@@ -77,18 +84,40 @@ class AMRMBartTokenizer(MBartTokenizer):
         # the MBARTTokenizer only allows special language codes as tgt_lang for this purpose so
         # we cannot take that approach. Instead we will be replacing the special source language
         # token in "encode_penmanstrs" with our own, amr_XX one
-        inst.amr_token = AMR_LANG_CODE
-        inst.amr_token_id = inst.convert_tokens_to_ids(inst.amr_token)
-        inst.tgt_lang = inst.amr_token
-        inst.lang_ids = torch.LongTensor(list(inst.id_to_lang_code.keys()))
+        self.amr_token = AMR_LANG_CODE
+        self.amr_token_id = self.convert_tokens_to_ids(self.amr_token)
+        self.tgt_lang = self.amr_token
+        self.lang_ids = torch.LongTensor(list(self.id_to_lang_code.keys()))
 
-        return inst
+        self.all_special_ids_tensor = torch.LongTensor(self.all_special_ids+[self.amr_token_id])
+
+        self.voc_size = len(self)
+
+        # single idx with type: int
+        self.start_rel_idx = self.convert_tokens_to_ids(STARTREL)
+        self.end_rel_idx = self.convert_tokens_to_ids(ENDREL)
+        self.start_lit_idx = self.convert_tokens_to_ids(STARTLIT)
+        self.end_lit_idx = self.convert_tokens_to_ids(ENDLIT)
+        self.end_lit_idx = self.convert_tokens_to_ids(ENDLIT)
+        self.lang_idx = self.convert_tokens_to_ids(AMR_LANG_CODE)
+        self.multisent_idx = self.convert_tokens_to_ids(MULTI_SENTENCE)
+        self.of_idx = self.convert_tokens_to_ids(OF_SUFFIX)
+        self.unknown_idx = self.convert_tokens_to_ids(UNKOWN)
+        self.choice_idx = self.convert_tokens_to_ids(CHOICE)
+
+        # multiple idxs with type: LongTensor
+        self.sense_idxs = torch.LongTensor(self.convert_tokens_to_ids(SENSES))
+        self.ref_idxs = torch.LongTensor(self.convert_tokens_to_ids(REFS))
+        self.special_tokens_idxs = torch.LongTensor(self.all_special_ids)
+        self.added_tokens_idxs = torch.LongTensor(list(self.added_tokens_encoder.values()))
+        self.voc_idxs_for_mask = torch.arange(self.voc_size)
+
 
     def decode_and_fix(
         self,
         token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray],
         pbar: bool = False,
-        skip_special_tokens: bool = True,
+        skip_special_tokens: bool = True
     ) -> List[str]:
         """Modified from the original HF Tokenizer. Note the run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.
@@ -113,12 +142,13 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         linearized_amrs = []
         for ids in tqdm(token_ids, desc="Decoding", disable=not pbar):
-            filtered_tokens = self.convert_ids_to_tokens(ids, skip_special_tokens=skip_special_tokens)
             if skip_special_tokens:
-                # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
-                filtered_tokens = [token for token in filtered_tokens if token != self.amr_token]
+                ids = self.remove_special_tokens(ids)
+            ids = self.postprocess(ids)
+            ids = self.convert_ids_to_tokens(ids)
+
             filtered_tokens = [
-                token if token in self.added_tokens_encoder else fix_text(token) for token in filtered_tokens
+                token if token in self.added_tokens_encoder else fix_text(token) for token in ids
             ]
 
             # To avoid mixing byte-level and unicode for byte-level BPT
@@ -165,3 +195,23 @@ class AMRMBartTokenizer(MBartTokenizer):
         input_ids[torch.isin(input_ids, self.lang_ids)] = self.amr_token_id
 
         return encoded
+
+    def remove_special_tokens(self, input_ids: torch.LongTensor):
+        """NOTE: only removes special tokens and amr_XX, NOT the added tokens
+        """
+
+        # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
+        # It is included in all_special_ids_tensor
+        return input_ids[~torch.isin(input_ids, self.all_special_ids_tensor)]
+
+
+    def postprocess(self, input_ids: torch.LongTensor) -> torch.LongTensor:
+        uniq_counts = input_ids_counts(input_ids)
+        if uniq_counts[self.start_lit_idx] != uniq_counts[self.end_lit_idx]:
+            input_ids = torch.cat((input_ids, torch.LongTensor([self.end_lit_idx])))
+
+        rel_start_end_diff = uniq_counts[self.start_rel_idx] - uniq_counts[self.end_rel_idx]
+        if rel_start_end_diff:
+            input_ids = torch.cat((input_ids, torch.LongTensor([self.end_rel_idx] * rel_start_end_diff)))
+
+        return input_ids

@@ -26,7 +26,7 @@ OTHER_ROLES = (
 )
 
 PREP_PREFIX = ":prep-"
-FRAME_ID = "-91"
+FRAME_91_ID = "-91"
 OF_SUFFIX = "~~of"
 MULTI_SENTENCE = "multi-sentence"
 UNKOWN = "amr-unknown"
@@ -37,7 +37,7 @@ SPECIAL_SUFFIXES = ("-quantity", "-entity")
 
 
 TOKENS_TO_ADD = ((AMR_LANG_CODE, STARTREL, ENDREL, STARTLIT, ENDLIT) + SENSES + REFS + ARGS + OPS + SENTS + OTHER_ROLES
-                 + (PREP_PREFIX, FRAME_ID, OF_SUFFIX, MULTI_SENTENCE, UNKOWN, CHOICE, NEGATION) + SPECIAL_SUFFIXES)
+                 + (PREP_PREFIX, FRAME_91_ID, OF_SUFFIX, MULTI_SENTENCE, UNKOWN, CHOICE, NEGATION) + SPECIAL_SUFFIXES)
 
 # NUMBERED PREFIXES: special tokens that are also valid if they have another number after them
 # Only for SENSE and ARG these are different than their full list: we only want those ending in 1...9
