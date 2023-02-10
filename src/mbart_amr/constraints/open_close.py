@@ -53,4 +53,15 @@ class OpenCloseTokenProcessor(AMRLogitsProcessorBase):
                         f"{self._debug_decode(inputs)}"
                     )
 
+            # Cannot generate any special tokens as long as LIT is open (except for closing LIT)
+            if uniq_counts[self.start_lit_idx] > uniq_counts[self.end_lit_idx]:
+                mask = torch.cat((self.added_tokens_idxs, self.special_tokens_idxs))
+                mask = mask[~torch.isin(mask, self.end_lit_idx)]
+                logits[mask] = float("-inf")
+                if self.debug:
+                    print(
+                        f"start_lit_idx > end_lit_idx\tDISABLE: {self._debug_decode([self.start_lit_idx])}\n"
+                        f"{self._debug_decode(inputs)}"
+                    )
+
         return scores

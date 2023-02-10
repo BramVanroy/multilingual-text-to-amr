@@ -20,3 +20,12 @@ def test_closing_tokens(tokenizer):
     input_ids = debug_build_ids_for_labels("contrast :sense1 :ARG2 :startrel understand :endrel", tokenizer)
     logitsprocessor = get_openclose_processor(tokenizer, 6)
     assert can_be_generated(input_ids, logitsprocessor, tokenizer, 6)
+
+    # Cannot generate special token as long as lit is open
+    input_ids = debug_build_ids_for_labels("name :op1 :startlit Texas :startrel", tokenizer)
+    logitsprocessor = get_openclose_processor(tokenizer, 7)
+    assert not can_be_generated(input_ids, logitsprocessor, tokenizer, 7)
+
+    input_ids = debug_build_ids_for_labels("name :op1 :startlit Texas :endlit", tokenizer)
+    logitsprocessor = get_openclose_processor(tokenizer, 7)
+    assert can_be_generated(input_ids, logitsprocessor, tokenizer, 7)
