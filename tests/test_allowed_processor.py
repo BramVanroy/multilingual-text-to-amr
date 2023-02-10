@@ -35,6 +35,7 @@ def test_ref_follow_start_or_role(tokenizer):
     logitsprocessor = get_allowed_processor(tokenizer, 3)
     assert can_be_generated(input_ids, logitsprocessor, tokenizer, 3)
 
+
 def test_sense_follow_nonaddedspecial(tokenizer):
     # :senseXX can only follow non-added and non-special tokens
     input_ids = debug_build_ids_for_labels("over :sense3", tokenizer)
