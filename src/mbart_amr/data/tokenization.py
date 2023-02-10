@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Union
+from typing import List, Union, Tuple
 
 import numpy as np
 import torch
@@ -13,9 +13,9 @@ from tqdm import tqdm
 from transformers import BatchEncoding, MBartTokenizer
 from mbart_amr.data.tokens import (AMR_LANG_CODE, CHOICE, ENDLIT, ENDREL,
                                    MULTI_SENTENCE, OF_SUFFIX, REFS, SENSES,
-                                   STARTLIT, STARTREL, UNKOWN, TOKENS_TO_ADD)
-from mbart_amr.utils import input_ids_counts
-
+                                   STARTLIT, STARTREL, UNKOWN, TOKENS_TO_ADD, OTHER_ROLES, PREP_PREFIX, ARGS, OPS,
+                                   SENTS)
+from mbart_amr.utils import input_ids_counts, is_number
 
 logger = logging.getLogger(__name__)
 
@@ -99,12 +99,15 @@ class AMRMBartTokenizer(MBartTokenizer):
         inst.lang_idx = inst.convert_tokens_to_ids(AMR_LANG_CODE)
         inst.multisent_idx = inst.convert_tokens_to_ids(MULTI_SENTENCE)
         inst.of_idx = inst.convert_tokens_to_ids(OF_SUFFIX)
+        inst.prep_idx = inst.convert_tokens_to_ids(PREP_PREFIX)
         inst.unknown_idx = inst.convert_tokens_to_ids(UNKOWN)
         inst.choice_idx = inst.convert_tokens_to_ids(CHOICE)
 
         # multiple idxs with type: LongTensor
         inst.sense_idxs = torch.LongTensor(inst.convert_tokens_to_ids(SENSES))
         inst.ref_idxs = torch.LongTensor(inst.convert_tokens_to_ids(REFS))
+        inst.otherroles_idxs = torch.LongTensor(inst.convert_tokens_to_ids(OTHER_ROLES))
+
         inst.special_tokens_idxs = torch.LongTensor(inst.all_special_ids)
         inst.added_tokens_idxs = torch.LongTensor(list(inst.added_tokens_encoder.values()))
         inst.voc_idxs_for_mask = torch.arange(inst.voc_size)
@@ -118,7 +121,8 @@ class AMRMBartTokenizer(MBartTokenizer):
         self,
         token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray],
         pbar: bool = False,
-        skip_special_tokens: bool = True
+        skip_special_tokens: bool = True,
+        do_post_process: bool = True
     ) -> List[str]:
         """Modified from the original HF Tokenizer. Note the run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.
@@ -145,7 +149,14 @@ class AMRMBartTokenizer(MBartTokenizer):
         for ids in tqdm(token_ids, desc="Decoding", disable=not pbar):
             if skip_special_tokens:
                 ids = self.remove_special_tokens(ids)
-            ids = self.postprocess(ids)
+
+            if ids.numel() == 0:
+                continue
+
+            if do_post_process:
+                ids = self.postprocess(ids)
+
+            ids = ids.tolist()
             ids = self.convert_ids_to_tokens(ids)
 
             filtered_tokens = [
@@ -207,6 +218,16 @@ class AMRMBartTokenizer(MBartTokenizer):
 
 
     def postprocess(self, input_ids: torch.LongTensor) -> torch.LongTensor:
+        last_item = input_ids[-1].item()
+
+        role_ending, idx = self.ends_in_role(input_ids, return_primary_idx=True)
+        if role_ending:
+            input_ids = input_ids[:idx]
+
+        if last_item in (self.prep_idx, self.multisent_idx):
+            input_ids = input_ids[:-1]
+
+        # Close open tags
         uniq_counts = input_ids_counts(input_ids)
         if uniq_counts[self.start_lit_idx] != uniq_counts[self.end_lit_idx]:
             input_ids = torch.cat((input_ids, torch.LongTensor([self.end_lit_idx])))
@@ -216,3 +237,101 @@ class AMRMBartTokenizer(MBartTokenizer):
             input_ids = torch.cat((input_ids, torch.LongTensor([self.end_rel_idx] * rel_start_end_diff)))
 
         return input_ids
+
+    def ends_in_role(self,
+            input_ids: Union[List[int], torch.LongTensor], exclude_categories: List[str] = None,
+            return_primary_idx: bool = False) -> Union[bool, Tuple[bool, int]]:
+        if isinstance(input_ids, torch.Tensor):
+            input_ids = input_ids.tolist()
+
+        cats = {"args": ARGS, "ops": OPS, "sents": SENTS, "preps": "", "others": ""}
+
+        if not exclude_categories:
+            exclude_categories = []
+        else:
+            if any(cat not in cats for cat in exclude_categories):
+                raise ValueError(f"'exclude_categories' must be one of {list(cats.keys())}")
+
+        last_idx = len(input_ids) - 1
+
+        # If a regular role, return true (can end in ~~of)
+        if not "other" in exclude_categories:
+            other_idxs = self.convert_tokens_to_ids(OTHER_ROLES)
+            for idx in reversed(range(len(input_ids))):
+                if input_ids[idx] in other_idxs:
+                    return True, idx if return_primary_idx else True
+                elif idx == last_idx and self.convert_ids_to_tokens(input_ids[idx]) == OF_SUFFIX:
+                    continue
+
+        # If a prep, return true
+        if not "preps" in exclude_categories:
+            if return_primary_idx:
+                prep_ending, idx = self.ends_in_prep(input_ids, return_primary_idx=return_primary_idx)
+                if prep_ending:
+                    return prep_ending, idx
+            elif self.ends_in_prep(input_ids):
+                return True
+
+        # Check if it is a numberable role but do not include the excluded categories
+        numberable_roles = [role for cat, roles in cats.items() if not cat in exclude_categories for role in roles]
+        numberable_roles_idxs = self.convert_tokens_to_ids(numberable_roles)
+
+        for idx in reversed(range(len(input_ids))):  # Iterate in reverse to always get longer subsequences
+            if input_ids[idx] in numberable_roles_idxs:
+                return True, idx if return_primary_idx else True
+            elif (
+                    idx == last_idx and self.convert_ids_to_tokens(input_ids[idx]) == OF_SUFFIX
+            ):  # The very last token can be ~~of
+                continue
+            else:
+                # decoded can be an empty list for the first entry, because the first token is amr_XX
+                # which gets filtered out so it's just an empty list
+                decoded = self.decode_and_fix(input_ids[idx:], do_post_process=False)
+                if not decoded or is_number(decoded[0]):
+                    continue
+                else:
+                    return False, None if return_primary_idx else False
+
+        return False, None if return_primary_idx else False
+
+
+    def ends_in_ref(self, input_ids: Union[List[int], torch.LongTensor], return_primary_idx: bool = False) -> Union[bool, Tuple[bool, int]]:
+        if isinstance(input_ids, torch.Tensor):
+            input_ids = input_ids.tolist()
+
+        ref_idxs = self.convert_tokens_to_ids(REFS)
+        for idx in reversed(range(len(input_ids))):  # Iterate in reverse to always get longer subsequences
+            # if we ultimately reach a :ref\d, then this must be valid because we only got here if the
+            # the later tokens were numbers
+            if input_ids[idx] in ref_idxs:
+                return True, idx if return_primary_idx else True
+            else:
+                # decoded can be an empty list for the first entry, because the first token is amr_XX
+                # which gets filtered out so it's just an empty list
+                decoded = self.decode_and_fix(input_ids[idx:], do_post_process=False)
+                if not decoded or is_number(decoded[0]):
+                    continue
+                else:
+                    return False, None if return_primary_idx else False
+
+        return False, None if return_primary_idx else False
+
+
+    def ends_in_prep(self, input_ids: Union[List[int], torch.LongTensor], return_primary_idx: bool = False) -> Union[bool, Tuple[bool, int]]:
+        if isinstance(input_ids, torch.Tensor):
+            input_ids = input_ids.tolist()
+
+        prep_idx = self.convert_tokens_to_ids(PREP_PREFIX)
+
+        for idx in reversed(range(len(input_ids))):  # Iterate in reverse to always get longer subsequences
+            # If this token is :prep
+            if input_ids[idx] == prep_idx:
+                if len(input_ids[idx:]) == 1:  # incomplete :prep- (not followed by anything)
+                    return False, None if return_primary_idx else False
+                else:  # first token of subsequence is :prep- and there are other tokens
+                    # we end in a valid :prep- if there are no spaces in this string, e.g. :prep-against
+                    decoded = self.decode_and_fix(input_ids[idx:], do_post_process=False)[0]
+                    prep_ending = " " not in decoded and decoded.count(":") == 1
+                    return prep_ending, idx if return_primary_idx else prep_ending
+
+        return False, None if return_primary_idx else False
