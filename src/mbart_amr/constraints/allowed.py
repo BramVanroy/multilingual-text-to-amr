@@ -1,6 +1,5 @@
 import torch
 from mbart_amr.constraints.base import AMRLogitsProcessorBase
-from mbart_amr.constraints.functions import ends_in_prep, ends_in_role
 from mbart_amr.data.tokenization import AMRMBartTokenizer
 
 
@@ -17,13 +16,15 @@ class AllowedTokensProcessor(AMRLogitsProcessorBase):
             last_item = inputs[-1].item()
 
             # :start_rel can only follow valid role
-            if not ends_in_role(inputs, self.tokenizer):
+            if not self.tokenizer.ends_in_role(inputs):
                 logits[self.tokenizer.start_rel_idx] = float("-inf")
                 if self.debug:
                     print(f"not ends_in_role\n{self._debug_decode(inputs)}\n")
 
             # :refXX can only follow :start_rel or a role...
-            if not (last_item == self.tokenizer.start_rel_idx or ends_in_role(inputs, self.tokenizer)):
+            # In fact, :refXX after a role can only occur if that :ref also occurs somwhere else after
+            # a :start_rel, but that can be before or after it! So cannot enforce that here
+            if not (last_item == self.tokenizer.start_rel_idx or self.tokenizer.ends_in_role(inputs)):
                 mask = self.tokenizer.ref_idxs
                 # ... except for :ref1 which can occur at the start of the sequence
                 if num_inputs == 1:
@@ -42,10 +43,7 @@ class AllowedTokensProcessor(AMRLogitsProcessorBase):
                     )
 
             # ~~of can only follow roles (but not sents) or preps
-            if not (
-                ends_in_role(inputs, self.tokenizer, exclude_categories=["sents"])
-                or ends_in_prep(inputs, self.tokenizer)
-            ):
+            if not (self.tokenizer.ends_in_role(inputs, exclude_categories=["sents"]) or self.tokenizer.ends_in_prep(inputs)):
                 logits[self.tokenizer.of_idx] = float("-inf")
                 if self.debug:
                     print(f"not (ends_in_role (except sents) or ends_in_prep)\n{self._debug_decode(inputs)}\n")
