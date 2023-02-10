@@ -21,11 +21,16 @@ def test_closing_tokens(tokenizer):
     logitsprocessor = get_openclose_processor(tokenizer, 6)
     assert can_be_generated(input_ids, logitsprocessor, tokenizer, 6)
 
-    # Cannot generate special token as long as lit is open
+    # Cannot generate special token as long as lit is open except for endlit and -91
     input_ids = debug_build_ids_for_labels("name :op1 :startlit Texas :startrel", tokenizer)
     logitsprocessor = get_openclose_processor(tokenizer, 7)
     assert not can_be_generated(input_ids, logitsprocessor, tokenizer, 7)
 
     input_ids = debug_build_ids_for_labels("name :op1 :startlit Texas :endlit", tokenizer)
+    logitsprocessor = get_openclose_processor(tokenizer, 7)
+    assert can_be_generated(input_ids, logitsprocessor, tokenizer, 7)
+
+    # frame -91 is allowed, because it sometimes occurs in phone numbers etc.
+    input_ids = debug_build_ids_for_labels(":value :startlit 512-386-91", tokenizer)
     logitsprocessor = get_openclose_processor(tokenizer, 7)
     assert can_be_generated(input_ids, logitsprocessor, tokenizer, 7)
