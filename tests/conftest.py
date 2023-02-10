@@ -1,6 +1,7 @@
 from pytest import fixture
 
 from mbart_amr.constraints import FirstTokenProcessor, OpenCloseTokenProcessor
+from mbart_amr.constraints.allowed import AllowedTokensProcessor
 from mbart_amr.data.tokenization import AMRMBartTokenizer
 
 
@@ -17,3 +18,5 @@ def get_openclose_processor(tokenizer: AMRMBartTokenizer, max_length: int):
     return OpenCloseTokenProcessor(tokenizer, max_length, debug=True)
 
 
+def get_allowed_processor(tokenizer: AMRMBartTokenizer, max_length: int):
+    return AllowedTokensProcessor(tokenizer, max_length, debug=True)
