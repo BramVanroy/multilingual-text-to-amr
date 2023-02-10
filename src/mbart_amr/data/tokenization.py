@@ -66,16 +66,17 @@ def clean_up_tokenization(out_string: str) -> str:
 
 
 class AMRMBartTokenizer(MBartTokenizer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        inst = super().from_pretrained(*args, **kwargs)
 
         # Only add tokens that are not in the vocabulary yet
         tokens_to_add = set(TOKENS_TO_ADD)
-        voc = set(self.get_vocab().keys())
+        voc = set(inst.get_vocab().keys())
         new_tokens = list(sorted(tokens_to_add - voc))
 
         if new_tokens:
-            self.add_tokens(new_tokens)
+            inst.add_tokens(new_tokens)
             logger.info(f"Added {len(new_tokens)} new tokens to tokenizer")
 
         # Just adding amr_XX to voc and defining it here as the tgt_lang is not enough
@@ -84,33 +85,33 @@ class AMRMBartTokenizer(MBartTokenizer):
         # the MBARTTokenizer only allows special language codes as tgt_lang for this purpose so
         # we cannot take that approach. Instead we will be replacing the special source language
         # token in "encode_penmanstrs" with our own, amr_XX one
-        self.amr_token = AMR_LANG_CODE
-        self.amr_token_id = self.convert_tokens_to_ids(self.amr_token)
-        self.tgt_lang = self.amr_token
-        self.lang_ids = torch.LongTensor(list(self.id_to_lang_code.keys()))
-
-        self.all_special_ids_tensor = torch.LongTensor(self.all_special_ids+[self.amr_token_id])
-
-        self.voc_size = len(self)
+        inst.amr_token = AMR_LANG_CODE
+        inst.tgt_lang = inst.amr_token  # AMR is always target in our case
+        inst.voc_size = len(inst)
 
         # single idx with type: int
-        self.start_rel_idx = self.convert_tokens_to_ids(STARTREL)
-        self.end_rel_idx = self.convert_tokens_to_ids(ENDREL)
-        self.start_lit_idx = self.convert_tokens_to_ids(STARTLIT)
-        self.end_lit_idx = self.convert_tokens_to_ids(ENDLIT)
-        self.end_lit_idx = self.convert_tokens_to_ids(ENDLIT)
-        self.lang_idx = self.convert_tokens_to_ids(AMR_LANG_CODE)
-        self.multisent_idx = self.convert_tokens_to_ids(MULTI_SENTENCE)
-        self.of_idx = self.convert_tokens_to_ids(OF_SUFFIX)
-        self.unknown_idx = self.convert_tokens_to_ids(UNKOWN)
-        self.choice_idx = self.convert_tokens_to_ids(CHOICE)
+        inst.amr_token_idx = inst.convert_tokens_to_ids(inst.amr_token)
+        inst.start_rel_idx = inst.convert_tokens_to_ids(STARTREL)
+        inst.end_rel_idx = inst.convert_tokens_to_ids(ENDREL)
+        inst.start_lit_idx = inst.convert_tokens_to_ids(STARTLIT)
+        inst.end_lit_idx = inst.convert_tokens_to_ids(ENDLIT)
+        inst.end_lit_idx = inst.convert_tokens_to_ids(ENDLIT)
+        inst.lang_idx = inst.convert_tokens_to_ids(AMR_LANG_CODE)
+        inst.multisent_idx = inst.convert_tokens_to_ids(MULTI_SENTENCE)
+        inst.of_idx = inst.convert_tokens_to_ids(OF_SUFFIX)
+        inst.unknown_idx = inst.convert_tokens_to_ids(UNKOWN)
+        inst.choice_idx = inst.convert_tokens_to_ids(CHOICE)
 
         # multiple idxs with type: LongTensor
-        self.sense_idxs = torch.LongTensor(self.convert_tokens_to_ids(SENSES))
-        self.ref_idxs = torch.LongTensor(self.convert_tokens_to_ids(REFS))
-        self.special_tokens_idxs = torch.LongTensor(self.all_special_ids)
-        self.added_tokens_idxs = torch.LongTensor(list(self.added_tokens_encoder.values()))
-        self.voc_idxs_for_mask = torch.arange(self.voc_size)
+        inst.sense_idxs = torch.LongTensor(inst.convert_tokens_to_ids(SENSES))
+        inst.ref_idxs = torch.LongTensor(inst.convert_tokens_to_ids(REFS))
+        inst.special_tokens_idxs = torch.LongTensor(inst.all_special_ids)
+        inst.added_tokens_idxs = torch.LongTensor(list(inst.added_tokens_encoder.values()))
+        inst.voc_idxs_for_mask = torch.arange(inst.voc_size)
+        inst.lang_idxs = torch.LongTensor(list(inst.id_to_lang_code.keys()))
+        inst.all_special_ids_tensor = torch.LongTensor(inst.all_special_ids + [inst.amr_token_idx])
+
+        return inst
 
 
     def decode_and_fix(
