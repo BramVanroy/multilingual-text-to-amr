@@ -8,6 +8,11 @@ def test_closing_tokens(tokenizer):
     logitsprocessor = get_openclose_processor(tokenizer, 6)
     assert not can_be_generated(input_ids, logitsprocessor, tokenizer, 6)
 
+    # REL: an :startrel cannot immediately follow another :startrel
+    input_ids = debug_build_ids_for_labels("poet :name :startrel :startrel", tokenizer)
+    logitsprocessor = get_openclose_processor(tokenizer, 6)
+    assert not can_be_generated(input_ids, logitsprocessor, tokenizer, 6)
+
     # REL: an :endrel cannot be generated if there is no current open :startrel
     input_ids = debug_build_ids_for_labels("poet :name :endrel", tokenizer)
     logitsprocessor = get_openclose_processor(tokenizer, 5)

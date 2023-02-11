@@ -68,3 +68,32 @@ def test_of_follows_role(tokenizer):
     input_ids = debug_build_ids_for_labels("~~of~~of", tokenizer)
     logitsprocessor = get_allowed_processor(tokenizer, 4)
     assert not can_be_generated(input_ids, logitsprocessor, tokenizer, 4)
+
+def test_following_endlit(tokenizer):
+    # Only specific added tokens can follow an ending :endlit
+    # ~~of, :prep-, amr-unknown, amr-choice, multi-sentence, amr_XX NOT allowed
+    input_ids = debug_build_ids_for_labels(":endlit :ARG7", tokenizer)
+    logitsprocessor = get_allowed_processor(tokenizer, 4)
+    assert can_be_generated(input_ids, logitsprocessor, tokenizer, 4)
+
+    input_ids = debug_build_ids_for_labels(":endlit potato", tokenizer)
+    logitsprocessor = get_allowed_processor(tokenizer, 5)
+    assert not can_be_generated(input_ids, logitsprocessor, tokenizer, 5)
+
+    input_ids = debug_build_ids_for_labels(":endlit amr-unknown", tokenizer)
+    logitsprocessor = get_allowed_processor(tokenizer, 4)
+    assert not can_be_generated(input_ids, logitsprocessor, tokenizer, 4)
+
+def ref_after_ref(tokenizer):
+    # Ref cannot follow other ref
+    input_ids = debug_build_ids_for_labels(":ref1 :ref2", tokenizer)
+    logitsprocessor = get_allowed_processor(tokenizer, 4)
+    assert not can_be_generated(input_ids, logitsprocessor, tokenizer, 4)
+
+    input_ids = debug_build_ids_for_labels(":ref145 :ref2", tokenizer)
+    logitsprocessor = get_allowed_processor(tokenizer, 5)
+    assert not can_be_generated(input_ids, logitsprocessor, tokenizer, 5)
+
+    input_ids = debug_build_ids_for_labels(":ref1 :endrel", tokenizer)
+    logitsprocessor = get_allowed_processor(tokenizer, 4)
+    assert can_be_generated(input_ids, logitsprocessor, tokenizer, 4)
