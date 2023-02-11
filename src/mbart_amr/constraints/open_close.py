@@ -31,8 +31,9 @@ class OpenCloseTokenProcessor(AMRLogitsProcessorBase):
                     )
 
             # Can't generate a close rel tag directly after an open tag
+            # Can't generate a new opening rel token directly after a previous open tag
             if last_item == self.tokenizer.start_rel_idx:
-                logits[self.tokenizer.end_rel_idx] = float("-inf")
+                logits[self.tokenizer.rel_idxs] = float("-inf")
                 if self.debug:
                     print(
                         f"last_item == start_rel_idx\tDISABLE: {self._debug_decode([self.tokenizer.end_rel_idx])}\n"
