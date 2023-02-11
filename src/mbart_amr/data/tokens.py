@@ -26,13 +26,13 @@ OTHER_ROLES = (
 )
 
 PREP_PREFIX = ":prep-"
-FRAME_91_ID = "-91"
-OF_SUFFIX = "~~of"
 MULTI_SENTENCE = "multi-sentence"
 UNKOWN = "amr-unknown"
 CHOICE = "amr-choice"
 NEGATION = ":negation"
 
+FRAME_91_ID = "-91"
+OF_SUFFIX = "~~of"
 SPECIAL_SUFFIXES = ("-quantity", "-entity")
 
 
