@@ -14,7 +14,7 @@ from transformers import BatchEncoding, MBartTokenizer
 from mbart_amr.data.tokens import (AMR_LANG_CODE, CHOICE, ENDLIT, ENDREL,
                                    MULTI_SENTENCE, OF_SUFFIX, REFS, SENSES,
                                    STARTLIT, STARTREL, UNKOWN, TOKENS_TO_ADD, OTHER_ROLES, PREP_PREFIX, ARGS, OPS,
-                                   SENTS)
+                                   SENTS, SPECIAL_SUFFIXES)
 from mbart_amr.utils import input_ids_counts, is_number
 
 logger = logging.getLogger(__name__)
@@ -65,15 +65,13 @@ def clean_up_tokenization(out_string: str) -> str:
     return out_string
 
 
-def postprocess_text(linearized: str, debug: bool = True) -> str:
+def postprocess_text(linearized: str) -> str:
     """It is possible that :refs are generated as a reference with a referent is present.
     References occur after roles, e.g. :ARG1 :ref1, whereas canonical referents are
     at the start of the sequence or after a :startrel. But a reference can only occur if
     a canonical referent is also present. This method removes :refXX and their preceding role
     if no corresponding canonical referent can be found.
     """
-    if debug:
-        print("BEFORE TEXT POSTPROCESS", linearized)
     tokens = tokenize_except_quotes(linearized)
     def has_canonincal_ref(t):
         """Iterate over all the tokens and look for tokens that have the same name, e.g. ":ref1".
@@ -120,9 +118,6 @@ def postprocess_text(linearized: str, debug: bool = True) -> str:
     # E.g., ":ARG6 EX1 3PB :ARG7 :ref4 :endrel" -> ":ARG6 :startlit EX1 3PB :endlit :ARG7 :ref4 :endrel"
     fixed_tokens = re.sub(r"(?<!:startlit) ((?:[^: ][^ ]* ){2,})(?!:endlit)", r" :startlit \1:endlit ", fixed_tokens)
 
-    if debug:
-        print("AFTER TEXT POSTPROCESS", fixed_tokens)
-
     return fixed_tokens
 
 class AMRMBartTokenizer(MBartTokenizer):
@@ -155,7 +150,6 @@ class AMRMBartTokenizer(MBartTokenizer):
         inst.end_rel_idx = inst.convert_tokens_to_ids(ENDREL)
         inst.start_lit_idx = inst.convert_tokens_to_ids(STARTLIT)
         inst.end_lit_idx = inst.convert_tokens_to_ids(ENDLIT)
-        inst.end_lit_idx = inst.convert_tokens_to_ids(ENDLIT)
         inst.lang_idx = inst.convert_tokens_to_ids(AMR_LANG_CODE)
         inst.multisent_idx = inst.convert_tokens_to_ids(MULTI_SENTENCE)
         inst.of_idx = inst.convert_tokens_to_ids(OF_SUFFIX)
@@ -164,9 +158,11 @@ class AMRMBartTokenizer(MBartTokenizer):
         inst.choice_idx = inst.convert_tokens_to_ids(CHOICE)
 
         # multiple idxs with type: LongTensor
+        inst.rel_idxs = torch.LongTensor([inst.start_rel_idx, inst.end_rel_idx])
         inst.sense_idxs = torch.LongTensor(inst.convert_tokens_to_ids(SENSES))
         inst.ref_idxs = torch.LongTensor(inst.convert_tokens_to_ids(REFS))
         inst.otherroles_idxs = torch.LongTensor(inst.convert_tokens_to_ids(OTHER_ROLES))
+        inst.special_suff_idxs = torch.LongTensor(inst.convert_tokens_to_ids(SPECIAL_SUFFIXES))
 
         inst.special_tokens_idxs = torch.LongTensor(inst.all_special_ids)
         inst.added_tokens_idxs = torch.LongTensor(list(inst.added_tokens_encoder.values()))
@@ -321,7 +317,7 @@ class AMRMBartTokenizer(MBartTokenizer):
             other_idxs = self.convert_tokens_to_ids(OTHER_ROLES)
             for idx in reversed(range(len(input_ids))):
                 if input_ids[idx] in other_idxs:
-                    return True, idx if return_primary_idx else True
+                    return (True, idx) if return_primary_idx else True
                 elif idx == last_idx and self.convert_ids_to_tokens(input_ids[idx]) == OF_SUFFIX:
                     continue
 
@@ -331,7 +327,7 @@ class AMRMBartTokenizer(MBartTokenizer):
                 prep_ending, idx = self.ends_in_prep(input_ids, return_primary_idx=return_primary_idx)
                 if prep_ending:
                     return prep_ending, idx
-            elif self.ends_in_prep(input_ids):
+            elif self.ends_in_prep(input_ids, return_primary_idx=return_primary_idx):
                 return True
 
         # Check if it is a numberable role but do not include the excluded categories
@@ -340,7 +336,7 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         for idx in reversed(range(len(input_ids))):  # Iterate in reverse to always get longer subsequences
             if input_ids[idx] in numberable_roles_idxs:
-                return True, idx if return_primary_idx else True
+                return (True, idx) if return_primary_idx else True
             elif (
                     idx == last_idx and self.convert_ids_to_tokens(input_ids[idx]) == OF_SUFFIX
             ):  # The very last token can be ~~of
@@ -352,9 +348,9 @@ class AMRMBartTokenizer(MBartTokenizer):
                 if not decoded or is_number(decoded[0]):
                     continue
                 else:
-                    return False, None if return_primary_idx else False
+                    return (False, None) if return_primary_idx else False
 
-        return False, None if return_primary_idx else False
+        return (False, None) if return_primary_idx else False
 
 
     def ends_in_ref(self, input_ids: Union[List[int], torch.LongTensor], return_primary_idx: bool = False) -> Union[bool, Tuple[bool, int]]:
@@ -366,7 +362,7 @@ class AMRMBartTokenizer(MBartTokenizer):
             # if we ultimately reach a :ref\d, then this must be valid because we only got here if the
             # the later tokens were numbers
             if input_ids[idx] in ref_idxs:
-                return True, idx if return_primary_idx else True
+                return (True, idx) if return_primary_idx else True
             else:
                 # decoded can be an empty list for the first entry, because the first token is amr_XX
                 # which gets filtered out so it's just an empty list
@@ -374,9 +370,9 @@ class AMRMBartTokenizer(MBartTokenizer):
                 if not decoded or is_number(decoded[0]):
                     continue
                 else:
-                    return False, None if return_primary_idx else False
+                    return (False, None) if return_primary_idx else False
 
-        return False, None if return_primary_idx else False
+        return (False, None) if return_primary_idx else False
 
 
     def ends_in_prep(self, input_ids: Union[List[int], torch.LongTensor], return_primary_idx: bool = False) -> Union[bool, Tuple[bool, int]]:
@@ -389,11 +385,11 @@ class AMRMBartTokenizer(MBartTokenizer):
             # If this token is :prep
             if input_ids[idx] == prep_idx:
                 if len(input_ids[idx:]) == 1:  # incomplete :prep- (not followed by anything)
-                    return False, None if return_primary_idx else False
+                    return (False, None) if return_primary_idx else False
                 else:  # first token of subsequence is :prep- and there are other tokens
                     # we end in a valid :prep- if there are no spaces in this string, e.g. :prep-against
                     decoded = self.decode_and_fix(input_ids[idx:], do_post_process=False)[0]
                     prep_ending = " " not in decoded and decoded.count(":") == 1
-                    return prep_ending, idx if return_primary_idx else prep_ending
+                    return (prep_ending, idx) if return_primary_idx else prep_ending
 
-        return False, None if return_primary_idx else False
+        return (False, None) if return_primary_idx else False
