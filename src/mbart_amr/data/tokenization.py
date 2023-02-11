@@ -2,22 +2,25 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Union, Tuple
+from typing import List, Tuple, Union
 
 import numpy as np
 import torch
 from ftfy import fix_text
-
-from mbart_amr.data.linearization import penmanstr2linearized, tokenize_except_quotes
+from mbart_amr.data.linearization import (penmanstr2linearized,
+                                          tokenize_except_quotes)
+from mbart_amr.data.tokens import (AMR_LANG_CODE, ARGS, CHOICE, ENDLIT, ENDREL,
+                                   MULTI_SENTENCE, OF_SUFFIX, OPS, OTHER_ROLES,
+                                   PREP_PREFIX, REFS, SENSES, SENTS,
+                                   SPECIAL_SUFFIXES, STARTLIT, STARTREL,
+                                   TOKENS_TO_ADD, UNKOWN)
+from mbart_amr.utils import input_ids_counts, is_number
 from tqdm import tqdm
 from transformers import BatchEncoding, MBartTokenizer
-from mbart_amr.data.tokens import (AMR_LANG_CODE, CHOICE, ENDLIT, ENDREL,
-                                   MULTI_SENTENCE, OF_SUFFIX, REFS, SENSES,
-                                   STARTLIT, STARTREL, UNKOWN, TOKENS_TO_ADD, OTHER_ROLES, PREP_PREFIX, ARGS, OPS,
-                                   SENTS, SPECIAL_SUFFIXES)
-from mbart_amr.utils import input_ids_counts, is_number
+
 
 logger = logging.getLogger(__name__)
+
 
 def clean_up_tokenization(out_string: str) -> str:
     """Clean up a list of simple English tokenization artifacts like spaces before punctuations and abbreviated forms.
@@ -73,18 +76,22 @@ def postprocess_text(linearized: str) -> str:
     if no corresponding canonical referent can be found.
     """
     tokens = tokenize_except_quotes(linearized)
+
+    if not len([t for t in tokens if t.strip()]):
+        return linearized
+
     def has_canonincal_ref(t):
         """Iterate over all the tokens and look for tokens that have the same name, e.g. ":ref1".
         If such a ref exists that has a :startrel as the previous token or is at the start of the tree,
         then that is the canonical reference token for the given token.
         """
-        for idx in range(len(tokens)-1):
+        for idx in range(len(tokens) - 1):
             token = tokens[idx]
             if token == t:
                 if idx == 0:
                     return True
 
-                prev_token = tokens[idx-1] if idx > 0 else None
+                prev_token = tokens[idx - 1] if idx > 0 else None
 
                 if prev_token and prev_token == ":startrel":
                     return True
@@ -95,7 +102,7 @@ def postprocess_text(linearized: str) -> str:
     # Iterate over all tokens. Especially consider refs
     for idx in range(len(tokens)):
         token = tokens[idx]
-        prev_token = tokens[idx-1] if idx > 0 else None
+        prev_token = tokens[idx - 1] if idx > 0 else None
 
         # If this token is a ref...
         if token.startswith(":ref") and prev_token is not None:
@@ -119,6 +126,7 @@ def postprocess_text(linearized: str) -> str:
     fixed_tokens = re.sub(r"(?<!:startlit) ((?:[^: ][^ ]* ){2,})(?!:endlit)", r" :startlit \1:endlit ", fixed_tokens)
 
     return fixed_tokens
+
 
 class AMRMBartTokenizer(MBartTokenizer):
     @classmethod
@@ -172,13 +180,12 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         return inst
 
-
     def decode_and_fix(
         self,
         token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray],
         pbar: bool = False,
         skip_special_tokens: bool = True,
-        do_post_process: bool = True
+        do_post_process: bool = True,
     ) -> List[str]:
         """Modified from the original HF Tokenizer. Note the run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.
@@ -208,16 +215,13 @@ class AMRMBartTokenizer(MBartTokenizer):
 
             if ids.numel() == 0:
                 continue
-
             if do_post_process:
                 ids = self.postprocess_idxs(ids)
 
             ids = ids.tolist()
             ids = self.convert_ids_to_tokens(ids)
 
-            filtered_tokens = [
-                token if token in self.added_tokens_encoder else fix_text(token) for token in ids
-            ]
+            filtered_tokens = [token if token in self.added_tokens_encoder else fix_text(token) for token in ids]
 
             # To avoid mixing byte-level and unicode for byte-level BPT
             # we need to build string separately for added tokens and byte-level tokens
@@ -262,18 +266,16 @@ class AMRMBartTokenizer(MBartTokenizer):
         # So we just do it as a post-processing step here: replacing the last token by the amr_XX ID
         input_ids = encoded["input_ids"]
         # Replace all the language IDs with the amr_token_id
-        input_ids[torch.isin(input_ids, self.lang_ids)] = self.amr_token_id
+        input_ids[torch.isin(input_ids, self.lang_ids)] = self.amr_token_idx
 
         return encoded
 
     def remove_special_tokens(self, input_ids: torch.LongTensor):
-        """NOTE: only removes special tokens and amr_XX, NOT the added tokens
-        """
+        """NOTE: only removes special tokens and amr_XX, NOT the added tokens"""
 
         # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
         # It is included in all_special_ids_tensor
         return input_ids[~torch.isin(input_ids, self.all_special_ids_tensor)]
-
 
     def postprocess_idxs(self, input_ids: torch.LongTensor) -> torch.LongTensor:
         last_item = input_ids[-1].item()
@@ -296,9 +298,12 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         return input_ids
 
-    def ends_in_role(self,
-            input_ids: Union[List[int], torch.LongTensor], exclude_categories: List[str] = None,
-            return_primary_idx: bool = False) -> Union[bool, Tuple[bool, int]]:
+    def ends_in_role(
+        self,
+        input_ids: Union[List[int], torch.LongTensor],
+        exclude_categories: List[str] = None,
+        return_primary_idx: bool = False,
+    ) -> Union[bool, Tuple[bool, int]]:
         if isinstance(input_ids, torch.Tensor):
             input_ids = input_ids.tolist()
 
@@ -320,6 +325,8 @@ class AMRMBartTokenizer(MBartTokenizer):
                     return (True, idx) if return_primary_idx else True
                 elif idx == last_idx and self.convert_ids_to_tokens(input_ids[idx]) == OF_SUFFIX:
                     continue
+                else:
+                    break
 
         # If a prep, return true
         if not "preps" in exclude_categories:
@@ -338,7 +345,7 @@ class AMRMBartTokenizer(MBartTokenizer):
             if input_ids[idx] in numberable_roles_idxs:
                 return (True, idx) if return_primary_idx else True
             elif (
-                    idx == last_idx and self.convert_ids_to_tokens(input_ids[idx]) == OF_SUFFIX
+                idx == last_idx and self.convert_ids_to_tokens(input_ids[idx]) == OF_SUFFIX
             ):  # The very last token can be ~~of
                 continue
             else:
@@ -352,8 +359,9 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         return (False, None) if return_primary_idx else False
 
-
-    def ends_in_ref(self, input_ids: Union[List[int], torch.LongTensor], return_primary_idx: bool = False) -> Union[bool, Tuple[bool, int]]:
+    def ends_in_ref(
+        self, input_ids: Union[List[int], torch.LongTensor], return_primary_idx: bool = False
+    ) -> Union[bool, Tuple[bool, int]]:
         if isinstance(input_ids, torch.Tensor):
             input_ids = input_ids.tolist()
 
@@ -374,8 +382,9 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         return (False, None) if return_primary_idx else False
 
-
-    def ends_in_prep(self, input_ids: Union[List[int], torch.LongTensor], return_primary_idx: bool = False) -> Union[bool, Tuple[bool, int]]:
+    def ends_in_prep(
+        self, input_ids: Union[List[int], torch.LongTensor], return_primary_idx: bool = False
+    ) -> Union[bool, Tuple[bool, int]]:
         if isinstance(input_ids, torch.Tensor):
             input_ids = input_ids.tolist()
 
