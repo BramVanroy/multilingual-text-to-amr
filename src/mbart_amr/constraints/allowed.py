@@ -15,8 +15,12 @@ class AllowedTokensProcessor(AMRLogitsProcessorBase):
             num_inputs = inputs.size(0)
             last_item = inputs[-1].item()
 
+            ends_in_role = self.tokenizer.ends_in_role(inputs)
+            ends_in_prep = self.tokenizer.ends_in_prep(inputs)
+            ends_in_ref = self.tokenizer.ends_in_ref(inputs)
+
             # :start_rel can only follow valid role
-            if not self.tokenizer.ends_in_role(inputs):
+            if not ends_in_role:
                 logits[self.tokenizer.start_rel_idx] = float("-inf")
                 if self.debug:
                     print(f"not ends_in_role\n{self._debug_decode(inputs)}\n")
@@ -24,7 +28,7 @@ class AllowedTokensProcessor(AMRLogitsProcessorBase):
             # :refXX can only follow :start_rel or a role...
             # In fact, :refXX after a role can only occur if that :ref also occurs somwhere else after
             # a :start_rel, but that can be before or after it! So cannot enforce that here
-            if not (last_item == self.tokenizer.start_rel_idx or self.tokenizer.ends_in_role(inputs)):
+            if not (last_item == self.tokenizer.start_rel_idx or ends_in_role):
                 mask = self.tokenizer.ref_idxs
                 # ... except for :ref1 which can occur at the start of the sequence
                 if num_inputs == 1:
@@ -43,7 +47,7 @@ class AllowedTokensProcessor(AMRLogitsProcessorBase):
                     )
 
             # ~~of can only follow roles (but not sents) or preps
-            if not (self.tokenizer.ends_in_role(inputs, exclude_categories=["sents"]) or self.tokenizer.ends_in_prep(inputs)):
+            if not (self.tokenizer.ends_in_role(inputs, exclude_categories=["sents"]) or ends_in_prep):
                 logits[self.tokenizer.of_idx] = float("-inf")
                 if self.debug:
                     print(f"not (ends_in_role (except sents) or ends_in_prep)\n{self._debug_decode(inputs)}\n")
@@ -53,5 +57,31 @@ class AllowedTokensProcessor(AMRLogitsProcessorBase):
                 logits[self.tokenizer.of_idx] = float("-inf")
                 if self.debug:
                     print(f"last_item == of_idx\n{self._debug_decode(inputs)}\n")
+
+            # Only specific added tokens can follow an ending :endlit
+            # ~~of, :prep-, amr-unknown, amr-choice, multi-sentence, amr_XX NOT allowed
+            if last_item == self.tokenizer.end_lit_idx:
+                disallowed_specials = torch.cat((torch.LongTensor([self.tokenizer.of_idx,
+                                                        self.tokenizer.prep_idx,
+                                                        self.tokenizer.unknown_idx,
+                                                        self.tokenizer.choice_idx,
+                                                        self.tokenizer.multisent_idx,
+                                                        self.tokenizer.lang_idx]),
+                                                self.tokenizer.special_suff_idxs))
+                # All added tokens except the ones above are allowed
+                allowed = self.tokenizer.added_tokens_idxs[~torch.isin(self.tokenizer.added_tokens_idxs,
+                                                                       disallowed_specials)]
+
+                mask = self.tokenizer.voc_idxs_for_mask[~torch.isin(self.tokenizer.voc_idxs_for_mask, allowed)]
+                logits[mask] = float("-inf")
+                if self.debug:
+                    print(f"last_item == end_lit_idx\n{self._debug_decode(inputs)}\n")
+
+            # Ref cannot follow other ref
+            if ends_in_ref:
+                logits[self.tokenizer.ref_idxs] = float("-inf")
+                if self.debug:
+                    print(f"last_item in ref_idxs\n{self._debug_decode(inputs)}\n")
+
 
         return scores
