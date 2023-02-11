@@ -266,7 +266,7 @@ class AMRMBartTokenizer(MBartTokenizer):
         # So we just do it as a post-processing step here: replacing the last token by the amr_XX ID
         input_ids = encoded["input_ids"]
         # Replace all the language IDs with the amr_token_id
-        input_ids[torch.isin(input_ids, self.lang_ids)] = self.amr_token_idx
+        input_ids[torch.isin(input_ids, self.lang_idxs)] = self.amr_token_idx
 
         return encoded
 
