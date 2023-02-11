@@ -44,11 +44,12 @@ def can_be_generated(
 
 
 def debug_decode(input_ids: torch.LongTensor, tokenizer: MBartTokenizer, skip_special_tokens: bool = False):
-    return tokenizer.decode_and_fix(input_ids, skip_special_tokens=skip_special_tokens)[0]
+    return tokenizer.decode_and_fix(input_ids, skip_special_tokens=skip_special_tokens, do_post_process=False)[0]
 
 
 def debug_build_ids_for_labels(linearized: str, tokenizer: MBartTokenizer):
     return tokenizer(f"amr_XX {linearized}", add_special_tokens=False, return_tensors="pt").input_ids
+
 
 def input_ids_counts(inputs: torch.LongTensor) -> Dict[int, int]:
     # -- collect unique counts in the current inputs for each token ID

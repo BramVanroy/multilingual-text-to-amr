@@ -1,6 +1,7 @@
 from mbart_amr.data.tokenization import AMRMBartTokenizer
-
 from transformers import LogitsProcessor
+
+from mbart_amr.utils import debug_decode
 
 
 class AMRLogitsProcessorBase(LogitsProcessor):
@@ -15,4 +16,4 @@ class AMRLogitsProcessorBase(LogitsProcessor):
         super().__init__()
 
     def _debug_decode(self, input_ids, skip_special_tokens=False):
-        return self.tokenizer.decode_and_fix(input_ids, skip_special_tokens=skip_special_tokens)
+        return debug_decode(input_ids, self.tokenizer, skip_special_tokens=skip_special_tokens)

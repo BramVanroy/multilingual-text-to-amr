@@ -8,7 +8,12 @@ class FirstTokenProcessor(AMRLogitsProcessorBase):
         super().__init__(tokenizer, max_length, debug)
         # Allow :ref1, multi-sentence, amr-unknown, amr-choice
         self.allowed_tokens_in_first_position = torch.LongTensor(
-            [self.tokenizer.multisent_idx, self.tokenizer.ref_idxs[0].item(), self.tokenizer.unknown_idx, self.tokenizer.choice_idx]
+            [
+                self.tokenizer.multisent_idx,
+                self.tokenizer.ref_idxs[0].item(),
+                self.tokenizer.unknown_idx,
+                self.tokenizer.choice_idx,
+            ]
         )
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
