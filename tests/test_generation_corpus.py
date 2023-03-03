@@ -9,11 +9,11 @@ from mbart_amr.data.tokenization import AMRMBartTokenizer
 from mbart_amr.utils import debug_build_ids_for_labels, can_be_generated
 
 
-def main(indir: str, max_length: int = 1024):
+def main(indir: str, max_length: int = 1024, debug: bool = False):
     pdin = Path(indir)
 
     tokenizer = AMRMBartTokenizer.from_pretrained("facebook/mbart-large-cc25", src_lang="en_XX")
-    logitsprocessor = AMRLogitsProcessor(tokenizer, max_length, debug=False)
+    logitsprocessor = AMRLogitsProcessor(tokenizer, max_length, debug=debug)
 
     for remove_wiki in (True, False):
         for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file", desc=f"Remove wiki? {remove_wiki}"):
