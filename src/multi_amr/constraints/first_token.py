@@ -1,6 +1,6 @@
 import torch
-from mbart_amr.constraints.base import AMRLogitsProcessorBase
-from mbart_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.constraints.base import AMRLogitsProcessorBase
+from multi_amr.data.tokenization import AMRMBartTokenizer
 
 
 class FirstTokenProcessor(AMRLogitsProcessorBase):
@@ -25,7 +25,7 @@ class FirstTokenProcessor(AMRLogitsProcessorBase):
 
             """The tree cannot start with any special added tokens nor any special tokens (like <s>, which is already
             the first starting token).
-            The first token CAN be a :ref1, though!
+            The first token CAN be a :ref, though!
             It can start with a special frame like "have-condition-91" but that is generated  generically with "have" 
             and does not depend on a special first token so that's fine.
             """

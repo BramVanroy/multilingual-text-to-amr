@@ -1,15 +1,14 @@
 import torch
-from mbart_amr.constraints.base import AMRLogitsProcessorBase
-from mbart_amr.data.tokenization import AMRMBartTokenizer
-from mbart_amr.data.tokens import FRAME_91_ID
-from mbart_amr.utils import input_ids_counts
+from multi_amr.constraints.base import AMRLogitsProcessorBase
+from multi_amr.data.tokenization import AMRMBartTokenizer
+
+from multi_amr.utils import input_ids_counts
 
 
 class OpenCloseTokenProcessor(AMRLogitsProcessorBase):
     def __init__(self, tokenizer: AMRMBartTokenizer, max_length: int, debug: bool = False):
         super().__init__(tokenizer, max_length, debug)
-        self.frame_91_idx = tokenizer.convert_tokens_to_ids(FRAME_91_ID)
-        self.allowed_in_lit_idxs = torch.LongTensor([self.tokenizer.end_lit_idx, self.frame_91_idx])
+        self.allowed_in_lit_idxs = torch.LongTensor([self.tokenizer.end_lit_idx])
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         for beam_idx in range(input_ids.size(0)):
@@ -58,7 +57,7 @@ class OpenCloseTokenProcessor(AMRLogitsProcessorBase):
                         f"{self._debug_decode(inputs)}"
                     )
 
-            # Cannot generate any special tokens as long as LIT is open (except for closing LIT and -91)
+            # Cannot generate any special tokens as long as LIT is open (except for closing LIT)
             if uniq_counts[self.tokenizer.start_lit_idx] > uniq_counts[self.tokenizer.end_lit_idx]:
                 mask = torch.cat((self.tokenizer.added_tokens_idxs, self.tokenizer.special_tokens_idxs))
                 mask = mask[~torch.isin(mask, self.allowed_in_lit_idxs)]

@@ -4,227 +4,33 @@ import logging
 import math
 import os
 import sys
-from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import evaluate as evaluate
 import numpy as np
 import smatch
 import transformers
 from amr import AMR
-from mbart_amr.data.dataset import AMRDataset, collate_amr
-from mbart_amr.data.linearization import linearized2penmanstr
-from mbart_amr.data.tokenization import AMRMBartTokenizer
-from mbart_amr.trainer import AMRTrainer, ExpandedSeq2SeqTrainingArguments
-from mbart_amr.utils.smart_initialization import (freeze_encoder,
-                                                  smart_initialization)
-from transformers import (EarlyStoppingCallback, HfArgumentParser,
-                          MBartForConditionalGeneration, set_seed)
+from multi_amr.data.dataset import AMRDataset, collate_amr
+from multi_amr.data.linearization import linearized2penmanstr
+from multi_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.parse_cli import parse_cli
+from multi_amr.trainer import AMRTrainer, ExpandedSeq2SeqTrainingArguments
+from multi_amr.utils.smart_initialization import freeze_encoder, smart_initialization
+from transformers import EarlyStoppingCallback, HfArgumentParser, MBartForConditionalGeneration, set_seed
 from transformers.trainer_utils import get_last_checkpoint
 
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ModelArguments:
-    """
-    Arguments pertaining to which model/config/tokenizer we are going to fine-tune, or train from scratch.
-    """
-
-    model_name_or_path: Optional[str] = field(
-        default="facebook/mbart-large-cc25",
-        metadata={
-            "help": (
-                "The model checkpoint for weights initialization.Don't set if you want to train a model from scratch."
-            )
-        },
-    )
-    config_name: Optional[str] = field(
-        default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
-    )
-    tokenizer_name: Optional[str] = field(
-        default=None, metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
-    )
-    cache_dir: Optional[str] = field(
-        default=None,
-        metadata={"help": "Where do you want to store the pretrained models downloaded from huggingface.co"},
-    )
-    model_revision: str = field(
-        default="main",
-        metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
-    )
-    use_auth_token: bool = field(
-        default=False,
-        metadata={
-            "help": (
-                "Will use the token generated when running `huggingface-cli login` (necessary to use this script "
-                "with private models)."
-            )
-        },
-    )
-
-
-@dataclass
-class DataTrainingArguments:
-    """
-    Arguments pertaining to what data we are going to input our model for training and eval.
-    """
-
-    src_langs: List[str] = field(
-        metadata={
-            "help": "A list of source languages that corresponds with the given order in"
-            " `train|validation directories`. Make sure that the right language code is used with"
-            " respect to the model that you are using."
-        },
-    )
-    train_directories: Optional[List[str]] = field(
-        default=None,
-        metadata={
-            "help": "Directories that contains training data. Will recursively be traversed for *.txt files."
-            " One directory per source language."
-        },
-    )
-    validation_directories: Optional[List[str]] = field(
-        default=None,
-        metadata={
-            "help": "Directory that contains validation data. Will recursively be traversed for *.txt files."
-            " One directory per source language."
-        },
-    )
-    test_directories: Optional[List[str]] = field(
-        default=None,
-        metadata={
-            "help": "Directory that contains test data. Will recursively be traversed for *.txt files."
-            " One directory per source language. Will only be used when using predict functionality."
-        },
-    )
-    test_data_has_labels: Optional[bool] = field(
-        default=True,
-        metadata={
-            "help": (
-                "Whether or not the .txt files in the test_directories contain AMR data (so :sent sentences as well as"
-                "AMR graphs) or not (plain text files). The predictions will be written to an output file"
-                " test_predictions.txt. If AMR labels, the evaluation scores will also be printed."
-            )
-        },
-    )
-    input_max_seq_length: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "The maximum total input sequence length after tokenization and masking. Sequences longer than this"
-                " will be truncated. Default to the max input length of the model. Batches will be padded up to max."
-                " length in the batch."
-            )
-        },
-    )
-    output_max_seq_length: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "The maximum total output sequence length after tokenization and masking. Sequences longer than this"
-                " will be truncated. Default to the max input length of the model. Batches will be padded up to max."
-                " length in the batch."
-            )
-        },
-    )
-    max_train_samples_per_language: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of training examples to this "
-                "value if set per given language."
-            )
-        },
-    )
-    max_eval_samples_per_language: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
-                "value if set per given language."
-            )
-        },
-    )
-    max_test_samples_per_language: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes, truncate the number of test examples to this "
-                "value if set per given language."
-            )
-        },
-    )
-    save_amrs: Optional[bool] = field(
-        default=False,
-        metadata={
-            "help": (
-                "Whether to save (in)valid generated AMRs to a file 'invalid-amrs.txt' in the output directory."
-                " During prediction ('--do_predict') predictions are written to 'generated_predictions_{lang}'"
-                " regardless of this flag."
-            )
-        },
-    )
-    remove_wiki: Optional[bool] = field(
-        default=True,
-        metadata={"help": ("Whether to remove the special 'wiki:' tags from the AMR.")},
-    )
-
-
 def main():
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, ExpandedSeq2SeqTrainingArguments))
-
-    try:
-        # Assumes that the first .json file is the config file (if any)
-        config_file = next(iter(arg for arg in sys.argv if arg.endswith(".json")))
-    except StopIteration:
-        config_file = None
-
-    if config_file:
-        config_args = parser.parse_json_file(json_file=os.path.abspath(config_file))
-
-        # Find all other CLI arguments, i.e. the ones that follow the config file
-        config_arg_idx = sys.argv.index(config_file)
-        other_args = sys.argv[config_arg_idx + 1 :]
-
-        # Find the argument names on CLI, i.e., those starting with -- (e.g., `output_dir`, or `fp16`)
-        # arg[2:] to remove "--"
-        arg_names = {arg[2:] for arg in other_args if arg.startswith("--")}
-
-        # Get the required arguments from the parser so that we can generate dummy values
-        # This is needed for the next step, otherwise we get "xxx is a required argument" if we
-        # do not specify the required argument on the CLI
-        # We assume here that all "required" fields require one single argument, here just a dummy
-        # Do NOT generate the dummy argument if it is already given as an arg in arg_names
-        required_args = [
-            (act.option_strings[0], "dummy")
-            for act in parser._actions
-            if act.required and not any(act_s[2:] in arg_names for act_s in act.option_strings)
-        ]
-        required_args = [arg for req_dummy_args in required_args for arg in req_dummy_args]  # Flatten
-
-        # Parse the `cli_args` (actual CLI args + dummy required args) into dataclasses
-        cli_args = other_args + required_args
-        cli_args = parser.parse_args_into_dataclasses(args=cli_args, look_for_args_file=False)
-
-        # Iterate over couples of dataclasses, where the first one is the initial one from config
-        # and the second one is the one with CLI args + dummy required arguments
-        # In this loop, we replace values in cfg_dc with the ones from the CLI
-        # but only if they were _real_ CLI arguments (not the required dummies we generated)
-        all_args = []
-        for cfg_dc, cli_dc in zip(config_args, cli_args):
-            # Filter the loaded `other_args` to only the arguments that were specified on the command-line (`arg_names`)
-            cli_d = {k: v for k, v in dataclasses.asdict(cli_dc).items() if k in arg_names}
-            # Replace the values in the config-loaded args with the ones loaded from cli
-            all_args.append(dataclasses.replace(cfg_dc, **cli_d))
-
-        model_args, data_args, training_args = all_args
-    else:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args = parse_cli(
+        ModelArguments, DataTrainingArguments, ExpandedSeq2SeqTrainingArguments
+    )
 
     if (
         os.path.exists(training_args.output_dir)

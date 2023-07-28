@@ -3,10 +3,10 @@ from tqdm import tqdm
 import penman
 from ftfy import fix_text
 
-from mbart_amr.constraints.constraints import AMRLogitsProcessor
-from mbart_amr.data.linearization import penmantree2linearized, do_remove_wiki
-from mbart_amr.data.tokenization import AMRMBartTokenizer
-from mbart_amr.utils import debug_build_ids_for_labels, can_be_generated
+from multi_amr.constraints.open_close import AMRLogitsProcessor
+from multi_amr.data.linearization import penmantree2linearized, do_remove_wiki
+from multi_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.utils import debug_build_ids_for_labels, can_be_generated
 
 
 def main(indir: str, max_length: int = 1024, debug: bool = False):

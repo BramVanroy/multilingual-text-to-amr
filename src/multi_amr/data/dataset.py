@@ -7,8 +7,8 @@ from typing import List, Optional, Union
 import penman
 import torch
 from ftfy import fix_text
-from mbart_amr.data.linearization import do_remove_wiki
-from mbart_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.data.linearization import do_remove_wiki
+from multi_amr.data.tokenization import AMRMBartTokenizer
 from torch.utils.data import Dataset
 from tqdm import tqdm
 

@@ -2,22 +2,29 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Optional
 
 import numpy as np
 import torch
 from ftfy import fix_text
-from mbart_amr.data.linearization import (penmanstr2linearized,
-                                          tokenize_except_quotes)
-from mbart_amr.data.tokens import (AMR_LANG_CODE, ARGS, CHOICE, ENDLIT, ENDREL,
-                                   MULTI_SENTENCE, OF_SUFFIX, OPS, OTHER_ROLES,
-                                   PREP_PREFIX, REFS, SENSES, SENTS,
-                                   SPECIAL_SUFFIXES, STARTLIT, STARTREL,
-                                   TOKENS_TO_ADD, UNKOWN)
-from mbart_amr.utils import input_ids_counts, is_number
+from multi_amr.data.linearization import penmanstr2linearized, tokenize_except_quotes
+from multi_amr.data.tokens import (
+    AMR_LANG_CODE,
+    CHOICE,
+    ENDLIT,
+    ENDREL,
+    MULTI_SENTENCE,
+    OF_SUFFIX,
+    OTHER_ROLES,
+    PREP_PREFIX,
+    STARTLIT,
+    STARTREL,
+    TOKENS_TO_ADD,
+    UNKOWN, SUFFIXES,
+)
+from multi_amr.utils import input_ids_counts, is_number
 from tqdm import tqdm
-from transformers import BatchEncoding, MBartTokenizer
-
+from transformers import BatchEncoding, MBartTokenizer, T5Tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +63,12 @@ def clean_up_tokenization(out_string: str) -> str:
     # Adding space before/after :startlit/:endlit
     out_string = re.sub(r":(startlit|endlit)", r" :\1 ", out_string)
 
-    # Merging e.g. :sense1 2 into :sense12
-    out_string = re.sub(r":(sense|ref)(\d+)\s+(\d+)", r":\1\2\3", out_string)
+    # Merging e.g. :ref1 2 into :ref12
+    out_string = re.sub(r":(ref)(\d+)\s+(\d+)", r":\1\2\3", out_string)
     # To account for phone numbers like 512-386-91 45 where -91 is incorrectly used as a special token
     # I have not found a way to 1. use -91 as a generic token while also 2. have it work well in arbitrary
     # cases like the phone number.
-    out_string = re.sub(r"-91 (\d+)", r"-91\1", out_string)
+    # out_string = re.sub(r"-91 (\d+)", r"-91\1", out_string)
     # Clean-up whitespaces
     out_string = " ".join(out_string.split())
 
@@ -103,6 +110,7 @@ def postprocess_text(linearized: str) -> str:
     for idx in range(len(tokens)):
         token = tokens[idx]
         prev_token = tokens[idx - 1] if idx > 0 else None
+        next_token = tokens[idx + 1] if idx < len(tokens)-1 else None
 
         # If this token is a ref...
         if token.startswith(":ref") and prev_token is not None:
@@ -114,7 +122,15 @@ def postprocess_text(linearized: str) -> str:
                     fixed_tokens.pop()
                     continue
         elif token[0].isdigit() and not is_number(token):  # e.g. "2/3"
-            fixed_tokens.extend([":startlit", token, ":endlit"])
+            if prev_token != STARTLIT and next_token != ENDLIT:
+                fixed_tokens.extend([STARTLIT, token, ENDLIT])
+            elif prev_token != STARTLIT and next_token == ENDLIT:
+                fixed_tokens.extend([STARTLIT, token])
+            elif prev_token == STARTLIT and next_token != ENDLIT:
+                fixed_tokens.extend([token, ENDLIT])
+            else:
+                fixed_tokens.append(token)
+
             continue
 
         fixed_tokens.append(token)
@@ -123,7 +139,7 @@ def postprocess_text(linearized: str) -> str:
 
     # If non-special, space-separated tokens occur without LIT around them, join them together with a dash
     # E.g., ":ARG6 EX1 3PB :ARG7 :ref4 :endrel" -> ":ARG6 :startlit EX1 3PB :endlit :ARG7 :ref4 :endrel"
-    fixed_tokens = re.sub(r"(?<!:startlit) ((?:[^: ][^ ]* ){2,})(?!:endlit)", r" :startlit \1:endlit ", fixed_tokens)
+    fixed_tokens = re.sub(rf"(?<!{STARTLIT}) ((?:[^: ][^ ]* ){2,})(?!{ENDLIT})", rf" {STARTLIT} \1{ENDLIT} ", fixed_tokens)
 
     return fixed_tokens
 
@@ -133,7 +149,7 @@ class AMRMBartTokenizer(MBartTokenizer):
     def from_pretrained(cls, *args, **kwargs):
         inst = super().from_pretrained(*args, **kwargs)
 
-        # Only add tokens that are not in the vocabulary yet
+        # Only add tokens that are not in the vocabulary.py yet
         tokens_to_add = set(TOKENS_TO_ADD)
         voc = set(inst.get_vocab().keys())
         new_tokens = list(sorted(tokens_to_add - voc))
@@ -167,15 +183,21 @@ class AMRMBartTokenizer(MBartTokenizer):
 
         # multiple idxs with type: LongTensor
         inst.rel_idxs = torch.LongTensor([inst.start_rel_idx, inst.end_rel_idx])
-        inst.sense_idxs = torch.LongTensor(inst.convert_tokens_to_ids(SENSES))
-        inst.ref_idxs = torch.LongTensor(inst.convert_tokens_to_ids(REFS))
         inst.otherroles_idxs = torch.LongTensor(inst.convert_tokens_to_ids(OTHER_ROLES))
-        inst.special_suff_idxs = torch.LongTensor(inst.convert_tokens_to_ids(SPECIAL_SUFFIXES))
+        inst.special_suff_idxs = torch.LongTensor(inst.convert_tokens_to_ids(SUFFIXES))
 
         inst.special_tokens_idxs = torch.LongTensor(inst.all_special_ids)
         inst.added_tokens_idxs = torch.LongTensor(list(inst.added_tokens_encoder.values()))
         inst.voc_idxs_for_mask = torch.arange(inst.voc_size)
-        inst.lang_idxs = torch.LongTensor(list(inst.id_to_lang_code.keys()))
+
+        if isinstance(inst, MBartTokenizer):
+            inst.lang_idxs = torch.LongTensor(list(inst.id_to_lang_code.keys()))
+        elif isinstance(inst, T5Tokenizer):
+            # T5 works with general prefixes that are part of the input, e.g. "Translate English to German: "
+            # so there are no language codes
+            inst.lang_idxs = None
+        else:
+            raise ValueError(f"Tokenizer type '{type(inst)}' not supported.")
         inst.all_special_ids_tensor = torch.LongTensor(inst.all_special_ids + [inst.amr_token_idx])
 
         return inst
@@ -218,10 +240,9 @@ class AMRMBartTokenizer(MBartTokenizer):
             if do_post_process:
                 ids = self.postprocess_idxs(ids)
 
-            ids = ids.tolist()
-            ids = self.convert_ids_to_tokens(ids)
-
-            filtered_tokens = [token if token in self.added_tokens_encoder else fix_text(token) for token in ids]
+            tokens = self.convert_ids_to_tokens(ids.tolist())
+            print("Tokens", tokens)
+            filtered_tokens = [token if token in self.added_tokens_encoder else fix_text(token) for token in tokens]
 
             # To avoid mixing byte-level and unicode for byte-level BPT
             # we need to build string separately for added tokens and byte-level tokens
@@ -241,9 +262,13 @@ class AMRMBartTokenizer(MBartTokenizer):
 
             text = " ".join(sub_texts)
             text = clean_up_tokenization(text)
+            print("before post", text)
             if do_post_process:
                 text = postprocess_text(text)
+
+            print("after post", text)
             linearized_amrs.append(text)
+        print()
 
         return linearized_amrs
 
@@ -266,7 +291,8 @@ class AMRMBartTokenizer(MBartTokenizer):
         # So we just do it as a post-processing step here: replacing the last token by the amr_XX ID
         input_ids = encoded["input_ids"]
         # Replace all the language IDs with the amr_token_id
-        input_ids[torch.isin(input_ids, self.lang_idxs)] = self.amr_token_idx
+        if self.lang_idxs is not None:
+            input_ids[torch.isin(input_ids, self.lang_idxs)] = self.amr_token_idx
 
         return encoded
 
@@ -280,10 +306,13 @@ class AMRMBartTokenizer(MBartTokenizer):
     def postprocess_idxs(self, input_ids: torch.LongTensor) -> torch.LongTensor:
         last_item = input_ids[-1].item()
 
+        print("INPUTS1", input_ids)
         role_ending, idx = self.ends_in_role(input_ids, return_primary_idx=True)
         if role_ending:
             input_ids = input_ids[:idx]
 
+        print("INPUTS2", input_ids)
+        # ending with an empty :prep- or multi-sentence element that _has_ to have something after it
         if last_item in (self.prep_idx, self.multisent_idx):
             input_ids = input_ids[:-1]
 
@@ -342,11 +371,17 @@ class AMRMBartTokenizer(MBartTokenizer):
         numberable_roles_idxs = self.convert_tokens_to_ids(numberable_roles)
 
         for idx in reversed(range(len(input_ids))):  # Iterate in reverse to always get longer subsequences
+            token = self.decode(input_ids[idx], clean_up_tokenization_spaces=True)
+
             if input_ids[idx] in numberable_roles_idxs:
                 return (True, idx) if return_primary_idx else True
             elif (
-                idx == last_idx and self.convert_ids_to_tokens(input_ids[idx]) == OF_SUFFIX
+                idx == last_idx and token == OF_SUFFIX
             ):  # The very last token can be ~~of
+                continue
+            elif (
+                idx == last_idx and token.isdigit()
+            ):  # The very last token can be a digit, e.g. :ARG1 10, (`10 minutes`)
                 continue
             else:
                 # decoded can be an empty list for the first entry, because the first token is amr_XX

@@ -1,21 +1,27 @@
 from pathlib import Path
+from typing import Optional
+
 from tqdm import tqdm
 import penman
 from ftfy import fix_text
 
 from amr import AMR
 
-from mbart_amr.data.linearization import penmantree2linearized, linearized2penmanstr, do_remove_wiki
+from multi_amr.data.linearization import penmantree2linearized, linearized2penmanstr, do_remove_wiki
 
 
-def main(indir: str):
+def main(indir: str, start_from: Optional[int] = None):
     pdin = Path(indir)
 
+    tree_idx = 0
     with open("all-linearized.txt", "w", encoding="utf-8") as fhout:
         for remove_wiki in (True, False):
             for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file", desc=f"Remove wiki? {remove_wiki}"):
                 with pfin.open(encoding="utf-8") as fhin:
                     for tree in penman.iterparse(fhin):
+                        tree_idx += 1
+                        if start_from is not None and start_from > 0 and tree_idx < start_from:
+                            continue
                         tree.reset_variables()
                         # NOTE: the fix_text is important to make sure the reference tree also is correctly formed, e.g.
                         # (':op2', '"d’Intervention"'), -> (':op2', '"d\'Intervention"'),
@@ -63,5 +69,7 @@ if __name__ == "__main__":
                                                   " files in a given directory will be (recursively) tested.")
     cparser.add_argument("indir", help="Input directory with AMR data. Will be recursively traversed. All .txt files"
                                        " will be tested.")
+    cparser.add_argument("--start", type=int, help="Start processing from this tree index. Useful if you know exactly"
+                                                   " where something went wrong.")
     cargs = cparser.parse_args()
-    main(cargs.indir)
+    main(cargs.indir, cargs.start)

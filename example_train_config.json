@@ -9,7 +9,6 @@
   "do_predict": false,
   "overwrite_output_dir": true,
   "report_to": "wandb",
-  "run_name": "AMR dev",
 
   "save_steps": 250,
   "evaluation_strategy": "steps",

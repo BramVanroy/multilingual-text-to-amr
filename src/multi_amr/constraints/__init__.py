@@ -1,8 +1,9 @@
 import torch
-from mbart_amr.constraints import FirstTokenProcessor, OpenCloseTokenProcessor
-
-from mbart_amr.data.tokenization import AMRMBartTokenizer
 from transformers import LogitsProcessor
+
+from multi_amr.constraints.first_token import FirstTokenProcessor
+from multi_amr.constraints.open_close import OpenCloseTokenProcessor
+from multi_amr.data.tokenization import AMRMBartTokenizer
 
 
 class AMRLogitsProcessor(LogitsProcessor):

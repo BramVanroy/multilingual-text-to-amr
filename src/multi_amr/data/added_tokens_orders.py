@@ -1,4 +1,5 @@
-from mbart_amr.data.tokens import ARGS, OPS, REFS, SENTS, OF_SUFFIX
+from multi_amr.data.tokens import ARGS, OF_SUFFIX, OPS, REFS, SENTS
+
 
 x_can_only_be_followed_by_y = {
     "args": (":startlit", ":startrel", OF_SUFFIX) + REFS,
@@ -250,10 +251,10 @@ x_can_only_be_followed_by_y = {
     ":startrel": ("amr-choice", "amr-unknown") + REFS,
     ":subevent": (":startrel", OF_SUFFIX) + REFS,
     ":subset": (":startrel", OF_SUFFIX),
-    ":time": (":startlit", ":startrel",  OF_SUFFIX) + REFS,
+    ":time": (":startlit", ":startrel", OF_SUFFIX) + REFS,
     ":topic": (":startrel", OF_SUFFIX) + REFS,
     ":unit": (":startrel", OF_SUFFIX) + REFS,
-    ":value": (":startrel", ":startlit",  OF_SUFFIX),
+    ":value": (":startrel", ":startlit", OF_SUFFIX),
     ":weekday": (":startrel", OF_SUFFIX) + REFS,
     "amr-choice": (":li", ":endrel") + OPS,
     "amr-unknown": (

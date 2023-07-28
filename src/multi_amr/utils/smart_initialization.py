@@ -1,5 +1,5 @@
 import torch
-from mbart_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.data.tokenization import AMRMBartTokenizer
 from transformers import MBartForConditionalGeneration
 
 

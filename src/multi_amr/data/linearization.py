@@ -1,27 +1,13 @@
 import re
 from collections import Counter
-from typing import Counter, List, Literal, Union
+from typing import Counter, List, Union
 
 import penman
-from mbart_amr.data.tokens import (ENDLIT, ENDREL, ROLE_NONUM_PREFIXES,
-                                   STARTLIT, STARTREL)
-from mbart_amr.utils import is_number
+from multi_amr.data.tokens import (ENDLIT, ENDREL,
+                                   STARTLIT, STARTREL, OF_SUFFIX, ROLES, PREP_PREFIX)
+from multi_amr.utils import is_number
 from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic
-
-
-def do_reformat_senseid(idx: str, to: Literal["linearized", "penman"] = "linearized"):
-    if to == "linearized":
-        if len(idx) == 2:  # turn "01" into "1"
-            if idx.startswith("0"):
-                return idx[1:]
-    elif to == "penman":
-        if len(idx) == 1:  # turn "1" into "01"
-            return f"0{idx}"
-    else:
-        raise ValueError("'to' must be one of 'linearized' or 'penman'")
-
-    return idx
 
 
 def do_remove_wiki(penman_str: str):
@@ -94,11 +80,11 @@ def replace_of(relation_token: str, reverse: bool = False):
     :return: the potentially modified token
     """
     if reverse:
-        if relation_token.startswith(":") and relation_token.endswith("~~of"):
-            return relation_token.replace("~~of", "-of")
+        if relation_token.startswith(":") and relation_token.endswith(OF_SUFFIX):
+            return relation_token.replace(OF_SUFFIX, "-of")
     else:
         if relation_token.startswith(":") and relation_token.endswith("-of") and relation_token != ":consist-of":
-            return relation_token.replace("-of", "~~of")
+            return relation_token.replace("-of", OF_SUFFIX)
     return relation_token
 
 
@@ -153,21 +139,11 @@ def penmantree2linearized(penman_tree: Tree) -> str:
             # below will also match on very rare cases where the match, e.g. `f4`, is not a reference but a
             # real token, e.g. `f / f4`
             if is_instance_type:
-                # Token+sense_id. The last condition is to make sure that we do not catch wiki's, too, which may
-                # look like that, e.g., "Russian_submarine_Kursk_(K-141)"
-                if (match := re.match(r"(\S+)-(\d{2,})", node)) and not (node.startswith('"') and node.endswith('"')):
-                    # Special frames. TODO: check explicitly for all potential frames because sense 91 might exist?
-                    if match.group(2) == "91":
-                        tokens.append(node)
-                    else:
-                        senseid = do_reformat_senseid(match.group(2), to="linearized")
-                        tokens.extend((match.group(1), f":sense{senseid}"))
-                else:
-                    tokens.append(node)
+                tokens.append(node)
             elif re.match(r"^[a-z]\d*$", node):  # In case a terminal refers to another token
                 _maybe_add_reference(node)
                 tokens.append(references[node])
-            # Special "literal" tokens do not have senses. These occur in e.g. :op or :wiki
+            # Special "literal" tokens that occur in e.g. :op or :wiki
             elif node.startswith('"') and node.endswith('"'):
                 tokens.extend([STARTLIT, node[1:-1], ENDLIT])
             else:
@@ -214,7 +190,6 @@ def penmantree2linearized(penman_tree: Tree) -> str:
         tokens = [f":ref{ref_idx}" if token == ref else token for token in tokens]
 
     return " ".join(tokens)
-
 
 def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
     """Turn a linearized string or a list of linearized tokens into a penman string representation.
@@ -301,12 +276,8 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
             # Handle the special token :negation, which indicate s negative polarity
             elif token == ":negation":
                 penman_tokens.append(":polarity -")
-            # SENSE IDs: add the sense to the previous token
-            elif match := re.match(r"^:sense(.+)", token):
-                senseid = do_reformat_senseid(match.group(1), to="penman")
-                penman_tokens[-1] = f"{penman_tokens[-1]}-{senseid}"
             # ROLES (that are not :refs)
-            elif token.startswith(ROLE_NONUM_PREFIXES):
+            elif (token.startswith(ROLES) and not token.startswith(":ref")) or token.startswith(PREP_PREFIX):
                 penman_tokens.append(f"\n{indent}{replace_of(token, reverse=True)}")
             # REFS
             elif token.startswith(":ref"):
@@ -321,10 +292,10 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                     else:
                         penman_tokens[-1] = f"{penman_tokens[-1]} {token}"
                 elif token.isdigit() or is_number(token):  # Numbers are mostly dealt with without /
-                    penman_tokens.append(f" {token}")
+                    penman_tokens.append(token)
                 # Certain quantities, wiki entries.... E.g. "2/3"
                 elif token.startswith('"') and token.endswith('"'):
-                    penman_tokens.append(f" {token}")
+                    penman_tokens.append(token)
                 # Many special roles have special values like "-" or numbers. E.g. `polarity -`, `:value 1`
                 # that do not need an instance /
                 elif prev_token is not None and prev_token in [
@@ -336,19 +307,19 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
                     ":quant",
                     ":wiki",
                 ]:
-                    penman_tokens.append(f" {token}")
+                    penman_tokens.append(token)
                 # OPs do not have an instance relation
                 elif prev_token is not None and prev_token.startswith(":op"):
-                    penman_tokens.append(f" {token}")
+                    penman_tokens.append(token)
                 # Exceptionally, ARG can be unspecified - or +
                 elif token in ["-", "+"] and prev_token is not None and prev_token.startswith(":ARG"):
-                    penman_tokens.append(f" {token}")
+                    penman_tokens.append(token)
                 elif prev_token is not None and prev_token.startswith(":ref"):
                     penman_tokens.append(f"/ {token}")
                 # Variable names. If the previous token starts with a (, then that prev token is the variable
                 # and the current token is the actual token. This can be important for one-word tokens, e.g., (i / i)
                 elif re.match(r"^[a-z]\d*$", token) and (prev_token is not None and not prev_token.startswith("(")):
-                    penman_tokens.append(f" {token}")
+                    penman_tokens.append(token)
                 else:
                     penman_tokens.append(f"/ {token}")
 

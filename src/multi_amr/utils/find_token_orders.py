@@ -2,8 +2,8 @@ from collections import defaultdict
 from pathlib import Path
 from pprint import pprint
 
-from mbart_amr.data.linearization import tokenize_except_quotes
-from mbart_amr.data.tokens import *
+from multi_amr.data.linearization import tokenize_except_quotes
+from multi_amr.data.tokens import *
 
 
 def main(fin: str):

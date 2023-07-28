@@ -37,5 +37,5 @@ def test_ends_in_ref(tokenizer):
     inputs = tokenizer(":ref24", add_special_tokens=False).input_ids
     assert tokenizer.ends_in_ref(inputs) is True
 
-    inputs = tokenizer(":ref69 :ARG1", add_special_tokens=False).input_ids
+    inputs = tokenizer(":ref42 :ARG1", add_special_tokens=False).input_ids
     assert tokenizer.ends_in_ref(inputs) is False

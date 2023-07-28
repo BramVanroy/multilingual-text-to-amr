@@ -2,109 +2,14 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import torch
-from mbart_amr.data.dataset import AMRDataset
-from mbart_amr.data.sampler import (DistributedSrcLangGroupedSampler,
-                                    SrcLangGroupedSampler)
+from multi_amr.data.dataset import AMRDataset
+from multi_amr.data.sampler import DistributedSrcLangGroupedSampler, SrcLangGroupedSampler
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
-from transformers.trainer_pt_utils import (DistributedSamplerWithLoop,
-                                           ShardSampler)
+from transformers.trainer_pt_utils import DistributedSamplerWithLoop, ShardSampler
 from transformers.trainer_utils import has_length
 from transformers.training_args import ParallelMode
-
-
-@dataclass
-class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
-    early_stopping_patience: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": "Stop training when the evaluation metric worsens (instead of improves) for"
-            " early_stopping_patience evaluation calls."
-        },
-    )
-    early_stopping_threshold: Optional[float] = field(
-        default=None,
-        metadata={"help": "Denote how much the evaluation metric must improve to satisfy early stopping conditions."},
-    )
-    group_by_lang: bool = field(
-        default=True,
-        metadata={"help": "Whether to try to create batches of homogenous languages."},
-    )
-    group_by_length: bool = field(
-        default=True,
-        metadata={
-            "help": "Whether to try to create batches of homogenous lengths (only works together with 'group_by_lang')."
-        },
-    )
-    keep_incomplete_batches: bool = field(
-        default=False,
-        metadata={
-            "help": "Whether to keep 'rest' batches at the end that can contain samples of different languages."
-        },
-    )
-    shuffle: bool = field(
-        default=True,
-        metadata={
-            "help": "Whether to shuffle the training set when 'keep_incomplete_batches' is enabled. If"
-            " 'keep_incomplete_batches' is not enabled, the training set will always be shuffled."
-            " The validation/test set will never be shuffled."
-        },
-    )
-    smart_initialization: bool = field(
-        default=True,
-        metadata={
-            "help": "Whether to initialize the embeddings of the newly added tokens in a 'smart' way based on their"
-            " semantics."
-        },
-    )
-    noise_range: float = field(
-        default=0.1,
-        metadata={
-            "help": "The amount of noise to add during smart initialization to the tokens that are similar to other"
-            " tokens. Noise is generated from a uniform distribution that spans [-noise_range, +noise_range]."
-            " The default is the default noise used in SPRING"
-        },
-    )
-    freeze_encoder: bool = field(
-        default=False,
-        metadata={
-            "help": "Whether to freeze the encoder and only train the decoder. The shared embeddings will not be frozen"
-        },
-    )
-    # For generation arguments, see: https://huggingface.co/blog/how-to-generate
-    do_sample: Optional[bool] = field(
-        default=False,
-        metadata={
-            "help": "Whether to use sampling during generation (evaluation/prediction). Only works if"
-            " predict_with_generate=True."
-        },
-    )
-    penalty_alpha: Optional[float] = field(
-        default=None,
-        metadata={
-            "help": "The values balance the model confidence and the degeneration penalty in contrastive search"
-            " decoding (evaluation/prediction). If a value is given together with 'topk', the generation will use"
-            " contrastive decoding. See https://huggingface.co/blog/introducing-csearch. For generating English,"
-            " the paper authors suggest penalty_alpha=0.6 and top_k=4. Only works if predict_with_generate=True."
-        },
-    )
-    top_k: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": "The number of highest probability vocabulary tokens to keep for top-k sampling if do_sample=True"
-            " (evaluation/prediction). If a value is given together with 'penalty_alpha', the generation will"
-            " use contrastive decoding. See 'penalty_alpha' for more. Only works if predict_with_generate=True."
-        },
-    )
-    top_p: Optional[float] = field(
-        default=None,
-        metadata={
-            "help": "The percentage of highest probability vocabulary tokens to keep for top-p sampling if"
-            " do_sample=True (evaluation/prediction). In other words: sample from the most probable vocabulary"
-            " items that, combined, account for p%. Only works if predict_with_generate=True."
-        },
-    )
 
 
 class AMRTrainer(Seq2SeqTrainer):

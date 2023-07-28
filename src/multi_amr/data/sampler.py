@@ -3,7 +3,7 @@ from collections import defaultdict
 from typing import Iterator
 
 import torch
-from mbart_amr.data.dataset import AMRDataset
+from multi_amr.data.dataset import AMRDataset
 from torch.utils.data import Sampler
 from torch.utils.data.distributed import DistributedSampler
 
