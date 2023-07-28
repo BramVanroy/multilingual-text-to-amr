@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union
 
 import numpy as np
 import torch
@@ -22,7 +22,7 @@ from multi_amr.data.tokens import (
     TOKENS_TO_ADD,
     UNKOWN, SUFFIXES,
 )
-from multi_amr.utils import input_ids_counts, is_number
+from multi_amr.utils import is_number
 from tqdm import tqdm
 from transformers import BatchEncoding, MBartTokenizer, T5Tokenizer
 
@@ -47,7 +47,7 @@ def clean_up_tokenization(out_string: str) -> str:
         .replace(" 've", "'ve")
         .replace(" 're", "'re")
         # AMR specific
-        .replace(" ~~of", "~~of")
+        .replace(f" {OF_SUFFIX}", OF_SUFFIX)
         .replace(" -91", "-91")
         .replace(" -quantity", "-quantity")
         .replace(" -entity", "-entity")
@@ -58,90 +58,18 @@ def clean_up_tokenization(out_string: str) -> str:
     out_string = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", out_string)
     # Merging e.g. :ARG1 2 into :ARG12. But only if the next token is a :startrel or :startlit and not
     # any other relation (starting with :)
-    out_string = re.sub(r":(ARG|op|snt)(\d+)?\s+(\d+) (?:(?!:)|(?=:startrel|:startlit))", r":\1\2\3 ", out_string)
+    out_string = re.sub(rf":(ARG|op|snt)\s*(\d+)?\s+(\d+)\s*({OF_SUFFIX})? (?:(?!:)|(?=:startrel|:startlit|:ref))", r":\1\2\3\4 ", out_string)
 
     # Adding space before/after :startlit/:endlit
-    out_string = re.sub(r":(startlit|endlit)", r" :\1 ", out_string)
+    out_string = re.sub(r"\s*:(startlit|endlit)\s*", r" :\1 ", out_string)
 
     # Merging e.g. :ref1 2 into :ref12
-    out_string = re.sub(r":(ref)(\d+)\s+(\d+)", r":\1\2\3", out_string)
-    # To account for phone numbers like 512-386-91 45 where -91 is incorrectly used as a special token
-    # I have not found a way to 1. use -91 as a generic token while also 2. have it work well in arbitrary
-    # cases like the phone number.
-    # out_string = re.sub(r"-91 (\d+)", r"-91\1", out_string)
+    out_string = re.sub(r":(ref)\s*(\d+)?\s+(\d+)", r":\1\2\3", out_string)
+
     # Clean-up whitespaces
     out_string = " ".join(out_string.split())
 
     return out_string
-
-
-def postprocess_text(linearized: str) -> str:
-    """It is possible that :refs are generated as a reference with a referent is present.
-    References occur after roles, e.g. :ARG1 :ref1, whereas canonical referents are
-    at the start of the sequence or after a :startrel. But a reference can only occur if
-    a canonical referent is also present. This method removes :refXX and their preceding role
-    if no corresponding canonical referent can be found.
-    """
-    tokens = tokenize_except_quotes(linearized)
-
-    if not len([t for t in tokens if t.strip()]):
-        return linearized
-
-    def has_canonincal_ref(t):
-        """Iterate over all the tokens and look for tokens that have the same name, e.g. ":ref1".
-        If such a ref exists that has a :startrel as the previous token or is at the start of the tree,
-        then that is the canonical reference token for the given token.
-        """
-        for idx in range(len(tokens) - 1):
-            token = tokens[idx]
-            if token == t:
-                if idx == 0:
-                    return True
-
-                prev_token = tokens[idx - 1] if idx > 0 else None
-
-                if prev_token and prev_token == ":startrel":
-                    return True
-
-        return False
-
-    fixed_tokens = []
-    # Iterate over all tokens. Especially consider refs
-    for idx in range(len(tokens)):
-        token = tokens[idx]
-        prev_token = tokens[idx - 1] if idx > 0 else None
-        next_token = tokens[idx + 1] if idx < len(tokens)-1 else None
-
-        # If this token is a ref...
-        if token.startswith(":ref") and prev_token is not None:
-            # and the prev token was a special token but not a startrel...
-            if prev_token.startswith(":") and prev_token != ":startrel":
-                # and no canonical reference is present...
-                if not has_canonincal_ref(token):
-                    # remove this ref and its preceding role
-                    fixed_tokens.pop()
-                    continue
-        elif token[0].isdigit() and not is_number(token):  # e.g. "2/3"
-            if prev_token != STARTLIT and next_token != ENDLIT:
-                fixed_tokens.extend([STARTLIT, token, ENDLIT])
-            elif prev_token != STARTLIT and next_token == ENDLIT:
-                fixed_tokens.extend([STARTLIT, token])
-            elif prev_token == STARTLIT and next_token != ENDLIT:
-                fixed_tokens.extend([token, ENDLIT])
-            else:
-                fixed_tokens.append(token)
-
-            continue
-
-        fixed_tokens.append(token)
-
-    fixed_tokens = " ".join(fixed_tokens)
-
-    # If non-special, space-separated tokens occur without LIT around them, join them together with a dash
-    # E.g., ":ARG6 EX1 3PB :ARG7 :ref4 :endrel" -> ":ARG6 :startlit EX1 3PB :endlit :ARG7 :ref4 :endrel"
-    fixed_tokens = re.sub(rf"(?<!{STARTLIT}) ((?:[^: ][^ ]* ){2,})(?!{ENDLIT})", rf" {STARTLIT} \1{ENDLIT} ", fixed_tokens)
-
-    return fixed_tokens
 
 
 class AMRMBartTokenizer(MBartTokenizer):
@@ -207,7 +135,6 @@ class AMRMBartTokenizer(MBartTokenizer):
         token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray],
         pbar: bool = False,
         skip_special_tokens: bool = True,
-        do_post_process: bool = True,
     ) -> List[str]:
         """Modified from the original HF Tokenizer. Note the run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.
@@ -237,11 +164,8 @@ class AMRMBartTokenizer(MBartTokenizer):
 
             if ids.numel() == 0:
                 continue
-            if do_post_process:
-                ids = self.postprocess_idxs(ids)
 
             tokens = self.convert_ids_to_tokens(ids.tolist())
-            print("Tokens", tokens)
             filtered_tokens = [token if token in self.added_tokens_encoder else fix_text(token) for token in tokens]
 
             # To avoid mixing byte-level and unicode for byte-level BPT
@@ -262,13 +186,8 @@ class AMRMBartTokenizer(MBartTokenizer):
 
             text = " ".join(sub_texts)
             text = clean_up_tokenization(text)
-            print("before post", text)
-            if do_post_process:
-                text = postprocess_text(text)
 
-            print("after post", text)
             linearized_amrs.append(text)
-        print()
 
         return linearized_amrs
 
@@ -302,138 +221,3 @@ class AMRMBartTokenizer(MBartTokenizer):
         # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
         # It is included in all_special_ids_tensor
         return input_ids[~torch.isin(input_ids, self.all_special_ids_tensor)]
-
-    def postprocess_idxs(self, input_ids: torch.LongTensor) -> torch.LongTensor:
-        last_item = input_ids[-1].item()
-
-        print("INPUTS1", input_ids)
-        role_ending, idx = self.ends_in_role(input_ids, return_primary_idx=True)
-        if role_ending:
-            input_ids = input_ids[:idx]
-
-        print("INPUTS2", input_ids)
-        # ending with an empty :prep- or multi-sentence element that _has_ to have something after it
-        if last_item in (self.prep_idx, self.multisent_idx):
-            input_ids = input_ids[:-1]
-
-        # Close open tags
-        uniq_counts = input_ids_counts(input_ids)
-        if uniq_counts[self.start_lit_idx] != uniq_counts[self.end_lit_idx]:
-            input_ids = torch.cat((input_ids, torch.LongTensor([self.end_lit_idx])))
-
-        rel_start_end_diff = uniq_counts[self.start_rel_idx] - uniq_counts[self.end_rel_idx]
-        if rel_start_end_diff:
-            input_ids = torch.cat((input_ids, torch.LongTensor([self.end_rel_idx] * rel_start_end_diff)))
-
-        return input_ids
-
-    def ends_in_role(
-        self,
-        input_ids: Union[List[int], torch.LongTensor],
-        exclude_categories: List[str] = None,
-        return_primary_idx: bool = False,
-    ) -> Union[bool, Tuple[bool, int]]:
-        if isinstance(input_ids, torch.Tensor):
-            input_ids = input_ids.tolist()
-
-        cats = {"args": ARGS, "ops": OPS, "sents": SENTS, "preps": "", "others": ""}
-
-        if not exclude_categories:
-            exclude_categories = []
-        else:
-            if any(cat not in cats for cat in exclude_categories):
-                raise ValueError(f"'exclude_categories' must be one of {list(cats.keys())}")
-
-        last_idx = len(input_ids) - 1
-
-        # If a regular role, return true (can end in ~~of)
-        if not "other" in exclude_categories:
-            other_idxs = self.convert_tokens_to_ids(OTHER_ROLES)
-            for idx in reversed(range(len(input_ids))):
-                if input_ids[idx] in other_idxs:
-                    return (True, idx) if return_primary_idx else True
-                elif idx == last_idx and self.convert_ids_to_tokens(input_ids[idx]) == OF_SUFFIX:
-                    continue
-                else:
-                    break
-
-        # If a prep, return true
-        if not "preps" in exclude_categories:
-            if return_primary_idx:
-                prep_ending, idx = self.ends_in_prep(input_ids, return_primary_idx=return_primary_idx)
-                if prep_ending:
-                    return prep_ending, idx
-            elif self.ends_in_prep(input_ids, return_primary_idx=return_primary_idx):
-                return True
-
-        # Check if it is a numberable role but do not include the excluded categories
-        numberable_roles = [role for cat, roles in cats.items() if not cat in exclude_categories for role in roles]
-        numberable_roles_idxs = self.convert_tokens_to_ids(numberable_roles)
-
-        for idx in reversed(range(len(input_ids))):  # Iterate in reverse to always get longer subsequences
-            token = self.decode(input_ids[idx], clean_up_tokenization_spaces=True)
-
-            if input_ids[idx] in numberable_roles_idxs:
-                return (True, idx) if return_primary_idx else True
-            elif (
-                idx == last_idx and token == OF_SUFFIX
-            ):  # The very last token can be ~~of
-                continue
-            elif (
-                idx == last_idx and token.isdigit()
-            ):  # The very last token can be a digit, e.g. :ARG1 10, (`10 minutes`)
-                continue
-            else:
-                # decoded can be an empty list for the first entry, because the first token is amr_XX
-                # which gets filtered out so it's just an empty list
-                decoded = self.decode_and_fix(input_ids[idx:], do_post_process=False)
-                if not decoded or is_number(decoded[0]):
-                    continue
-                else:
-                    return (False, None) if return_primary_idx else False
-
-        return (False, None) if return_primary_idx else False
-
-    def ends_in_ref(
-        self, input_ids: Union[List[int], torch.LongTensor], return_primary_idx: bool = False
-    ) -> Union[bool, Tuple[bool, int]]:
-        if isinstance(input_ids, torch.Tensor):
-            input_ids = input_ids.tolist()
-
-        ref_idxs = self.convert_tokens_to_ids(REFS)
-        for idx in reversed(range(len(input_ids))):  # Iterate in reverse to always get longer subsequences
-            # if we ultimately reach a :ref\d, then this must be valid because we only got here if the
-            # the later tokens were numbers
-            if input_ids[idx] in ref_idxs:
-                return (True, idx) if return_primary_idx else True
-            else:
-                # decoded can be an empty list for the first entry, because the first token is amr_XX
-                # which gets filtered out so it's just an empty list
-                decoded = self.decode_and_fix(input_ids[idx:], do_post_process=False)
-                if not decoded or is_number(decoded[0]):
-                    continue
-                else:
-                    return (False, None) if return_primary_idx else False
-
-        return (False, None) if return_primary_idx else False
-
-    def ends_in_prep(
-        self, input_ids: Union[List[int], torch.LongTensor], return_primary_idx: bool = False
-    ) -> Union[bool, Tuple[bool, int]]:
-        if isinstance(input_ids, torch.Tensor):
-            input_ids = input_ids.tolist()
-
-        prep_idx = self.convert_tokens_to_ids(PREP_PREFIX)
-
-        for idx in reversed(range(len(input_ids))):  # Iterate in reverse to always get longer subsequences
-            # If this token is :prep
-            if input_ids[idx] == prep_idx:
-                if len(input_ids[idx:]) == 1:  # incomplete :prep- (not followed by anything)
-                    return (False, None) if return_primary_idx else False
-                else:  # first token of subsequence is :prep- and there are other tokens
-                    # we end in a valid :prep- if there are no spaces in this string, e.g. :prep-against
-                    decoded = self.decode_and_fix(input_ids[idx:], do_post_process=False)[0]
-                    prep_ending = " " not in decoded and decoded.count(":") == 1
-                    return (prep_ending, idx) if return_primary_idx else prep_ending
-
-        return (False, None) if return_primary_idx else False

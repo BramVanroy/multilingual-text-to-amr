@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
+import torch
 from tqdm import tqdm
 import penman
 from ftfy import fix_text
@@ -17,7 +18,7 @@ def main(indir: str, start_from: Optional[int] = None):
 
     tree_idx = 0
     for remove_wiki in (True, False):
-        for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file", desc=f"Remove wiki? {remove_wiki}", disable=True):
+        for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file", desc=f"Remove wiki? {remove_wiki}"):
             with pfin.open(encoding="utf-8") as fhin:
                 for tree in penman.iterparse(fhin):
                     tree_idx += 1
@@ -34,8 +35,14 @@ def main(indir: str, start_from: Optional[int] = None):
 
                     original_tree = penman.parse(penman_str)
 
-                    encoded = tokenizer.encode_penmanstrs(penman_str, remove_wiki=remove_wiki)
-                    decoded = tokenizer.decode_and_fix(encoded.input_ids)[0]
+                    linearized = penmanstr2linearized(penman_str, remove_wiki=remove_wiki)
+                    encoded = tokenizer([linearized], padding=True, truncation=True, return_tensors="pt")
+                    input_ids = encoded["input_ids"]
+                    # Replace all the language IDs with the amr_token_id
+                    if tokenizer.lang_idxs is not None:
+                        input_ids[torch.isin(input_ids, tokenizer.lang_idxs)] = tokenizer.amr_token_idx
+
+                    decoded = tokenizer.decode_and_fix(input_ids)[0]
 
                     try:
                         delinearized_penman_str = linearized2penmanstr(decoded)
@@ -43,6 +50,7 @@ def main(indir: str, start_from: Optional[int] = None):
                     except penman.exceptions.DecodeError as exc:
                         print("META", tree.metadata)
                         print("ORIG TREE", original_tree)
+                        print("LINEARIZED", linearized)
                         print("DECODED", decoded)
                         print("FILE", str(pfin))
                         print("WIKI", remove_wiki)
