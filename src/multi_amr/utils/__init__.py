@@ -48,7 +48,7 @@ def debug_decode(input_ids: torch.LongTensor, tokenizer: MBartTokenizer, skip_sp
 
 
 def debug_build_ids_for_labels(linearized: str, tokenizer: MBartTokenizer):
-    return tokenizer(f"amr_XX {linearized}", add_special_tokens=False, return_tensors="pt").input_ids
+    return tokenizer(f"AMR {linearized}", add_special_tokens=False, return_tensors="pt").input_ids
 
 
 def input_ids_counts(inputs: torch.LongTensor) -> Dict[int, int]:

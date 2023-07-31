@@ -1,10 +1,10 @@
 import torch
 from multi_amr.constraints.base import AMRLogitsProcessorBase
-from multi_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.data.tokenization import AMRTokenizerWrapper
 
 
 class FirstTokenProcessor(AMRLogitsProcessorBase):
-    def __init__(self, tokenizer: AMRMBartTokenizer, max_length: int, debug: bool = False):
+    def __init__(self, tokenizer: AMRTokenizerWrapper, max_length: int, debug: bool = False):
         super().__init__(tokenizer, max_length, debug)
         # Allow :ref1, multi-sentence, amr-unknown, amr-choice
         self.allowed_tokens_in_first_position = torch.LongTensor(

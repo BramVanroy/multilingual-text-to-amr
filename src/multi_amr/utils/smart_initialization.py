@@ -1,62 +1,69 @@
 import torch
-from multi_amr.data.tokenization import AMRMBartTokenizer
-from transformers import MBartForConditionalGeneration
+from transformers import PreTrainedModel
+
+from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerName
+from multi_amr.data.tokens import OF_SUFFIX, PREP_PREFIX, NEGATION, STARTLIT, ENDLIT, STARTREL, ENDREL, UNKOWN, CHOICE, \
+    MULTI_SENTENCE, AMR_LANG_CODE
 
 
-def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBartTokenizer, noise_range: float = 0.1):
+def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrapper, noise_range: float = 0.1):
     """Initialize the new tokens based on their content, i.e. averaging the embeddings of its components
 
     :param model: the model whose added tokens to initialize
-    :param tokenizer: the tokenizer, which also contains the new tokens
+    :param tokenizer: the tokenizer wrapper containing the tokenizer, already augmented with new tokens
     :param noise_range: we add noise to the tokens that are similar to other tokens from a uniform distribution
     that spans [-noise_range, +noise_range]. The default is the default noise used in SPRING
     :return: the model with updated weights for the added tokens
     """
+    tokenizer = tok_wrapper.tokenizer
     # Vocab size if the size without the added tokens, so the first added token is at
     # index=vocab_size
     for token_id, token in enumerate(tokenizer.added_tokens_encoder, tokenizer.vocab_size):
         if token.startswith(":"):
-            if token == ":endrel":
+            if token == ENDREL:
                 components = ["relation", "end", tokenizer.eos_token]
-            elif token == ":startrel":
+            elif token == STARTREL:
                 components = ["relation", "start", tokenizer.eos_token]  # BOS is never used in MBART
-            elif token == ":endlit":
+            elif token == ENDLIT:
                 components = ["relation", "end", "literal", '"']
-            elif token == ":startlit":
+            elif token == STARTLIT:
                 components = ["relation", "start", "literal", '"']
-            elif token.startswith(":op"):
-                components = ["relation", "operator", str(token[3:])]
-            elif token.startswith(":snt"):
-                components = ["relation", "sentence", str(token[4:])]
-            elif token.startswith(":ARG"):
-                components = ["relation", "argument", str(token[4:])]
-            elif token.startswith(":ref"):
-                components = ["reference", str(token[4:])]
-            elif token.startswith(":sense"):
-                components = ["meaning", str(token[6:])]
-            elif token == ":negation":
+            elif token == ":op":
+                components = ["relation", "operator"]
+            elif token == ":snt":
+                components = ["relation", "sentence"]
+            elif token == ":ARG":
+                components = ["relation", "argument"]
+            elif token == ":ref":
+                components = ["reference", "like"]
+            elif token == NEGATION:
                 components = ["not", "no"]
             elif token == ":year2":  # make explicit, otherwise it ends up as ["year2"]
                 components = ["year"]
-            elif token == ":prep-":
+            elif token == PREP_PREFIX:
                 components = ["by", "in", "near", "on", "at", "with"]  # random prepositions
             elif token == ":conj-as-if":
                 components = ["as-if", "as if"]
             else:
                 components = ["relation"] + token.lstrip(":").split("-")
         else:
-            if token == "-91":
-                components = ["frame"]
-            elif token == "~~of":
+            if token == OF_SUFFIX:
                 components = ["relation", "of", "have"]
-            elif token == "amr-unknown":
+            elif token == UNKOWN:
                 components = ["?"]
-            elif token == "amr-choice":
+            elif token == CHOICE:
                 components = ["or"]
-            elif token == "multi-sentence":
-                components = ["relation", "multiple", "sentence"]
-            elif token == "amr_XX":  # AMR is most similar to English
-                components = ["en_XX"]
+            elif token == MULTI_SENTENCE:
+                components = ["relation", "paragraph", "sentence"]
+            elif token == AMR_LANG_CODE:  # AMR is most similar to English
+                if tok_wrapper.tokenizer_type == TokenizerName.MBART:
+                    components = ["en_XX"]
+                elif tok_wrapper.tokenizer_type == TokenizerName.NLLB:
+                    components = ["eng_Latn"]
+                elif tok_wrapper.tokenizer_type == TokenizerName.T5:
+                    components = ["English"]
+                else:
+                    raise NotImplemented(f"Tokenizer type {tok_wrapper.tokenizer_type} not implemented yet.")
             else:
                 components = token.split("-")
 
@@ -76,10 +83,10 @@ def smart_initialization(model: MBartForConditionalGeneration, tokenizer: AMRMBa
     return model
 
 
-def freeze_encoder(model: MBartForConditionalGeneration):
-    """Freeze the encoder of the MBART model
-    :param model: MBART model
-    :return: the MBART model with frozen encoder (but in fact the freezing happens in-place!)
+def freeze_encoder(model: PreTrainedModel):
+    """Freeze the encoder of a pretrained model
+    :param model: pretrained model
+    :return: the pretrained model with frozen encoder (but in fact the freezing happens in-place!)
     """
     for param in model.model.encoder.parameters():
         param.requires_grad = False

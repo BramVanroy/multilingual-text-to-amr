@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from enum import Enum, StrEnum, auto
 from typing import List, Tuple, Union
 
 import numpy as np
@@ -22,11 +23,17 @@ from multi_amr.data.tokens import (
     TOKENS_TO_ADD,
     UNKOWN, SUFFIXES,
 )
-from multi_amr.utils import is_number
 from tqdm import tqdm
-from transformers import BatchEncoding, MBartTokenizer, T5Tokenizer
+from transformers import BatchEncoding, MBartTokenizer, T5Tokenizer, PreTrainedTokenizerBase, AutoTokenizer, \
+    MBartTokenizerFast, T5TokenizerFast, NllbTokenizer, NllbTokenizerFast
 
 logger = logging.getLogger(__name__)
+
+
+class TokenizerName(StrEnum):
+    MBART = auto()
+    NLLB = auto()
+    T5 = auto()
 
 
 def clean_up_tokenization(out_string: str) -> str:
@@ -58,7 +65,7 @@ def clean_up_tokenization(out_string: str) -> str:
     out_string = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", out_string)
     # Merging e.g. :ARG1 2 into :ARG12. But only if the next token is a :startrel or :startlit and not
     # any other relation (starting with :)
-    out_string = re.sub(rf":(ARG|op|snt)\s*(\d+)?\s+(\d+)\s*({OF_SUFFIX})? (?:(?!:)|(?=:startrel|:startlit|:ref))", r":\1\2\3\4 ", out_string)
+    out_string = re.sub(rf":(ARG|op|snt)\s*(\d+)?\s*({OF_SUFFIX})?\s+(?:(?!:)|(?=:startrel|:startlit|:ref))", r":\1\2\3 ", out_string)
 
     # Adding space before/after :startlit/:endlit
     out_string = re.sub(r"\s*:(startlit|endlit)\s*", r" :\1 ", out_string)
@@ -72,63 +79,74 @@ def clean_up_tokenization(out_string: str) -> str:
     return out_string
 
 
-class AMRMBartTokenizer(MBartTokenizer):
-    @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        inst = super().from_pretrained(*args, **kwargs)
+class AMRTokenizerWrapper:
+    def __init__(self, tokenizer: PreTrainedTokenizerBase):
+        self.tokenizer = tokenizer
 
         # Only add tokens that are not in the vocabulary.py yet
         tokens_to_add = set(TOKENS_TO_ADD)
-        voc = set(inst.get_vocab().keys())
+        voc = set(self.tokenizer.get_vocab().keys())
         new_tokens = list(sorted(tokens_to_add - voc))
 
         if new_tokens:
-            inst.add_tokens(new_tokens)
+            self.tokenizer.add_tokens(new_tokens)
             logger.info(f"Added {len(new_tokens)} new tokens to tokenizer")
 
-        # Just adding amr_XX to voc and defining it here as the tgt_lang is not enough
+        # Just adding AMR to voc and defining it here as the tgt_lang is not enough
         # because we are always just calling the tokenizer (as if it were the source tokenizer)
-        # However, we cannot even use it as a target tokenizer with tgt_lang amr_XX, because
+        # However, we cannot even use it as a target tokenizer with tgt_lang AMR, because
         # the MBARTTokenizer only allows special language codes as tgt_lang for this purpose so
         # we cannot take that approach. Instead we will be replacing the special source language
-        # token in "encode_penmanstrs" with our own, amr_XX one
-        inst.amr_token = AMR_LANG_CODE
-        inst.tgt_lang = inst.amr_token  # AMR is always target in our case
-        inst.voc_size = len(inst)
+        # token in "encode_penmanstrs" with our own, AMR one
+        self.amr_token = AMR_LANG_CODE
+        self.tokenizer.voc_size = len(self.tokenizer)
+
+        self.added_vocab = self.tokenizer.get_added_vocab()
 
         # single idx with type: int
-        inst.amr_token_idx = inst.convert_tokens_to_ids(inst.amr_token)
-        inst.start_rel_idx = inst.convert_tokens_to_ids(STARTREL)
-        inst.end_rel_idx = inst.convert_tokens_to_ids(ENDREL)
-        inst.start_lit_idx = inst.convert_tokens_to_ids(STARTLIT)
-        inst.end_lit_idx = inst.convert_tokens_to_ids(ENDLIT)
-        inst.lang_idx = inst.convert_tokens_to_ids(AMR_LANG_CODE)
-        inst.multisent_idx = inst.convert_tokens_to_ids(MULTI_SENTENCE)
-        inst.of_idx = inst.convert_tokens_to_ids(OF_SUFFIX)
-        inst.prep_idx = inst.convert_tokens_to_ids(PREP_PREFIX)
-        inst.unknown_idx = inst.convert_tokens_to_ids(UNKOWN)
-        inst.choice_idx = inst.convert_tokens_to_ids(CHOICE)
+        self.amr_token_idx = self.tokenizer.convert_tokens_to_ids(self.amr_token)
+        self.start_rel_idx = self.tokenizer.convert_tokens_to_ids(STARTREL)
+        self.end_rel_idx = self.tokenizer.convert_tokens_to_ids(ENDREL)
+        self.start_lit_idx = self.tokenizer.convert_tokens_to_ids(STARTLIT)
+        self.end_lit_idx = self.tokenizer.convert_tokens_to_ids(ENDLIT)
+        self.lang_idx = self.tokenizer.convert_tokens_to_ids(AMR_LANG_CODE)
+        self.multisent_idx = self.tokenizer.convert_tokens_to_ids(MULTI_SENTENCE)
+        self.of_idx = self.tokenizer.convert_tokens_to_ids(OF_SUFFIX)
+        self.prep_idx = self.tokenizer.convert_tokens_to_ids(PREP_PREFIX)
+        self.unknown_idx = self.tokenizer.convert_tokens_to_ids(UNKOWN)
+        self.choice_idx = self.tokenizer.convert_tokens_to_ids(CHOICE)
 
         # multiple idxs with type: LongTensor
-        inst.rel_idxs = torch.LongTensor([inst.start_rel_idx, inst.end_rel_idx])
-        inst.otherroles_idxs = torch.LongTensor(inst.convert_tokens_to_ids(OTHER_ROLES))
-        inst.special_suff_idxs = torch.LongTensor(inst.convert_tokens_to_ids(SUFFIXES))
+        self.rel_idxs = torch.LongTensor([self.start_rel_idx, self.end_rel_idx])
+        self.otherroles_idxs = torch.LongTensor(self.tokenizer.convert_tokens_to_ids(OTHER_ROLES))
+        self.special_suff_idxs = torch.LongTensor(self.tokenizer.convert_tokens_to_ids(SUFFIXES))
 
-        inst.special_tokens_idxs = torch.LongTensor(inst.all_special_ids)
-        inst.added_tokens_idxs = torch.LongTensor(list(inst.added_tokens_encoder.values()))
-        inst.voc_idxs_for_mask = torch.arange(inst.voc_size)
+        self.special_tokens_idxs = torch.LongTensor(self.tokenizer.all_special_ids)
+        self.added_tokens_idxs = torch.LongTensor(list(self.added_vocab.values()))
+        self.voc_idxs_for_mask = torch.arange(self.tokenizer.voc_size)
 
-        if isinstance(inst, MBartTokenizer):
-            inst.lang_idxs = torch.LongTensor(list(inst.id_to_lang_code.keys()))
-        elif isinstance(inst, T5Tokenizer):
+        if isinstance(self.tokenizer, (MBartTokenizer, MBartTokenizerFast)):
+            self.tokenizer_type = TokenizerName.MBART
+            self.tokenizer.tgt_lang = self.amr_token  # AMR is always target in our case
+            self.lang_idxs = torch.LongTensor(list(self.tokenizer.lang_code_to_id.values()))
+        elif isinstance(self.tokenizer, (NllbTokenizer, NllbTokenizerFast)):
+            self.tokenizer_type = TokenizerName.NLLB
+            self.tokenizer.tgt_lang = self.amr_token  # AMR is always target in our case
+            self.lang_idxs = torch.LongTensor(list(self.tokenizer.lang_code_to_id.values()))
+        elif isinstance(self.tokenizer, (T5Tokenizer, T5TokenizerFast)):
             # T5 works with general prefixes that are part of the input, e.g. "Translate English to German: "
             # so there are no language codes
-            inst.lang_idxs = None
+            self.tokenizer_type = TokenizerName.T5
+            self.lang_idxs = None
         else:
-            raise ValueError(f"Tokenizer type '{type(inst)}' not supported.")
-        inst.all_special_ids_tensor = torch.LongTensor(inst.all_special_ids + [inst.amr_token_idx])
+            raise ValueError(f"Tokenizer type '{type(self.tokenizer)}' not supported.")
+        self.all_special_ids_tensor = torch.LongTensor(self.tokenizer.all_special_ids + [self.amr_token_idx])
 
-        return inst
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        return cls(
+            tokenizer=AutoTokenizer.from_pretrained(*args, **kwargs)
+        )
 
     def decode_and_fix(
         self,
@@ -136,13 +154,14 @@ class AMRMBartTokenizer(MBartTokenizer):
         pbar: bool = False,
         skip_special_tokens: bool = True,
     ) -> List[str]:
-        """Modified from the original HF Tokenizer. Note the run fix_text on the deocded tokens if they
+        """Modified from the original HF Tokenizers. Note the run fix_text on the deocded tokens if they
         are not a special token, to solve some potential character differences in input and output.
 
         Works on both sequences or batches and therefore always returns a list.
 
         :param token_ids: Tensor or list of token ids, potentially with a batch dimension
         :param pbar: Whether to show a progressbar during decoding
+        :param skip_special_tokens: Whether to skip special tokens, including the special AMR token
         :return: a list of decoded AMR linearizations
         """
         if isinstance(token_ids, torch.Tensor):
@@ -165,8 +184,8 @@ class AMRMBartTokenizer(MBartTokenizer):
             if ids.numel() == 0:
                 continue
 
-            tokens = self.convert_ids_to_tokens(ids.tolist())
-            filtered_tokens = [token if token in self.added_tokens_encoder else fix_text(token) for token in tokens]
+            tokens = self.tokenizer.convert_ids_to_tokens(ids.tolist())
+            filtered_tokens = [token if token in self.added_vocab else fix_text(token) for token in tokens]
 
             # To avoid mixing byte-level and unicode for byte-level BPT
             # we need to build string separately for added tokens and byte-level tokens
@@ -174,15 +193,15 @@ class AMRMBartTokenizer(MBartTokenizer):
             sub_texts = []
             current_sub_text = []
             for token in filtered_tokens:
-                if token in self.added_tokens_encoder:
+                if token in self.added_vocab:
                     if current_sub_text:
-                        sub_texts.append(self.convert_tokens_to_string(current_sub_text))
+                        sub_texts.append(self.tokenizer.convert_tokens_to_string(current_sub_text))
                         current_sub_text = []
                     sub_texts.append(token)
                 else:
                     current_sub_text.append(token)
             if current_sub_text:
-                sub_texts.append(self.convert_tokens_to_string(current_sub_text))
+                sub_texts.append(self.tokenizer.convert_tokens_to_string(current_sub_text))
 
             text = " ".join(sub_texts)
             text = clean_up_tokenization(text)
@@ -192,7 +211,7 @@ class AMRMBartTokenizer(MBartTokenizer):
         return linearized_amrs
 
     def encode_penmanstrs(
-        self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, **kwargs
+        self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, padding=True, truncation=True, **kwargs
     ) -> BatchEncoding:
         """Given one or more penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
         as well as other important items such as attention masks.
@@ -203,11 +222,11 @@ class AMRMBartTokenizer(MBartTokenizer):
             penman_strs = [penman_strs]
 
         prepared_strs = [penmanstr2linearized(penman_str, remove_wiki=remove_wiki) for penman_str in penman_strs]
-        encoded = self(prepared_strs, **kwargs, padding=True, truncation=True, return_tensors="pt")
+        encoded = self.tokenizer(prepared_strs, **kwargs, padding=padding, truncation=truncation, return_tensors="pt")
 
         # We need to replace the final language token. Currently this is hard to implement in the HF model because
         # they use special language tokens for the language that you cannot easily modify
-        # So we just do it as a post-processing step here: replacing the last token by the amr_XX ID
+        # So we just do it as a post-processing step here: replacing the last token by the AMR ID
         input_ids = encoded["input_ids"]
         # Replace all the language IDs with the amr_token_id
         if self.lang_idxs is not None:
@@ -216,8 +235,11 @@ class AMRMBartTokenizer(MBartTokenizer):
         return encoded
 
     def remove_special_tokens(self, input_ids: torch.LongTensor):
-        """NOTE: only removes special tokens and amr_XX, NOT the added tokens"""
+        """NOTE: only removes special tokens and AMR, NOT the added tokens"""
 
-        # Because amr_XX is not a real "special token", it does not get ignored so we have to remove it ourselves
+        # Because `AMR_lang` is not a real "special token", it does not get ignored so we have to remove it ourselves
         # It is included in all_special_ids_tensor
         return input_ids[~torch.isin(input_ids, self.all_special_ids_tensor)]
+
+    def __call__(self, *args, **kwargs):
+        return self.tokenizer(*args, **kwargs)

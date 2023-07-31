@@ -1,12 +1,12 @@
 import torch
 from multi_amr.constraints.base import AMRLogitsProcessorBase
-from multi_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.data.tokenization import AMRTokenizerWrapper
 
 from multi_amr.utils import input_ids_counts
 
 
 class OpenCloseTokenProcessor(AMRLogitsProcessorBase):
-    def __init__(self, tokenizer: AMRMBartTokenizer, max_length: int, debug: bool = False):
+    def __init__(self, tokenizer: AMRTokenizerWrapper, max_length: int, debug: bool = False):
         super().__init__(tokenizer, max_length, debug)
         self.allowed_in_lit_idxs = torch.LongTensor([self.tokenizer.end_lit_idx])
 

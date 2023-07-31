@@ -1,11 +1,11 @@
-from multi_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.data.tokenization import AMRTokenizerWrapper
 from transformers import LogitsProcessor
 
 from multi_amr.utils import debug_decode
 
 
 class AMRLogitsProcessorBase(LogitsProcessor):
-    def __init__(self, tokenizer: AMRMBartTokenizer, max_length: int, debug: bool = False):
+    def __init__(self, tokenizer: AMRTokenizerWrapper, max_length: int, debug: bool = False):
         self.tokenizer = tokenizer
         self.debug = debug
 

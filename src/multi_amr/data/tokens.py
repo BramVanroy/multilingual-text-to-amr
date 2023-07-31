@@ -14,7 +14,7 @@ ROLES = OTHER_ROLES + NUMABLE_PREFIXES
 
 SUFFIXES = ("-quantity", "-entity")
 
-AMR_LANG_CODE = "amr_XX"
+AMR_LANG_CODE = "AMR_lang"
 STARTREL = ":startrel"
 ENDREL = ":endrel"
 STARTLIT = ":startlit"

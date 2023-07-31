@@ -3,11 +3,11 @@ from transformers import LogitsProcessor
 
 from multi_amr.constraints.first_token import FirstTokenProcessor
 from multi_amr.constraints.open_close import OpenCloseTokenProcessor
-from multi_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.data.tokenization import AMRTokenizerWrapper
 
 
 class AMRLogitsProcessor(LogitsProcessor):
-    def __init__(self, tokenizer: AMRMBartTokenizer, max_length: int, debug: bool = False):
+    def __init__(self, tokenizer: AMRTokenizerWrapper, max_length: int, debug: bool = False):
         self.first_token_constraint = FirstTokenProcessor(tokenizer, max_length=max_length, debug=debug)
         self.open_close_constraint = OpenCloseTokenProcessor(tokenizer, max_length=max_length, debug=debug)
 

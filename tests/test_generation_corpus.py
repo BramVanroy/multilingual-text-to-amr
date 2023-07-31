@@ -5,14 +5,14 @@ from ftfy import fix_text
 
 from multi_amr.constraints.open_close import AMRLogitsProcessor
 from multi_amr.data.linearization import penmantree2linearized, do_remove_wiki
-from multi_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.data.tokenization import AMRTokenizerWrapper
 from multi_amr.utils import debug_build_ids_for_labels, can_be_generated
 
 
 def main(indir: str, max_length: int = 1024, debug: bool = False):
     pdin = Path(indir)
 
-    tokenizer = AMRMBartTokenizer.from_pretrained("facebook/mbart-large-cc25", src_lang="en_XX")
+    tokenizer = AMRTokenizerWrapper.from_pretrained("facebook/mbart-large-cc25", src_lang="en_XX")
     logitsprocessor = AMRLogitsProcessor(tokenizer, max_length, debug=debug)
 
     for remove_wiki in (True, False):

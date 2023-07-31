@@ -158,7 +158,7 @@ Here is an example
 ```python
 import penman
 from ftfy import fix_text
-from src.multi_amr.data.tokenization import AMRMBartTokenizer
+from src.multi_amr.data.tokenization import AMRTokenizerWrapper
 from src.multi_amr.data.linearization import linearized2penmanstr
 
 penman_str = "(d / dog :ARG0-of (b / bark-01))"  # A penman string representing the AMR graph
@@ -171,7 +171,7 @@ tree = penman.parse(penman_str)
 tree.reset_variables()
 penman_str = penman.format(tree)
 
-tokenizer = AMRMBartTokenizer.from_pretrained("facebook/mbart-large-cc25")
+tokenizer = AMRTokenizerWrapper.from_pretrained("facebook/mbart-large-cc25")
 encoded = tokenizer.encode_penmanstrs(penman_str, remove_wiki=True)
 decoded = tokenizer.decode_amr_and_fix(encoded.input_ids)
 decoded_penman = linearized2penmanstr(decoded)

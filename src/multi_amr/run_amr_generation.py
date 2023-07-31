@@ -16,7 +16,7 @@ import transformers
 from amr import AMR
 from multi_amr.data.dataset import AMRDataset, collate_amr
 from multi_amr.data.linearization import linearized2penmanstr
-from multi_amr.data.tokenization import AMRMBartTokenizer
+from multi_amr.data.tokenization import AMRTokenizerWrapper
 from multi_amr.parse_cli import parse_cli
 from multi_amr.trainer import AMRTrainer, ExpandedSeq2SeqTrainingArguments
 from multi_amr.utils.smart_initialization import freeze_encoder, smart_initialization
@@ -93,7 +93,7 @@ def main():
     if not model_args.tokenizer_name and model_args.model_name_or_path:
         model_args.tokenizer_name = model_args.model_name_or_path
 
-    tokenizer = AMRMBartTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs, src_lang="en_XX")
+    tokenizer = AMRTokenizerWrapper.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs, src_lang="en_XX")
 
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
