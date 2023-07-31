@@ -50,13 +50,3 @@ def main(*indirs: Union[str, PathLike], dout: Union[str, PathLike]):
     for split_name, sentences in ft_datasets.items():
         text = "\n".join(sentences) + "\n"
         pdout.joinpath(f"merged-{split_name}.txt").write_text(text, encoding="utf-8")
-
-
-if __name__ == "__main__":
-    main(
-        r"D:\corpora\amr_annotation_3.0\data\amrs\amrs_fixed\split",
-        r"D:\corpora\amr_annotation_3.0\data\amrs\amrs_nl\split",
-        r"D:\corpora\amr_annotation_3.0\data\amrs\amrs_es\split",
-        r"D:\corpora\amr_annotation_3.0\data\amrs\amrs_ga\split",
-        dout=r"D:\corpora\amr_annotation_3.0\data\text",
-    )

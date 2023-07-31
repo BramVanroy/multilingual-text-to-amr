@@ -52,7 +52,7 @@ repository = "https://github.com/BramVanroy/multilingual-text-to-amr.git"
 changelog = "https://github.com/BramVanroy/multilingual-text-to-amr/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
-dev = ["flake8", "black", "isort", "numpy", "mypy", "pytest"]
+dev = ["flake8", "black", "isort"]
 
 # TOOLS
 [tool.setuptools]

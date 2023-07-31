@@ -82,7 +82,7 @@ def get_src_lang_grouped_indices(
 
     # Do shuffle of full batches across languages
     if lang_batches:
-        lang_batches = torch.stack(lang_batches)
+        lang_batches: torch.Tensor = torch.stack(lang_batches)
         if shuffle:
             full_batch_indices = torch.randperm(lang_batches.size(0), generator=generator)
             lang_batches = lang_batches[full_batch_indices]
@@ -97,7 +97,7 @@ def get_src_lang_grouped_indices(
         )
 
     if keep_incomplete_batches and rest_batches:
-        rest_batches = torch.stack(rest_batches)
+        rest_batches: torch.Tensor = torch.stack(rest_batches)
         # Do shuffle of incomplete batches across languages
         if shuffle:
             incomplete_batch_indices = torch.randperm(rest_batches.size(0), generator=generator)
