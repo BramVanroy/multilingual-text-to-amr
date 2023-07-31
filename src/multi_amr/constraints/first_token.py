@@ -26,7 +26,7 @@ class FirstTokenProcessor(AMRLogitsProcessorBase):
             """The tree cannot start with any special added tokens nor any special tokens (like <s>, which is already
             the first starting token).
             The first token CAN be a :ref, though!
-            It can start with a special frame like "have-condition-91" but that is generated  generically with "have" 
+            It can start with a special frame like "have-condition-91" but that is generated  generically with "have"
             and does not depend on a special first token so that's fine.
             """
             if num_inputs == 1:

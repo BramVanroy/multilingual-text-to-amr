@@ -1,7 +1,6 @@
 from multi_amr.data.tokenization import AMRTokenizerWrapper
-from transformers import LogitsProcessor
-
 from multi_amr.utils import debug_decode
+from transformers import LogitsProcessor
 
 
 class AMRLogitsProcessorBase(LogitsProcessor):

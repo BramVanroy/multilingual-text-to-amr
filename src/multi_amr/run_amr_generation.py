@@ -1,5 +1,4 @@
-"""Finetuning MBart models on multilingual datasets for text-to-AMR"""
-import dataclasses
+"""Finetuning models on multilingual datasets for text-to-AMR"""
 import logging
 import math
 import os
@@ -11,16 +10,21 @@ from typing import List
 
 import evaluate as evaluate
 import numpy as np
+import penman
 import smatch
 import transformers
 from amr import AMR
+from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.dataset import AMRDataset, collate_amr
 from multi_amr.data.linearization import linearized2penmanstr
 from multi_amr.data.tokenization import AMRTokenizerWrapper
 from multi_amr.parse_cli import parse_cli
-from multi_amr.trainer import AMRTrainer, ExpandedSeq2SeqTrainingArguments
+from multi_amr.peft_callback import PeftSavingCallback
+from multi_amr.trainer import AMRTrainer
 from multi_amr.utils.smart_initialization import freeze_encoder, smart_initialization
-from transformers import EarlyStoppingCallback, HfArgumentParser, MBartForConditionalGeneration, set_seed
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft.utils import TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING
+from transformers import AutoModelForSeq2SeqLM, EarlyStoppingCallback, set_seed
 from transformers.trainer_utils import get_last_checkpoint
 
 
@@ -93,7 +97,7 @@ def main():
     if not model_args.tokenizer_name and model_args.model_name_or_path:
         model_args.tokenizer_name = model_args.model_name_or_path
 
-    tokenizer = AMRTokenizerWrapper.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs, src_lang="en_XX")
+    tok_wrapper = AMRTokenizerWrapper.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs, src_lang="en_XX")
 
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
@@ -103,8 +107,8 @@ def main():
     if not model_args.config_name and model_args.model_name_or_path:
         model_args.config_name = model_args.model_name_or_path
 
-    model = MBartForConditionalGeneration.from_pretrained(model_args.model_name_or_path, **config_kwargs)
-    model.resize_token_embeddings(len(tokenizer))
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+    model.resize_token_embeddings(len(tok_wrapper))
 
     if training_args.smart_initialization:
         if Path(model_args.model_name_or_path).exists() or (training_args.do_eval and not training_args.do_train):
@@ -113,10 +117,39 @@ def main():
                 " already trained. This may lead to worse-than-expected performance because you will be"
                 " effectively overwriting the token embeddings of the added tokens"
             )
-        model = smart_initialization(model, tokenizer, noise_range=training_args.noise_range)
+        model = smart_initialization(model, tok_wrapper, noise_range=training_args.noise_range)
 
     if training_args.freeze_encoder:
         model = freeze_encoder(model)
+
+    callbacks = []
+    if model_args.use_peft:
+        try:
+            target_modules = TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING[model.config.model_type]
+        except (KeyError, AttributeError):
+            if model_args.model_type is not None:
+                target_modules = TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING[model_args.model_type]
+            else:
+                raise KeyError(
+                    "Cannot automatically derive model type. Specify '--model_type' explicitly."
+                    " See https://github.com/huggingface/peft/blob/e06d94ddeb6c70913593740618df76908b918d66/src/peft/utils/other.py#L262"
+                )
+
+        peft_config = LoraConfig(
+            lora_alpha=model_args.lora_alpha,
+            lora_dropout=model_args.lora_dropout,
+            r=model_args.lora_r,
+            bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=target_modules,
+        )
+        logger.info(f"Targetting {target_modules} with LoRA.")
+
+        if getattr(model, "is_loaded_in_8bit", False) or getattr(model, "is_loaded_in_4bit", False):
+            model = prepare_model_for_kbit_training(model)
+
+        model = get_peft_model(model, peft_config)
+        callbacks.append(PeftSavingCallback)
 
     #######################
     # CUSTOM METRICS #
@@ -129,20 +162,14 @@ def main():
             "valid-amrs.txt"
         ).open("a", encoding="utf-8") as fh_valid:
             for sentid, (ref, pred) in enumerate(zip(references, predictions), 1):
-                try:
-                    ref_penman = linearized2penmanstr(ref)
-                    # smatch uses its own AMR parser behind-the-scenes instead of penman, so we use it
-                    # here to check if it's a valid tree. If note, this will return None
-                    if AMR.parse_AMR_line(ref_penman) is None:
-                        raise Exception
-                except Exception:
-                    n_invalid += 1
-                    if data_args.save_amrs:
-                        fh_invalid.write(f"REF_ERROR\t{datetime.now().time()}\t{ref}\n")
-                    continue
+                ref_penman = linearized2penmanstr(ref)
 
                 try:
+                    # First parse with `penman`, which is less sensitive than AMR.parse_AMR_line
+                    # and then back to valid penman string
                     pred_penman = linearized2penmanstr(pred)
+                    pred_parsed = penman.parse(pred_penman)
+                    pred_penman = penman.format(pred_parsed)
                     if AMR.parse_AMR_line(pred_penman) is None:
                         raise Exception
                 except Exception:
@@ -201,10 +228,10 @@ def main():
         preds, labels = eval_preds
 
         # BLEU
-        labels_for_bleu = np.where(labels != -100, labels, tokenizer.pad_token_id)
-        preds_for_bleu = np.where(preds != -100, preds, tokenizer.pad_token_id)
-        ref_linearizations = tokenizer.decode_and_fix(labels_for_bleu)
-        pred_linearizations = tokenizer.decode_and_fix(preds_for_bleu)
+        labels_for_bleu = np.where(labels != -100, labels, tok_wrapper.pad_token_id)
+        preds_for_bleu = np.where(preds != -100, preds, tok_wrapper.pad_token_id)
+        ref_linearizations = tok_wrapper.decode_and_fix(labels_for_bleu)
+        pred_linearizations = tok_wrapper.decode_and_fix(preds_for_bleu)
         sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
 
         smatch_score = calculate_smatch(ref_linearizations, pred_linearizations)
@@ -248,7 +275,6 @@ def main():
         )
 
     training_args.remove_unused_columns = False
-    callbacks = []
     # If you want to use early stopping, both arguments have to be specified. Throw error if just one is specified.
     if training_args.early_stopping_patience is not None and training_args.early_stopping_threshold is not None:
         callbacks.append(
@@ -271,10 +297,10 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=validation_dataset,
-        tokenizer=tokenizer,
+        tokenizer=tok_wrapper,
         data_collator=partial(
             collate_amr,
-            tokenizer=tokenizer,
+            tokenizer=tok_wrapper,
             input_max_seq_length=data_args.input_max_seq_length,
             output_max_seq_length=data_args.output_max_seq_length,
         ),
@@ -366,7 +392,7 @@ def main():
                 pf_predictions = Path(training_args.output_dir).joinpath(f"generated_predictions_{lang}.txt")
                 logger.info(f"Writing predictions for {lang} to file {pf_predictions.stem}*")
 
-                preds_linearized = tokenizer.decode_and_fix(predict_results.predictions, pbar=True)
+                preds_linearized = tok_wrapper.decode_and_fix(predict_results.predictions, pbar=True)
                 Path(training_args.output_dir).joinpath(f"generated_predictions_{lang}_raw.txt").write_text(
                     "\n".join(preds_linearized) + "\n", encoding="utf-8"
                 )
@@ -374,6 +400,8 @@ def main():
                     for pred_linearized in preds_linearized:
                         try:
                             pred_penman = linearized2penmanstr(pred_linearized)
+                            pred_parsed = penman.parse(pred_penman)
+                            pred_penman = penman.format(pred_parsed)
                             if AMR.parse_AMR_line(pred_penman) is None:
                                 raise Exception
                             fh_preds.write(f"{pred_penman}\n")

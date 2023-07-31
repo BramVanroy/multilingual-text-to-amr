@@ -1,10 +1,9 @@
 import re
 from collections import Counter
-from typing import Counter, List, Union
+from typing import List, Union
 
 import penman
-from multi_amr.data.tokens import (ENDLIT, ENDREL,
-                                   STARTLIT, STARTREL, OF_SUFFIX, ROLES, PREP_PREFIX)
+from multi_amr.data.tokens import ENDLIT, ENDREL, OF_SUFFIX, PREP_PREFIX, ROLES, STARTLIT, STARTREL
 from multi_amr.utils import is_number
 from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic
@@ -190,6 +189,7 @@ def penmantree2linearized(penman_tree: Tree) -> str:
         tokens = [f":ref{ref_idx}" if token == ref else token for token in tokens]
 
     return " ".join(tokens)
+
 
 def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
     """Turn a linearized string or a list of linearized tokens into a penman string representation.

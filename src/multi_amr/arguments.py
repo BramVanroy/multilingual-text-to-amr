@@ -14,6 +14,10 @@ class ModelArguments:
         default="facebook/mbart-large-cc25",
         metadata={"help": ("The model checkpoint for weights initialization.")},
     )
+    model_type: Optional[str] = field(
+        default=None,
+        metadata={"help": "Required when you want to use PEFT with a model whose type cannot be easily derived."},
+    )
     config_name: Optional[str] = field(
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
     )
@@ -100,17 +104,6 @@ class ModelArguments:
     lora_r: int = field(
         default=64,
         metadata={"help": ("LoRA attention dimension")},
-    )
-    lora_target_linear: bool = field(
-        default=False,
-        metadata={
-            "help": (
-                "The LoRA paper mentions that in addition to attention layers, Linear layers should also be targetted"
-                " to achieve the best results. This can lead to a big increase in trainable parameters, though, and"
-                " most of the time performance is also quite good if we only target attention layers. So enabling this"
-                " option may yield better performance but is bound to train (much) slower."
-            )
-        },
     )
     use_nested_quant: Optional[bool] = field(
         default=True,

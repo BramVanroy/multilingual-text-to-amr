@@ -1,12 +1,11 @@
-from dataclasses import dataclass, field
 from typing import Optional
 
 import torch
 from multi_amr.data.dataset import AMRDataset
 from multi_amr.data.sampler import DistributedSrcLangGroupedSampler, SrcLangGroupedSampler
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
-from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
+from transformers import Seq2SeqTrainer
 from transformers.trainer_pt_utils import DistributedSamplerWithLoop, ShardSampler
 from transformers.trainer_utils import has_length
 from transformers.training_args import ParallelMode

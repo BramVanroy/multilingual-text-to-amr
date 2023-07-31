@@ -1,7 +1,6 @@
 import torch
 from multi_amr.constraints.base import AMRLogitsProcessorBase
 from multi_amr.data.tokenization import AMRTokenizerWrapper
-
 from multi_amr.utils import input_ids_counts
 
 

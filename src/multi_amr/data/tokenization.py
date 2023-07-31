@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import logging
 import re
-from enum import Enum, StrEnum, auto
-from typing import List, Tuple, Union
+from enum import StrEnum, auto
+from typing import List, Union
 
 import numpy as np
 import torch
 from ftfy import fix_text
-from multi_amr.data.linearization import penmanstr2linearized, tokenize_except_quotes
+from multi_amr.data.linearization import penmanstr2linearized
 from multi_amr.data.tokens import (
     AMR_LANG_CODE,
     CHOICE,
@@ -20,12 +20,23 @@ from multi_amr.data.tokens import (
     PREP_PREFIX,
     STARTLIT,
     STARTREL,
+    SUFFIXES,
     TOKENS_TO_ADD,
-    UNKOWN, SUFFIXES,
+    UNKOWN,
 )
 from tqdm import tqdm
-from transformers import BatchEncoding, MBartTokenizer, T5Tokenizer, PreTrainedTokenizerBase, AutoTokenizer, \
-    MBartTokenizerFast, T5TokenizerFast, NllbTokenizer, NllbTokenizerFast
+from transformers import (
+    AutoTokenizer,
+    BatchEncoding,
+    MBartTokenizer,
+    MBartTokenizerFast,
+    NllbTokenizer,
+    NllbTokenizerFast,
+    PreTrainedTokenizerBase,
+    T5Tokenizer,
+    T5TokenizerFast,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +76,9 @@ def clean_up_tokenization(out_string: str) -> str:
     out_string = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", out_string)
     # Merging e.g. :ARG1 2 into :ARG12. But only if the next token is a :startrel or :startlit and not
     # any other relation (starting with :)
-    out_string = re.sub(rf":(ARG|op|snt)\s*(\d+)?\s*({OF_SUFFIX})?\s+(?:(?!:)|(?=:startrel|:startlit|:ref))", r":\1\2\3 ", out_string)
+    out_string = re.sub(
+        rf":(ARG|op|snt)\s*(\d+)?\s*({OF_SUFFIX})?\s+(?:(?!:)|(?=:startrel|:startlit|:ref))", r":\1\2\3 ", out_string
+    )
 
     # Adding space before/after :startlit/:endlit
     out_string = re.sub(r"\s*:(startlit|endlit)\s*", r" :\1 ", out_string)
@@ -144,9 +157,7 @@ class AMRTokenizerWrapper:
 
     @classmethod
     def from_pretrained(cls, *args, **kwargs):
-        return cls(
-            tokenizer=AutoTokenizer.from_pretrained(*args, **kwargs)
-        )
+        return cls(tokenizer=AutoTokenizer.from_pretrained(*args, **kwargs))
 
     def decode_and_fix(
         self,

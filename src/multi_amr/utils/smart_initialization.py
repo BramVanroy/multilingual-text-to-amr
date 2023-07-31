@@ -1,16 +1,26 @@
 import torch
-from transformers import PreTrainedModel
-
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerName
-from multi_amr.data.tokens import OF_SUFFIX, PREP_PREFIX, NEGATION, STARTLIT, ENDLIT, STARTREL, ENDREL, UNKOWN, CHOICE, \
-    MULTI_SENTENCE, AMR_LANG_CODE
+from multi_amr.data.tokens import (
+    AMR_LANG_CODE,
+    CHOICE,
+    ENDLIT,
+    ENDREL,
+    MULTI_SENTENCE,
+    NEGATION,
+    OF_SUFFIX,
+    PREP_PREFIX,
+    STARTLIT,
+    STARTREL,
+    UNKOWN,
+)
+from transformers import PreTrainedModel
 
 
 def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrapper, noise_range: float = 0.1):
     """Initialize the new tokens based on their content, i.e. averaging the embeddings of its components
 
     :param model: the model whose added tokens to initialize
-    :param tokenizer: the tokenizer wrapper containing the tokenizer, already augmented with new tokens
+    :param tok_wrapper: the tokenizer wrapper containing the tokenizer, already augmented with new tokens
     :param noise_range: we add noise to the tokens that are similar to other tokens from a uniform distribution
     that spans [-noise_range, +noise_range]. The default is the default noise used in SPRING
     :return: the model with updated weights for the added tokens
@@ -63,7 +73,7 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
                 elif tok_wrapper.tokenizer_type == TokenizerName.T5:
                     components = ["English"]
                 else:
-                    raise NotImplemented(f"Tokenizer type {tok_wrapper.tokenizer_type} not implemented yet.")
+                    raise NotImplementedError(f"Tokenizer type {tok_wrapper.tokenizer_type} not implemented yet.")
             else:
                 components = token.split("-")
 
