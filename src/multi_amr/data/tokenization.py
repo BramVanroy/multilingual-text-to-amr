@@ -41,7 +41,7 @@ from transformers import (
 logger = logging.getLogger(__name__)
 
 
-class TokenizerName(StrEnum):
+class TokenizerType(StrEnum):
     MBART = auto()
     NLLB = auto()
     T5 = auto()
@@ -103,11 +103,11 @@ class AMRTokenizerWrapper:
 
         if new_tokens:
             self.tokenizer.add_tokens(new_tokens)
-            logger.info(f"Added {len(new_tokens)} new tokens to tokenizer")
+            logger.info(f"Added {len(new_tokens)} new tokens to tok_wrapper")
 
         # Just adding AMR to voc and defining it here as the tgt_lang is not enough
-        # because we are always just calling the tokenizer (as if it were the source tokenizer)
-        # However, we cannot even use it as a target tokenizer with tgt_lang AMR, because
+        # because we are always just calling the tok_wrapper (as if it were the source tok_wrapper)
+        # However, we cannot even use it as a target tok_wrapper with tgt_lang AMR, because
         # the MBARTTokenizer only allows special language codes as tgt_lang for this purpose so
         # we cannot take that approach. Instead we will be replacing the special source language
         # token in "encode_penmanstrs" with our own, AMR one
@@ -139,17 +139,17 @@ class AMRTokenizerWrapper:
         self.voc_idxs_for_mask = torch.arange(self.tokenizer.voc_size)
 
         if isinstance(self.tokenizer, (MBartTokenizer, MBartTokenizerFast)):
-            self.tokenizer_type = TokenizerName.MBART
+            self.tokenizer_type = TokenizerType.MBART
             self.tokenizer.tgt_lang = self.amr_token  # AMR is always target in our case
             self.lang_idxs = torch.LongTensor(list(self.tokenizer.lang_code_to_id.values()))
         elif isinstance(self.tokenizer, (NllbTokenizer, NllbTokenizerFast)):
-            self.tokenizer_type = TokenizerName.NLLB
+            self.tokenizer_type = TokenizerType.NLLB
             self.tokenizer.tgt_lang = self.amr_token  # AMR is always target in our case
             self.lang_idxs = torch.LongTensor(list(self.tokenizer.lang_code_to_id.values()))
         elif isinstance(self.tokenizer, (T5Tokenizer, T5TokenizerFast)):
             # T5 works with general prefixes that are part of the input, e.g. "Translate English to German: "
             # so there are no language codes
-            self.tokenizer_type = TokenizerName.T5
+            self.tokenizer_type = TokenizerType.T5
             self.lang_idxs = None
         else:
             raise ValueError(f"Tokenizer type '{type(self.tokenizer)}' not supported.")
@@ -224,7 +224,7 @@ class AMRTokenizerWrapper:
     def encode_penmanstrs(
         self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, padding=True, truncation=True, **kwargs
     ) -> BatchEncoding:
-        """Given one or more penman AMR strings, linearize them and then encode them with the tokenizer to get input_ids
+        """Given one or more penman AMR strings, linearize them and then encode them with the tok_wrapper to get input_ids
         as well as other important items such as attention masks.
 
         Note: padding=True, truncation=True, and return_tensors="pt" will always be enabled!

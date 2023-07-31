@@ -8,10 +8,11 @@ import penman
 import torch
 from ftfy import fix_text
 from multi_amr.data.linearization import do_remove_wiki
-from multi_amr.data.tokenization import AMRTokenizerWrapper
+from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+from multi_amr.data.tokens import AMR_LANG_CODE
 
 KEEP_KEYS = {
     "input_ids",
@@ -31,14 +32,14 @@ KEEP_KEYS = {
 
 def collate_amr(
     samples: List[dict],
-    tokenizer: AMRTokenizerWrapper,
+    tok_wrapper: AMRTokenizerWrapper,
     input_max_seq_length: Optional[int] = None,
     output_max_seq_length: Optional[int] = None,
 ):
     """Collate a given batch from the dataset by 1. tokenizing a given sentence and getting its attention mask,
     token_ids, etc. for input; 2. linearizing and tokenizing the associated penman str as the labels.
 
-    :param tokenizer: modified AMR tokenizer to use
+    :param tok_wrapper: modified AMR tokenizer wrapper to use
     :param input_max_seq_length: optional max sequence length to truncate the input data to
     :param output_max_seq_length: optional max sequence length to truncate the output data (labels) to
     :param samples: a given batch
@@ -48,27 +49,31 @@ def collate_amr(
     src_lang = src_langs.most_common(1)[0][0]
     if len(src_langs.keys()) > 1:
         logging.warning(
-            "This given batch consists of multiple source language. Therefore, the tokenizer will"
+            "This given batch consists of multiple source language. Therefore, the tok_wrapper will"
             f" append a single language code ({src_lang}) that is not applicable to all samples, which may"
             f" lead to poor performance."
         )
 
-    # Set the source lang to the main language in this batch so that the correct token can be added
-    tokenizer.src_lang = src_lang
-    encoded_inputs = tokenizer(
-        [s["sentence"] for s in samples],
+    # Set the source lang to the main language in this batch so that the correct token can be added (not used by T5)
+    tok_wrapper.tokenizer.src_lang = src_lang
+    # T5 uses prefixes
+    task_prefix = f"translate {src_lang} to {AMR_LANG_CODE}: " if tok_wrapper.tokenizer_type == TokenizerType.T5 else ""
+
+    encoded_inputs = tok_wrapper(
+        [task_prefix + s["sentence"] for s in samples],
         padding=True,
         truncation=True,
         max_length=input_max_seq_length,
         return_tensors="pt",
     )
+    num_penman_samples = len([s["penmanstr"] for s in samples if s["penmanstr"]])
 
-    if len([s["penmanstr"] for s in samples if s["penmanstr"]]):
-        labels = tokenizer.encode_penmanstrs(
+    if num_penman_samples:
+        labels = tok_wrapper.encode_penmanstrs(
             [s["penmanstr"] for s in samples],
             max_length=output_max_seq_length,
         ).input_ids
-        labels = torch.where(labels == tokenizer.pad_token_id, -100, labels)
+        labels = torch.where(labels == tok_wrapper.tokenizer.pad_token_id, -100, labels)
 
         return {**encoded_inputs, "labels": labels}
     else:
@@ -105,7 +110,7 @@ class AMRDataset(Dataset):
                 raise FileNotFoundError(f"The given directory, {str(pdin)}, was not found.")
 
             n_samples = 0
-            for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file"):
+            for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file", desc=f"Processing data for {src_lang}"):
                 with pfin.open(encoding="utf-8") as fhin:
                     if is_predict:
                         for line in fhin:

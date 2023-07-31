@@ -62,8 +62,9 @@ def main():
 
     # Log on each process the small summary:
     logger.warning(
-        f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
-        + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
+        f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu},"
+        + f" distributed training: {training_args.parallel_mode.value == 'distributed'},"
+          f" 16-bits training: {training_args.fp16}"
     )
     # Set the verbosity to info of the Transformers logger (on main process only):
     logger.info(f"Training/evaluation parameters {training_args}")
@@ -87,7 +88,7 @@ def main():
     set_seed(training_args.seed)
 
     ############################
-    # Load tokenizer and model #
+    # Load tok_wrapper and model #
     ############################
     tokenizer_kwargs = {
         "cache_dir": model_args.cache_dir,
@@ -108,7 +109,7 @@ def main():
         model_args.config_name = model_args.model_name_or_path
 
     model = AutoModelForSeq2SeqLM.from_pretrained(model_args.model_name_or_path, **config_kwargs)
-    model.resize_token_embeddings(len(tok_wrapper))
+    model.resize_token_embeddings(len(tok_wrapper.tokenizer))
 
     if training_args.smart_initialization:
         if Path(model_args.model_name_or_path).exists() or (training_args.do_eval and not training_args.do_train):
@@ -175,7 +176,8 @@ def main():
                 except Exception:
                     n_invalid += 1
                     if data_args.save_amrs:
-                        fh_invalid.write(f"PRED_ERROR\t{datetime.now().time()}\t{pred}\n")
+                        fh_invalid.write(f"PRED_ERROR\nPRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}"
+                                         f"\nREF LINEAR: {ref}\n\n")
                     continue
 
                 try:
@@ -186,7 +188,8 @@ def main():
                     n_invalid += 1
                     # At this point, any error is probably caused by the prediction
                     if data_args.save_amrs:
-                        fh_invalid.write(f"SMATCH_ERROR\t{datetime.now().time()}\t{pred_penman}\n")
+                        fh_invalid.write(f"SMATCH_ERROR\nPRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}"
+                                         f"\nREF LINEAR: {ref}\n\n")
                     continue
 
                 total_match_num += best_match_num
@@ -196,7 +199,7 @@ def main():
                 smatch.match_triple_dict.clear()
                 # First the prediction, then the reference AMR
                 if data_args.save_amrs:
-                    fh_valid.write(f"{pred_penman}\n{ref_penman}\n\n")
+                    fh_valid.write(f"PRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}\nREF LINEAR: {ref}\n\n")
 
             if n_invalid > 0:
                 logger.warning(
@@ -228,8 +231,8 @@ def main():
         preds, labels = eval_preds
 
         # BLEU
-        labels_for_bleu = np.where(labels != -100, labels, tok_wrapper.pad_token_id)
-        preds_for_bleu = np.where(preds != -100, preds, tok_wrapper.pad_token_id)
+        labels_for_bleu = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
+        preds_for_bleu = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
         ref_linearizations = tok_wrapper.decode_and_fix(labels_for_bleu)
         pred_linearizations = tok_wrapper.decode_and_fix(preds_for_bleu)
         sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
@@ -297,10 +300,10 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=validation_dataset,
-        tokenizer=tok_wrapper,
+        tokenizer=tok_wrapper.tokenizer,
         data_collator=partial(
             collate_amr,
-            tokenizer=tok_wrapper,
+            tok_wrapper=tok_wrapper,
             input_max_seq_length=data_args.input_max_seq_length,
             output_max_seq_length=data_args.output_max_seq_length,
         ),
@@ -322,7 +325,7 @@ def main():
         elif last_checkpoint is not None:
             checkpoint = last_checkpoint
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
-        trainer.save_model()  # Saves the tokenizer too for easy upload
+        trainer.save_model()  # Saves the tok_wrapper too for easy upload
         metrics = train_result.metrics
 
         metrics["train_samples"] = len(train_dataset)
