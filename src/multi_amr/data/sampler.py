@@ -1,8 +1,9 @@
 import logging
 from collections import defaultdict
-from typing import Iterator
+from typing import Iterator, List, Union
 
 import torch
+from datasets import Dataset
 from multi_amr.data.dataset import AMRDataset
 from torch.utils.data import Sampler
 from torch.utils.data.distributed import DistributedSampler
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_src_lang_grouped_indices(
-    dataset: AMRDataset,
+    dataset: Union[AMRDataset, Dataset],
     batch_size: int,
     keep_incomplete_batches: bool = False,
     shuffle: bool = True,
@@ -35,7 +36,7 @@ def get_src_lang_grouped_indices(
     :return: indices of the dataset, ordered in such a way so that they are homogenous in their source language (with
     the potential exception of the last batch(es))
     """
-    src_langs = [d["metadata"]["src_lang"] for d in dataset]
+    src_langs = [sample["metadata"]["src_lang"] for sample in dataset]
     is_predict = len([d["penmanstr"] for d in dataset if d["penmanstr"]]) == 0
 
     if is_predict:
@@ -48,17 +49,18 @@ def get_src_lang_grouped_indices(
         shuffle = False
 
     # Per language, collect all the indices assosicated with that language
-    lang_idxs = defaultdict(list)
+    per_lang_idxs = defaultdict(list)
     for idx, src_lang in enumerate(src_langs):
-        lang_idxs[src_lang].append(idx)
+        per_lang_idxs[src_lang].append(idx)
+    per_lang_idxs = dict(per_lang_idxs)
 
-    lang_batches = []
-    rest_batches = []
+    lang_batches: List = []
+    rest_batches: List = []
     # Iterate over a language and all its associated indices so that we can
     # 1. shuffle the data (could have done it outside the loop as well for ALL at once, but here we are)
     # 2. split the indices into batches. We keep track of full batches and incomplete ones so that we can
     # put all the incomplete batches near the end or drop them in case keep_incomplete_batches = False
-    for lang, lang_idxs in lang_idxs.items():
+    for lang, lang_idxs in per_lang_idxs.items():
         lang_idxs = torch.LongTensor(lang_idxs)
 
         if shuffle:
@@ -70,7 +72,18 @@ def get_src_lang_grouped_indices(
         if group_by_length:
             # Using character lengths for sentences, because tokens might be split up into arbitrary number of tokens
             # N. characters seems a better approximation of relative lengths
-            lengthed = [(idx, len(dataset[idx]["sentence"]), len(dataset[idx]["penmanstr"])) for idx in lang_idxs]
+            # NOTE: AMRDataset is basic access with access on the row, but an Arrow Dataset requires indexing on the column
+            if isinstance(dataset, AMRDataset):
+                lengthed = [(idx, len(dataset[idx]["sentence"]), len(dataset[idx]["penmanstr"])) for idx in lang_idxs]
+            else:
+                lengthed = []
+
+                def find_lengths(sample, idx):
+                    lengthed.append((idx, len(sample["sentence"]), len(sample["penmanstr"])))
+                    return None
+
+                dataset.map(find_lengths, with_indices=True)
+
             # Sort by input and output lengths, and extract lang_idxs
             lang_idxs = torch.LongTensor([tup[0] for tup in sorted(lengthed, key=lambda tup: tup[1:], reverse=True)])
 
@@ -113,7 +126,7 @@ class SrcLangGroupedSampler(Sampler):
 
     def __init__(
         self,
-        dataset: AMRDataset,
+        dataset: Union[AMRDataset, Dataset],
         batch_size: int,
         keep_incomplete_batches: bool = False,
         shuffle: bool = True,

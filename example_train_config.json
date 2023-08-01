@@ -23,9 +23,9 @@
   "input_max_seq_length": 128,
   "output_max_seq_length": 180,
 
-  "max_train_samples_per_language": null,
-  "max_eval_samples_per_language": null,
-  "max_test_samples_per_language": null,
+  "max_train_samples": null,
+  "max_eval_samples": null,
+  "max_test_samples": null,
 
   "max_grad_norm": 2.5,
   "gradient_accumulation_steps": 4,

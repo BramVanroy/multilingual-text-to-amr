@@ -68,7 +68,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-"""
-python src/amr_bart/utils/amr_fix.py D:\corpora\amr_annotation_3.0\data\amrs D:\corpora\amr_annotation_3.0\data\amrs_fixed -v
-"""

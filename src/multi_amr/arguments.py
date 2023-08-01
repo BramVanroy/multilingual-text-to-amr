@@ -125,6 +125,14 @@ class DataTrainingArguments:
             " respect to the model that you are using."
         },
     )
+    preprocessed_dataset: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Paths to a dataset that has already been fully processed (not"
+            " collated yet). This should be a HF Dataset that has been saved"
+            " to disk and can be loaded with DatasetDict.load_from_disk"
+        },
+    )
     train_directories: Optional[List[str]] = field(
         default=None,
         metadata={
@@ -176,7 +184,7 @@ class DataTrainingArguments:
             )
         },
     )
-    max_train_samples_per_language: Optional[int] = field(
+    max_train_samples: Optional[int] = field(
         default=None,
         metadata={
             "help": (
@@ -185,7 +193,7 @@ class DataTrainingArguments:
             )
         },
     )
-    max_eval_samples_per_language: Optional[int] = field(
+    max_eval_samples: Optional[int] = field(
         default=None,
         metadata={
             "help": (
@@ -194,7 +202,7 @@ class DataTrainingArguments:
             )
         },
     )
-    max_test_samples_per_language: Optional[int] = field(
+    max_test_samples: Optional[int] = field(
         default=None,
         metadata={
             "help": (

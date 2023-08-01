@@ -3,7 +3,6 @@ import logging
 import math
 import os
 import sys
-from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import List
@@ -14,6 +13,7 @@ import penman
 import smatch
 import transformers
 from amr import AMR
+from datasets import DatasetDict
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.dataset import AMRDataset, collate_amr
 from multi_amr.data.linearization import linearized2penmanstr
@@ -263,24 +263,48 @@ def main():
     #######################
     train_dataset = None
     validation_dataset = None
-    if training_args.do_train:
-        train_dataset = AMRDataset(
-            data_args.train_directories,
-            src_langs=data_args.src_langs,
-            remove_wiki=data_args.remove_wiki,
-            max_samples_per_language=data_args.max_train_samples_per_language,
-        )
+    if data_args.preprocessed_dataset is not None:
+        raw_datasets = DatasetDict.load_from_disk(data_args.preprocessed_dataset)
+        logger.info(f"Using preprocessed datasets at {data_args.preprocessed_dataset}")
+        if training_args.do_train:
+            if "train" not in raw_datasets:
+                raise ValueError("--do_train requires a train dataset")
 
-    # Always validate during training
-    # So with --do_train we also use the validation set
-    # but with --do_eval we get a final performance of the best model on the validation set
-    if training_args.do_train or training_args.do_eval:
-        validation_dataset = AMRDataset(
-            data_args.validation_directories,
-            src_langs=data_args.src_langs,
-            remove_wiki=data_args.remove_wiki,
-            max_samples_per_language=data_args.max_eval_samples_per_language,
-        )
+            train_dataset = raw_datasets["train"]
+            if data_args.max_train_samples is not None:
+                max_train_samples = min(len(train_dataset), data_args.max_train_samples)
+                train_dataset = train_dataset.select(range(max_train_samples))
+
+        if training_args.do_eval or training_args.do_eval:
+            if "validation" not in raw_datasets:
+                raise ValueError("--do_eval and --do_train require a validation dataset")
+
+            validation_dataset = raw_datasets["validation"]
+            if data_args.max_eval_samples is not None:
+                max_eval_samples = min(len(validation_dataset), data_args.max_eval_samples)
+                validation_dataset = validation_dataset.select(range(max_eval_samples))
+    else:
+        if training_args.do_train:
+            train_dataset = AMRDataset(
+                data_args.train_directories,
+                src_langs=data_args.src_langs,
+                remove_wiki=data_args.remove_wiki,
+                max_samples_per_language=max(1, data_args.max_train_samples // len(data_args.src_langs)),
+            )
+
+        # Always validate during training
+        # So with --do_train we also use the validation set
+        # but with --do_eval we get a final performance of the best model on the validation set
+        if training_args.do_train or training_args.do_eval:
+            validation_dataset = AMRDataset(
+                data_args.validation_directories,
+                src_langs=data_args.src_langs,
+                remove_wiki=data_args.remove_wiki,
+                max_samples_per_language=max(1, data_args.max_eval_samples // len(data_args.src_langs)),
+            )
+    logger.info(f"Loaded datasets!")
+    logger.info(f"Train: {str(train_dataset)}")
+    logger.info(f"Validation: {str(validation_dataset)}")
 
     training_args.remove_unused_columns = False
     # If you want to use early stopping, both arguments have to be specified. Throw error if just one is specified.
@@ -360,7 +384,7 @@ def main():
             top_p=training_args.top_p,
         )
 
-        # Will take max_eval_samples_per_language into consideration
+        # Will take max_eval_samples into consideration
         # because we never add more samples to the dataset than needed
         metrics["eval_samples"] = len(validation_dataset)
         try:
@@ -374,6 +398,7 @@ def main():
 
     if training_args.do_predict:
         logger.info("*** Predict ***")
+        # TODO: implement this for --preprocessed_dataset
         # Loop over every language separately to avoid missing batches from the dataloader
         # and to keep track of the performance of each language separately
         for lang, directory in zip(data_args.src_langs, data_args.test_directories):
@@ -381,7 +406,7 @@ def main():
                 [directory],
                 src_langs=[lang],
                 remove_wiki=data_args.remove_wiki,
-                max_samples_per_language=data_args.max_test_samples_per_language,
+                max_samples_per_language=max(1, data_args.max_test_samples // len(data_args.src_langs)),
                 is_predict=True,
             )
             predict_results = trainer.predict(

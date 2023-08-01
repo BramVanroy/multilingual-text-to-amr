@@ -9,10 +9,10 @@ import torch
 from ftfy import fix_text
 from multi_amr.data.linearization import do_remove_wiki
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
+from multi_amr.data.tokens import AMR_LANG_CODE
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from multi_amr.data.tokens import AMR_LANG_CODE
 
 KEEP_KEYS = {
     "input_ids",

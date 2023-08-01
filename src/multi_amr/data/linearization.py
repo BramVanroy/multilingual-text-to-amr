@@ -3,7 +3,7 @@ from collections import Counter
 from typing import List, Union
 
 import penman
-from multi_amr.data.tokens import ENDLIT, ENDREL, OF_SUFFIX, PREP_PREFIX, STARTSWITH_ROLES, STARTLIT, STARTREL
+from multi_amr.data.tokens import ENDLIT, ENDREL, OF_SUFFIX, PREP_PREFIX, STARTLIT, STARTREL, STARTSWITH_ROLES
 from multi_amr.utils import is_number
 from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic
