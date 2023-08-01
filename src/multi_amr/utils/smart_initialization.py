@@ -89,9 +89,7 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
         components = [item for item in components if item]
 
         if noise_range:
-            components_vector = torch.FloatTensor(model.config.hidden_size).uniform_(
-                -noise_range, +noise_range
-            )
+            components_vector = torch.FloatTensor(model.config.hidden_size).uniform_(-noise_range, +noise_range)
         else:
             components_vector = torch.zeros(model.config.hidden_size)
         # Filter empty strings, possible after split

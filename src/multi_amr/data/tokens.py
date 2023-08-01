@@ -64,8 +64,53 @@ OTHER_ROLES = (
 
 
 NUMABLE_PREFIXES = (":ARG", ":snt", ":ref", ":op")
-ROLES = OTHER_ROLES + NUMABLE_PREFIXES
+STARTSWITH_ROLES = OTHER_ROLES + NUMABLE_PREFIXES
 
+ARGS = (
+    ":ARG0",
+    ":ARG1",
+    ":ARG2",
+    ":ARG3",
+    ":ARG4",
+    ":ARG5",
+    ":ARG6",
+    ":ARG7",
+    ":ARG8",
+    ":ARG9",
+)
+SNTS = (
+    ":snt1",
+    ":snt2",
+    ":snt3",
+    ":snt4",
+    ":snt5",
+    ":snt6",
+    ":snt7",
+    ":snt8",
+    ":snt9",
+)
+REFS = (
+    ":ref1",
+    ":ref2",
+    ":ref3",
+    ":ref4",
+    ":ref5",
+    ":ref6",
+    ":ref7",
+    ":ref8",
+    ":ref9",
+)
+OPS = (
+    ":op1",
+    ":op2",
+    ":op3",
+    ":op4",
+    ":op5",
+    ":op6",
+    ":op7",
+    ":op8",
+    ":op9",
+)
 SUFFIXES = ("-quantity", "-entity")
 
 AMR_LANG_CODE = "AMR_lang"
@@ -83,7 +128,10 @@ OF_SUFFIX = ":of-rel"
 
 TOKENS_TO_ADD = (
     OTHER_ROLES
-    + NUMABLE_PREFIXES
+    + ARGS
+    + SNTS
+    + REFS
+    + OPS
     + SUFFIXES
     + (
         AMR_LANG_CODE,

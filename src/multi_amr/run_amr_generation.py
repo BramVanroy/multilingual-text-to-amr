@@ -64,7 +64,7 @@ def main():
     logger.warning(
         f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu},"
         + f" distributed training: {training_args.parallel_mode.value == 'distributed'},"
-          f" 16-bits training: {training_args.fp16}"
+        f" 16-bits training: {training_args.fp16}"
     )
     # Set the verbosity to info of the Transformers logger (on main process only):
     logger.info(f"Training/evaluation parameters {training_args}")
@@ -176,8 +176,10 @@ def main():
                 except Exception:
                     n_invalid += 1
                     if data_args.save_amrs:
-                        fh_invalid.write(f"PRED_ERROR\nPRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}"
-                                         f"\nREF LINEAR: {ref}\n\n")
+                        fh_invalid.write(
+                            f"PRED_ERROR\nPRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}"
+                            f"\nREF LINEAR: {ref}\n\n"
+                        )
                     continue
 
                 try:
@@ -188,8 +190,10 @@ def main():
                     n_invalid += 1
                     # At this point, any error is probably caused by the prediction
                     if data_args.save_amrs:
-                        fh_invalid.write(f"SMATCH_ERROR\nPRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}"
-                                         f"\nREF LINEAR: {ref}\n\n")
+                        fh_invalid.write(
+                            f"SMATCH_ERROR\nPRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}"
+                            f"\nREF LINEAR: {ref}\n\n"
+                        )
                     continue
 
                 total_match_num += best_match_num
@@ -197,9 +201,10 @@ def main():
                 total_gold_num += gold_triple_num
                 # clear the matching triple dictionary for the next AMR pair
                 smatch.match_triple_dict.clear()
-                # First the prediction, then the reference AMR
                 if data_args.save_amrs:
-                    fh_valid.write(f"PRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}\nREF LINEAR: {ref}\n\n")
+                    fh_valid.write(
+                        f"PRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}\nREF LINEAR: {ref}\n\n"
+                    )
 
             if n_invalid > 0:
                 logger.warning(

@@ -57,7 +57,9 @@ def collate_amr(
     # Set the source lang to the main language in this batch so that the correct token can be added (not used by T5)
     tok_wrapper.tokenizer.src_lang = src_lang
     # T5 uses prefixes
-    task_prefix = f"translate {src_lang} to {AMR_LANG_CODE}: " if tok_wrapper.tokenizer_type == TokenizerType.T5 else ""
+    task_prefix = (
+        f"translate {src_lang} to {AMR_LANG_CODE}: " if tok_wrapper.tokenizer_type == TokenizerType.T5 else ""
+    )
 
     encoded_inputs = tok_wrapper(
         [task_prefix + s["sentence"] for s in samples],

@@ -3,7 +3,7 @@ from collections import Counter
 from typing import List, Union
 
 import penman
-from multi_amr.data.tokens import ENDLIT, ENDREL, OF_SUFFIX, PREP_PREFIX, ROLES, STARTLIT, STARTREL
+from multi_amr.data.tokens import ENDLIT, ENDREL, OF_SUFFIX, PREP_PREFIX, STARTSWITH_ROLES, STARTLIT, STARTREL
 from multi_amr.utils import is_number
 from penman import Tree
 from penman.tree import _default_variable_prefix, is_atomic
@@ -276,8 +276,10 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
             # Handle the special token :negation, which indicate s negative polarity
             elif token == ":negation":
                 penman_tokens.append(":polarity -")
-            # ROLES (that are not :refs)
-            elif (token.startswith(ROLES) and not token.startswith(":ref")) or token.startswith(PREP_PREFIX):
+            # STARTSWITH_ROLES (that are not :refs)
+            elif (token.startswith(STARTSWITH_ROLES) and not token.startswith(":ref")) or token.startswith(
+                PREP_PREFIX
+            ):
                 penman_tokens.append(f"\n{indent}{replace_of(token, reverse=True)}")
             # REFS
             elif token.startswith(":ref"):
