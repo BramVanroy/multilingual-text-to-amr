@@ -17,7 +17,7 @@ from datasets import DatasetDict
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.dataset import AMRDataset, collate_amr
 from multi_amr.data.linearization import linearized2penmanstr
-from multi_amr.data.tokenization import AMRTokenizerWrapper
+from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.parse_cli import parse_cli
 from multi_amr.peft_callback import PeftSavingCallback
 from multi_amr.trainer import AMRTrainer
@@ -99,6 +99,16 @@ def main():
         model_args.tokenizer_name = model_args.model_name_or_path
 
     tok_wrapper = AMRTokenizerWrapper.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs, src_lang="en_XX")
+
+    # Check if all src_langs are supported
+    if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB):
+        for src_lang in data_args.src_langs:
+            if src_lang not in tok_wrapper.tokenizer.lang_code_to_id:
+                raise KeyError(
+                    f"src_lang {src_lang} not supported by this tokenizer of type"
+                    f" {tok_wrapper.tokenizer_type}. Valid src_langs are"
+                    f" {', '.join(tok_wrapper.tokenizer.lang_code_to_id.keys())}"
+                )
 
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
