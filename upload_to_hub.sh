@@ -53,11 +53,15 @@ cd "$HF_REPO_NAME"
 LOCAL_REPO_DIR="$PWD"
 
 git lfs install
+# Tokenizer config files can be very large but are not tracked by LFS by default
+git lfs track tokenizer.json
 huggingface-cli lfs-enable-largefiles .
 
 cp "$RESULTS_DIR/"* .
 # May lead to "Security warnings" on the hub because it is a pickled file
 rm -f training_args.bin
+rm -f *amrs.txt
+rm -f *results.json
 
 # if trained with LoRA/adapters:
 if [ -f "adapter_model.bin" ]; then
