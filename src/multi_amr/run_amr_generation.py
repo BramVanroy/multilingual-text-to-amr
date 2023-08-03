@@ -24,7 +24,7 @@ from multi_amr.trainer import AMRTrainer
 from multi_amr.utils.smart_initialization import freeze_encoder, smart_initialization
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from peft.utils import TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING
-from transformers import AutoModelForSeq2SeqLM, EarlyStoppingCallback, set_seed
+from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, EarlyStoppingCallback, set_seed
 from transformers.trainer_utils import get_last_checkpoint
 
 
@@ -118,7 +118,11 @@ def main():
     if not model_args.config_name and model_args.model_name_or_path:
         model_args.config_name = model_args.model_name_or_path
 
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+    if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.T5):
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+
     model.resize_token_embeddings(len(tok_wrapper.tokenizer))
 
     if training_args.smart_initialization:
@@ -161,6 +165,7 @@ def main():
 
         model = get_peft_model(model, peft_config)
         callbacks.append(PeftSavingCallback)
+        logger.info("Peft with LoRA enabled!")
 
     #######################
     # CUSTOM METRICS #
@@ -246,10 +251,11 @@ def main():
         preds, labels = eval_preds
 
         # BLEU
+        # TODO: check whether this indeed removes the prefix correctly for CLM
         labels_for_bleu = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
         preds_for_bleu = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
-        ref_linearizations = tok_wrapper.decode_and_fix(labels_for_bleu)
-        pred_linearizations = tok_wrapper.decode_and_fix(preds_for_bleu)
+        ref_linearizations = tok_wrapper.decode_and_fix_amr(labels_for_bleu)
+        pred_linearizations = tok_wrapper.decode_and_fix_amr(preds_for_bleu)
         sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
 
         smatch_score = calculate_smatch(ref_linearizations, pred_linearizations)
@@ -435,7 +441,7 @@ def main():
                 pf_predictions = Path(training_args.output_dir).joinpath(f"generated_predictions_{lang}.txt")
                 logger.info(f"Writing predictions for {lang} to file {pf_predictions.stem}*")
 
-                preds_linearized = tok_wrapper.decode_and_fix(predict_results.predictions, pbar=True)
+                preds_linearized = tok_wrapper.decode_and_fix_amr(predict_results.predictions, pbar=True)
                 Path(training_args.output_dir).joinpath(f"generated_predictions_{lang}_raw.txt").write_text(
                     "\n".join(preds_linearized) + "\n", encoding="utf-8"
                 )

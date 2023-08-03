@@ -18,8 +18,16 @@ def main(indir: str, start_from: Optional[int] = None):
     # Replace en-dash by regular dash
     normalize_punct = lambda s: s.replace("–", "-")
     for use_fast in (True, False):
-        for tokenizer_name in ("facebook/mbart-large-cc25", "google/mt5-base", "facebook/nllb-200-3.3B"):
-            tokenizer = AMRTokenizerWrapper.from_pretrained(tokenizer_name, use_fast=use_fast)
+        for tokenizer_name in (
+                "bigscience/bloomz-560m",
+                "facebook/mbart-large-cc25",
+                "google/mt5-base",
+                "facebook/nllb-200-3.3B"
+        ):
+            if tokenizer_name == "bigscience/bloomz-560m" and not use_fast:
+                # BLOOM does not have a slow tokenizer
+                continue
+            tok_wrapper = AMRTokenizerWrapper.from_pretrained(tokenizer_name, use_fast=use_fast, legacy=True)
 
             for remove_wiki in (True, False):
                 for pfin in tqdm(list(pdin.rglob("*.txt")),
@@ -42,13 +50,13 @@ def main(indir: str, start_from: Optional[int] = None):
                             original_tree = penman.parse(penman_str)
 
                             linearized = penmanstr2linearized(penman_str, remove_wiki=remove_wiki)
-                            encoded = tokenizer([linearized], padding=False, truncation=False, return_tensors="pt")
+                            encoded = tok_wrapper([linearized], padding=False, truncation=False, return_tensors="pt")
                             input_ids = encoded["input_ids"]
                             # Replace all the language IDs with the amr_token_id
-                            if tokenizer.lang_idxs is not None:
-                                input_ids[torch.isin(input_ids, tokenizer.lang_idxs)] = tokenizer.amr_token_idx
+                            if tok_wrapper.lang_idxs is not None:
+                                input_ids[torch.isin(input_ids, tok_wrapper.lang_idxs)] = tok_wrapper.amr_token_idx
 
-                            decoded = tokenizer.decode_and_fix(input_ids)[0]
+                            decoded = tok_wrapper.decode_and_fix_amr(input_ids)[0]
 
                             try:
                                 delinearized_penman_str = linearized2penmanstr(decoded)
@@ -91,7 +99,7 @@ def main(indir: str, start_from: Optional[int] = None):
                                 print("PENMAN", penman_str)
                                 print("LINEARIZED", penmanstr2linearized(penman_str))
                                 print("ENCODED", encoded["input_ids"])
-                                print("DECODED", tokenizer.tokenizer.decode(encoded["input_ids"][0], skip_special_tokens=True))
+                                print("DECODED", tok_wrapper.tokenizer.decode(encoded["input_ids"][0], skip_special_tokens=True))
                                 print("DECODED_FIXED", decoded)
                                 print("ORIG TREE", original_tree)
                                 print("DELINEARIZED TREE", delinearized_tree)

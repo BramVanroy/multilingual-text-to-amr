@@ -14,22 +14,6 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 
-KEEP_KEYS = {
-    "input_ids",
-    "attention_mask",
-    "decoder_input_ids",
-    "decoder_attention_mask",
-    "head_mask",
-    "decoder_head_mask",
-    "cross_attn_head_mask",
-    "encoder_outputs",
-    "past_key_values",
-    "inputs_embeds",
-    "decoder_inputs_embeds",
-    "labels",
-}
-
-
 def collate_amr(
     samples: List[dict],
     tok_wrapper: AMRTokenizerWrapper,
@@ -58,29 +42,55 @@ def collate_amr(
     if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB):
         # Set the source lang to the main language in this batch so that the correct token can be added (not used by T5)
         tok_wrapper.tokenizer.src_lang = src_lang
-    elif tok_wrapper.tokenizer_type == TokenizerType.T5:
-        # T5 can use prefixes# T5 can use prefixes
+    elif tok_wrapper.tokenizer_type in (TokenizerType.T5, TokenizerType.BLOOM):
+        # T5 can use prefixes
         task_prefix = f"translate {src_lang} to {AMR_LANG_CODE}: "
 
-    encoded_inputs = tok_wrapper(
-        [task_prefix + s["sentence"] for s in samples],
-        padding=True,
-        truncation=True,
-        max_length=input_max_seq_length,
-        return_tensors="pt",
-    )
-    num_penman_samples = len([s["penmanstr"] for s in samples if s["penmanstr"]])
+    has_labels = bool(len([s["penmanstr"] for s in samples if s["penmanstr"]]))
+    if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.T5):
+        # ENCODER-DECODERS
+        batch = tok_wrapper(
+            [task_prefix + s["sentence"] for s in samples],
+            padding=True,
+            truncation=True,
+            max_length=input_max_seq_length,
+            return_tensors="pt",
+        )
 
-    if num_penman_samples:
-        labels = tok_wrapper.encode_penmanstrs(
-            [s["penmanstr"] for s in samples],
-            max_length=output_max_seq_length,
-        ).input_ids
-        labels = torch.where(labels == tok_wrapper.tokenizer.pad_token_id, -100, labels)
-
-        return {**encoded_inputs, "labels": labels}
+        if has_labels:
+            batch["labels"] = tok_wrapper.encode_penmanstrs(
+                [s["penmanstr"] for s in samples],
+                max_length=output_max_seq_length,
+            ).input_ids
+            batch["labels"] = torch.where(batch["labels"] == tok_wrapper.tokenizer.pad_token_id, -100, batch["labels"])
     else:
-        return {**encoded_inputs}
+        batch = tok_wrapper(
+            [
+                task_prefix
+                + s["sentence"]
+                + "\n"
+                + tok_wrapper.tokenizer.eos_token
+                + (s["penmanstr"] if has_labels else "")  # Only add "labels" in train/eval mode, not in predict
+                for s in samples
+            ],
+            padding=True,
+            truncation=True,
+            max_length=input_max_seq_length,
+            return_tensors="pt",
+        )
+
+        if has_labels:
+            # Labels are a copy of the input_ids (causal LM). They are shifted within the forward pass so we do not
+            # have to do that here. We do set the prompt (prefix + sentence + "\n" + EOS) to -100 to ignore it in loss.
+            batch["labels"] = batch["input_ids"].clone()
+            labels = batch["labels"]
+            eos_token_id = tok_wrapper.tokenizer.eos_token_id
+            for sample_idx in range(labels.size(0)):
+                # We find the first index where EOS occurs. Everything before it (and itself) is ignored
+                end_of_prompt = (labels[sample_idx] == eos_token_id).nonzero(as_tuple=True)[0][0]
+                labels[sample_idx].index_fill_(0, torch.arange(start=0, end=end_of_prompt + 1), -100)
+
+    return batch
 
 
 class AMRDataset(Dataset):

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import re
 from enum import StrEnum, auto
@@ -18,6 +16,7 @@ from multi_amr.data.tokens import (
     OF_SUFFIX,
     OTHER_ROLES,
     PREP_PREFIX,
+    REFS,
     STARTLIT,
     STARTREL,
     SUFFIXES,
@@ -28,6 +27,7 @@ from tqdm import tqdm
 from transformers import (
     AutoTokenizer,
     BatchEncoding,
+    BloomTokenizerFast,
     MBartTokenizer,
     MBartTokenizerFast,
     NllbTokenizer,
@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 class TokenizerType(StrEnum):
+    BLOOM = auto()
     MBART = auto()
     NLLB = auto()
     T5 = auto()
@@ -136,6 +137,7 @@ class AMRTokenizerWrapper:
 
         # multiple idxs with type: LongTensor
         self.rel_idxs = torch.LongTensor([self.start_rel_idx, self.end_rel_idx])
+        self.ref_idxs = torch.LongTensor(self.tokenizer.convert_tokens_to_ids(REFS))
         self.otherroles_idxs = torch.LongTensor(self.tokenizer.convert_tokens_to_ids(OTHER_ROLES))
         self.special_suff_idxs = torch.LongTensor(self.tokenizer.convert_tokens_to_ids(SUFFIXES))
 
@@ -156,15 +158,27 @@ class AMRTokenizerWrapper:
             # so there are no language codes
             self.tokenizer_type = TokenizerType.T5
             self.lang_idxs = None
+        elif isinstance(self.tokenizer, BloomTokenizerFast):
+            # BLOOM was not trained with prefixes. BLOOMZ was (also uses Bloomtokenizer) so there are no language codes
+            # We will always use prefixes. There is no `slow` version
+            self.tokenizer_type = TokenizerType.BLOOM
+            self.lang_idxs = None
         else:
             raise ValueError(f"Tokenizer type '{type(self.tokenizer)}' not supported.")
         self.all_special_ids_tensor = torch.LongTensor(self.tokenizer.all_special_ids + [self.amr_token_idx])
 
     @classmethod
-    def from_pretrained(cls, *args, **kwargs):
-        return cls(tokenizer=AutoTokenizer.from_pretrained(*args, **kwargs))
+    def from_pretrained(cls, *args, legacy: bool = True, **kwargs):
+        """The legacy option is important because a recent fix was submitted to fix T5 tokenization but this seems to
+         have the opposite effect here, leading to `unks`. So we keep the legacy behavior for now.
+         TODO: monitor the status of this PR (https://github.com/huggingface/transformers/pull/25224)
+             and pin version of transformers in pyproject if this PR is merged in new release (likely 4.31.1 or 4.32.0)
 
-    def decode_and_fix(
+        See https://github.com/huggingface/transformers/pull/24565
+        """
+        return cls(tokenizer=AutoTokenizer.from_pretrained(*args, legacy=legacy, **kwargs))
+
+    def decode_and_fix_amr(
         self,
         token_ids: Union[List[List[int]], List[int], torch.Tensor, np.ndarray],
         pbar: bool = False,
@@ -201,14 +215,13 @@ class AMRTokenizerWrapper:
                 continue
 
             tokens = self.tokenizer.convert_ids_to_tokens(ids.tolist())
-            filtered_tokens = [token if token in self.added_vocab else fix_text(token) for token in tokens]
 
             # To avoid mixing byte-level and unicode for byte-level BPT
             # we need to build string separately for added tokens and byte-level tokens
             # cf. https://github.com/huggingface/transformers/issues/1133
             sub_texts = []
             current_sub_text = []
-            for token in filtered_tokens:
+            for token in tokens:
                 if token in self.added_vocab:
                     if current_sub_text:
                         sub_texts.append(self.tokenizer.convert_tokens_to_string(current_sub_text))
@@ -219,7 +232,7 @@ class AMRTokenizerWrapper:
             if current_sub_text:
                 sub_texts.append(self.tokenizer.convert_tokens_to_string(current_sub_text))
 
-            text = " ".join(sub_texts)
+            text = fix_text(" ".join(sub_texts))
             text = clean_up_tokenization(text)
 
             linearized_amrs.append(text)
@@ -229,8 +242,8 @@ class AMRTokenizerWrapper:
     def encode_penmanstrs(
         self, penman_strs: Union[str, List[str]], remove_wiki: bool = True, padding=True, truncation=True, **kwargs
     ) -> BatchEncoding:
-        """Given one or more penman AMR strings, linearize them and then encode them with the tok_wrapper to get input_ids
-        as well as other important items such as attention masks.
+        """Given one or more penman AMR strings, linearize them and then encode them with the tok_wrapper to get
+        input_ids as well as other important items such as attention masks.
 
         Note: padding=True, truncation=True, and return_tensors="pt" will always be enabled!
         """
