@@ -32,7 +32,9 @@ if __name__ == "__main__":
     for arch in config.architectures:
         # Dynamically load the instantiation class and init model
         arch_cls = getattr(importlib.import_module("transformers"), arch)
-        model = arch_cls.from_pretrained(script_args.model_name_or_path, device_map="cpu")
+
+        # We want to convert PyTorch .bin to .safetensors, so load the non-safetensors variant
+        model = arch_cls.from_pretrained(script_args.model_name_or_path, device_map="cpu", use_safetensors=False)
         model.resize_token_embeddings(len(tokenizer))
 
         # Make sure that the model can generate, if that is required

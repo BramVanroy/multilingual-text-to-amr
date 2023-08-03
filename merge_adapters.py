@@ -35,7 +35,9 @@ if __name__ == "__main__":
     for arch in config.architectures:
         # Dynamically load the instantiation class and init model
         arch_cls = getattr(importlib.import_module("transformers"), arch)
-        model = arch_cls.from_pretrained(script_args.model_name_or_path, device_map="cpu", trust_remote_code=True)
+        # Using safetensors gave some unexpected warnings about uninitialized embedding layers
+        # so we just load the regular PyTorch *.bin checkpoints and save as safetensors later
+        model = arch_cls.from_pretrained(script_args.model_name_or_path, device_map="cpu", trust_remote_code=True, use_safetensors=False)
         # Make sure that the model can generate, if that is required
         if not script_args.no_require_generate and not model.can_generate():
             print(f"Model arch {arch} does not implement generate(), which we require. Skipping...")
