@@ -250,8 +250,12 @@ def main():
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
 
+        # CLM models need to reshift their labels
+        if tok_wrapper.tokenizer in (TokenizerType.BLOOM,):
+            labels = labels[:, 1:].reshape(-1)
+            preds = preds[:, :-1].reshape(-1)
+
         # BLEU
-        # TODO: check whether this indeed removes the prefix correctly for CLM
         labels_for_bleu = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
         preds_for_bleu = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
         ref_linearizations = tok_wrapper.decode_and_fix_amr(labels_for_bleu)
