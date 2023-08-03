@@ -79,13 +79,11 @@ def clean_up_tokenization(out_string: str) -> str:
     out_string = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", out_string)
     # Merging e.g. :ARG1 2 into :ARG12. But only if the next token is a :startrel or :startlit and not
     # any other relation (starting with :)
-    # print("BEFORE REPL", out_string)
     out_string = re.sub(
         rf":(ARG|op|snt)(\d+)\s+(\d+)\s*({OF_SUFFIX})?\s+(?:(?!:)|(?=:startrel|:startlit|:ref))",
         r":\1\2\3\4 ",
         out_string,
     )
-    # print("AFTER REPL", out_string)
     # Adding space before/after :startlit/:endlit
     out_string = re.sub(r"\s*:(startlit|endlit)\s*", r" :\1 ", out_string)
 
