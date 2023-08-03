@@ -55,7 +55,7 @@ LOCAL_REPO_DIR="$PWD"
 git lfs install
 huggingface-cli lfs-enable-largefiles .
 
-cp "$RESULTS_DIR/*" .
+cp "$RESULTS_DIR/"* .
 
 # if trained with LoRA/adapters:
 if [ -f "adapter_model.bin" ]; then
