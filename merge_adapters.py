@@ -1,6 +1,7 @@
 """Modified from https://github.com/lvwerra/trl/blob/main/examples/stack_llama/scripts/merge_peft_adapter.py"""
 import importlib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 from peft import PeftConfig, PeftModel
@@ -57,4 +58,4 @@ if __name__ == "__main__":
         print("Did not find any architecture that was compatible with .generate() and therefore could not correctly"
                " save the model. Is something wrong with your config?")
     else:
-        print(f"Merged and saved to {script_args.output_name}!")
+        print(f"Merged and saved to {str(Path(script_args.output_name).resolve())}!")

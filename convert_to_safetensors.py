@@ -1,5 +1,6 @@
 import importlib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 from transformers import HfArgumentParser, AutoConfig
@@ -47,4 +48,4 @@ if __name__ == "__main__":
         print("Did not find any architecture that was compatible with .generate() and therefore could not correctly"
               " save the model. Is something wrong with your config?")
     else:
-        print(f"Safetensors saved to {script_args.output_name}!")
+        print(f"Safetensors saved to {str(Path(script_args.output_name).resolve())}!")
