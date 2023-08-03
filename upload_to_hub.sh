@@ -25,14 +25,20 @@ while getopts "b:d:r:" opt; do
   esac
 done
 
-if [ -z "${RESULTS_DIR}" ] || [ -z "${HF_REPO_NAME}" ]; then
+if [ -z "$RESULTS_DIR" ] || [ -z "$HF_REPO_NAME" ]; then
     echo "The following options are required: -d RESULTS_DIR, -r HF_REPO_NAME!"
     usage
 fi
 
+INITDIR="$PWD"
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-cd "$SCRIPT_DIR"
+# Turn relative URL into absolute one
+if [[ $RESULTS_DIR != /* ]]; then
+    RESULTS_DIR="${INITDIR}/$RESULTS_DIR"
+fi
+
+cd "$SCRIPT_DIR" || { echo "Error: Unable to change directory to $SCRIPT_DIR. Does it exist?"; exit 1; }
 
 source .venv/bin/activate
 # Create dir where we store all hub models
@@ -53,7 +59,7 @@ cp "$RESULTS_DIR/*" .
 
 # if trained with LoRA/adapters:
 if [ -f "adapter_model.bin" ]; then
-    if [ -z "${BASE_MODEL}" ]; then
+    if [ -z "$BASE_MODEL" ]; then
         echo "When your results contain adapters, you must specify the BASE_MODEL (-b)!"
         usage
     fi
@@ -82,3 +88,4 @@ else
 fi
 
 git push
+cd "$INITDIR"
