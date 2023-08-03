@@ -252,8 +252,8 @@ def main():
 
         # CLM models need to reshift their labels
         if tok_wrapper.tokenizer in (TokenizerType.BLOOM,):
-            labels = labels[:, 1:].reshape(-1)
-            preds = preds[:, :-1].reshape(-1)
+            labels = labels[:, 1:]
+            preds = preds[:, :-1]
 
         # BLEU
         labels_for_bleu = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
