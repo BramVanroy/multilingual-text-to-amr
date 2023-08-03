@@ -260,20 +260,20 @@ def main():
         preds_for_bleu = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
         ref_linearizations = tok_wrapper.decode_and_fix_amr(labels_for_bleu)
         pred_linearizations = tok_wrapper.decode_and_fix_amr(preds_for_bleu)
-        sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
 
+        sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
         smatch_score = calculate_smatch(ref_linearizations, pred_linearizations)
 
         # We can only calculate accuracy when we have the same number of predicted tokens and reference tokens
-        # which is the case when predict_with_generate is false
+        # which is only the case when predict_with_generate is false
         if not training_args.predict_with_generate:
             # Accuracy: flatten and calculate accuracy on flattened arrays
-            labels = labels.reshape(-1)
-            preds = preds.reshape(-1)
-            mask = labels != -100
-            labels = labels[mask]
-            preds = preds[mask]
-            acc = acc_metric.compute(predictions=preds, references=labels)
+            labels_for_acc = labels.reshape(-1)
+            preds_for_acc = preds.reshape(-1)
+            mask = labels_for_acc != -100
+            labels_for_acc = labels_for_acc[mask]
+            preds_for_acc = preds_for_acc[mask]
+            acc = acc_metric.compute(predictions=preds_for_acc, references=labels_for_acc)
             return {**acc, **sb, **smatch_score}
 
         return {**sb, **smatch_score}

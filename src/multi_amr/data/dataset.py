@@ -8,11 +8,12 @@ from typing import List, Optional, Union
 import penman
 import torch
 from ftfy import fix_text
-from multi_amr.data.linearization import do_remove_wiki
+from multi_amr.data.linearization import do_remove_wiki, penmanstr2linearized
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.data.tokens import AMR_LANG_CODE
 from torch.utils.data import Dataset
 from tqdm import tqdm
+
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -59,9 +60,13 @@ def collate_amr(
     has_labels = bool(len([s["penmanstr"] for s in samples if s["penmanstr"]]))
     if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.T5):
         if input_max_seq_length is not None and input_max_seq_length > model_max_length:
-            raise ValueError(f"'input_max_seq_length' ({input_max_seq_length}) cannot be larger than max model size ({model_max_length})")
+            raise ValueError(
+                f"'input_max_seq_length' ({input_max_seq_length}) cannot be larger than max model size ({model_max_length})"
+            )
         if output_max_seq_length is not None and output_max_seq_length > model_max_length:
-            raise ValueError(f"'output_max_seq_length' ({output_max_seq_length}) cannot be larger than max model size ({model_max_length})")
+            raise ValueError(
+                f"'output_max_seq_length' ({output_max_seq_length}) cannot be larger than max model size ({model_max_length})"
+            )
 
         # ENCODER-DECODERS
         batch = tok_wrapper(
@@ -84,8 +89,10 @@ def collate_amr(
         else:
             max_length = input_max_seq_length + output_max_seq_length
             if max_length > model_max_length:
-                raise ValueError(f"'input_max_seq_length' + 'output_max_seq_length' ({max_length}) cannot be larger"
-                                 f" than max model size ({model_max_length}) for decoder-only models")
+                raise ValueError(
+                    f"'input_max_seq_length' + 'output_max_seq_length' ({max_length}) cannot be larger"
+                    f" than max model size ({model_max_length}) for decoder-only models"
+                )
 
         batch = tok_wrapper(
             [
@@ -93,7 +100,9 @@ def collate_amr(
                 + s["sentence"]
                 + "\n"
                 + tok_wrapper.tokenizer.eos_token
-                + (s["penmanstr"] if has_labels else "")  # Only add "labels" in train/eval mode, not in predict
+                + (
+                    penmanstr2linearized(s["penmanstr"]) if has_labels else ""
+                )  # Only add "labels" in train/eval mode, not in predict
                 for s in samples
             ],
             padding=True,
@@ -121,7 +130,9 @@ def collate_amr(
                     labels[sample_idx].index_fill_(0, torch.arange(start=0, end=end_of_prompt + 1), -100)
 
             if idxs_to_remove:
-                logging.warning(f"Removed {len(idxs_to_remove):,} samples because they were so long that no EOS was found.")
+                logging.warning(
+                    f"Removed {len(idxs_to_remove):,} samples because they were so long that no EOS was found."
+                )
                 # Only keep the items that have EOS
                 mask = torch.ones_like(batch["labels"], dtype=torch.bool)
                 mask[idxs_to_remove] = False
