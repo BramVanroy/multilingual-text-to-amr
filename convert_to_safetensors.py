@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from transformers import HfArgumentParser, AutoConfig
+from transformers import HfArgumentParser, AutoConfig, AutoTokenizer
 
 
 @dataclass
@@ -25,6 +25,7 @@ if __name__ == "__main__":
 
     # Get the config
     config = AutoConfig.from_pretrained(script_args.model_name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained(script_args.model_name_or_path)
 
     saved = False
     # Get related architectures for this model's config
@@ -32,6 +33,7 @@ if __name__ == "__main__":
         # Dynamically load the instantiation class and init model
         arch_cls = getattr(importlib.import_module("transformers"), arch)
         model = arch_cls.from_pretrained(script_args.model_name_or_path, device_map="cpu")
+        model.resize_token_embeddings(len(tokenizer))
 
         # Make sure that the model can generate, if that is required
         if not script_args.no_require_generate and not model.can_generate():

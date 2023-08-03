@@ -27,7 +27,8 @@ if __name__ == "__main__":
         script_args.output_name = script_args.model_name_or_path
 
     # Get the config
-    config = AutoConfig.from_pretrained(script_args.model_name_or_path)
+    config = AutoConfig.from_pretrained(script_args.model_name_or_path, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(script_args.model_name_or_path, trust_remote_code=True)
 
     saved = False
     # Get related architectures for this model's config
@@ -40,6 +41,7 @@ if __name__ == "__main__":
             print(f"Model arch {arch} does not implement generate(), which we require. Skipping...")
             continue
 
+        model.resize_token_embeddings(len(tokenizer))
         peft_config = PeftConfig.from_pretrained(script_args.adapter_model_name)
         tokenizer = AutoTokenizer.from_pretrained(script_args.base_model_name, trust_remote_code=True)
 
