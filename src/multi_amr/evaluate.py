@@ -1,18 +1,22 @@
-from dataclasses import field, dataclass
-from typing import List, Tuple, Optional
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
 import penman
 import smatch
 import torch
 from datasets import DatasetDict
-from tqdm import tqdm
-
 from multi_amr.constraints import AMRLogitsProcessor
 from multi_amr.data.linearization import linearized2penmanstr
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.data.tokens import AMR_LANG_CODE
-from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, LogitsProcessorList, PreTrainedModel, \
-    HfArgumentParser
+from tqdm import tqdm
+from transformers import (
+    AutoModelForCausalLM,
+    AutoModelForSeq2SeqLM,
+    HfArgumentParser,
+    LogitsProcessorList,
+    PreTrainedModel,
+)
 
 
 def batch_translate(
@@ -58,9 +62,7 @@ def batch_translate(
     return tok_wrapper.decode_and_fix_amr(generated)
 
 
-def get_resources(
-    model_name_or_path: str
-) -> Tuple[PreTrainedModel, AMRTokenizerWrapper, AMRLogitsProcessor]:
+def get_resources(model_name_or_path: str) -> Tuple[PreTrainedModel, AMRTokenizerWrapper, AMRLogitsProcessor]:
     """Get the relevant model, tokenizer and logits_processor. The loaded model depends on whether the multilingual
     model is requested, or not. If not, an English-only model is loaded. The model can be optionally quantized
     for better performance.
@@ -86,12 +88,21 @@ def batchify(sentences: List[str], batch_size: int = 8):
     for idx in range(0, num_sents, batch_size):
         yield sentences[idx : idx + batch_size]
 
-def evaluate(model_name: str, preprocessed_dataset: str, src_lang: str, dataset_split: Optional[str] = "test", batch_size: int = 8, num_beams: int = 5, max_length: int = 200):
+
+def evaluate(
+    model_name: str,
+    preprocessed_dataset: str,
+    src_lang: str,
+    dataset_split: Optional[str] = "test",
+    batch_size: int = 8,
+    num_beams: int = 5,
+    max_length: int = 200,
+):
     model, tok_wrapper, logitsprocessor = get_resources(model_name)
     gen_kwargs = {
         "max_length": max_length,
         "num_beams": num_beams,
-        "logits_processor": LogitsProcessorList([logitsprocessor])
+        "logits_processor": LogitsProcessorList([logitsprocessor]),
     }
 
     test_dataset = DatasetDict.load_from_disk(preprocessed_dataset)
@@ -102,10 +113,14 @@ def evaluate(model_name: str, preprocessed_dataset: str, src_lang: str, dataset_
     total_match_num = total_test_num = total_gold_num = 0
     sentid = 0
     n_invalid = 0
-    for batch in tqdm(batchify(test_dataset), unit="batch", total=max(1, len(test_dataset)//batch_size)):
-        for sentence, ref_penman, pred_linearized  in zip(batch["sentence"], batch["penmanstr"], batch_translate(
+    for batch in tqdm(batchify(test_dataset), unit="batch", total=max(1, len(test_dataset) // batch_size)):
+        for sentence, ref_penman, pred_linearized in zip(
+            batch["sentence"],
+            batch["penmanstr"],
+            batch_translate(
                 texts=batch["sentence"], src_lang=src_lang, model=model, tok_wrapper=tok_wrapper, **gen_kwargs
-        )):
+            ),
+        ):
             sentid += 1
             # First parse with `penman`, which is less sensitive than AMR.parse_AMR_line
             # and then back to valid penman string
@@ -128,6 +143,7 @@ def evaluate(model_name: str, preprocessed_dataset: str, src_lang: str, dataset_
 
     score = smatch.compute_f(total_match_num, total_test_num, total_gold_num)
 
+    print(f"Evaluation scores of {model_name} on {preprocessed_dataset}")
     print("Smatch: ", f"p={score[0]:.4f},r={score[1]:.4f},f={score[2]:.4f}")
     print("No. invalid structures: ", n_invalid, f"({(n_invalid*100/sentid):.2f}%)")
 
@@ -138,7 +154,9 @@ class ScriptArguments:
     preprocessed_dataset: str = field(metadata={"help": "where to save the output"})
     src_lang: str = field(metadata={"help": "which source language to use. This can be a language code"})
     dataset_split: Optional[str] = field(default="test", metadata={"help": "which split of the dataset to use"})
-    batch_size: Optional[int] = field(default=8, metadata={"help": "batch size (lower this if you get out-of-memory errors)"})
+    batch_size: Optional[int] = field(
+        default=8, metadata={"help": "batch size (lower this if you get out-of-memory errors)"}
+    )
     num_beams: Optional[int] = field(default=5, metadata={"help": "number of beams for generation"})
     max_length: Optional[int] = field(default=200, metadata={"help": "max. length to generate"})
 
