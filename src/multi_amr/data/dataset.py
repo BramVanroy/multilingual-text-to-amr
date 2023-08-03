@@ -1,4 +1,5 @@
 import logging
+import sys
 from collections import Counter
 from os import PathLike
 from pathlib import Path
@@ -12,6 +13,14 @@ from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.data.tokens import AMR_LANG_CODE
 from torch.utils.data import Dataset
 from tqdm import tqdm
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+
+logger = logging.getLogger(__name__)
 
 
 def collate_amr(
@@ -29,6 +38,7 @@ def collate_amr(
     :param samples: a given batch
     :return: a dictionary with keys such as input_ids and labels, with values tensors
     """
+    model_max_length = tok_wrapper.tokenizer.model_max_length
     src_langs = Counter([s["metadata"]["src_lang"] for s in samples])
     src_lang = src_langs.most_common(1)[0][0]
     if len(src_langs.keys()) > 1:
@@ -48,6 +58,11 @@ def collate_amr(
 
     has_labels = bool(len([s["penmanstr"] for s in samples if s["penmanstr"]]))
     if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.T5):
+        if input_max_seq_length is not None and input_max_seq_length > model_max_length:
+            raise ValueError(f"'input_max_seq_length' ({input_max_seq_length}) cannot be larger than max model size ({model_max_length})")
+        if output_max_seq_length is not None and output_max_seq_length > model_max_length:
+            raise ValueError(f"'output_max_seq_length' ({output_max_seq_length}) cannot be larger than max model size ({model_max_length})")
+
         # ENCODER-DECODERS
         batch = tok_wrapper(
             [task_prefix + s["sentence"] for s in samples],
@@ -64,6 +79,14 @@ def collate_amr(
             ).input_ids
             batch["labels"] = torch.where(batch["labels"] == tok_wrapper.tokenizer.pad_token_id, -100, batch["labels"])
     else:
+        if input_max_seq_length is None or output_max_seq_length is None:
+            max_length = None
+        else:
+            max_length = input_max_seq_length + output_max_seq_length
+            if max_length > model_max_length:
+                raise ValueError(f"'input_max_seq_length' + 'output_max_seq_length' ({max_length}) cannot be larger"
+                                 f" than max model size ({model_max_length}) for decoder-only models")
+
         batch = tok_wrapper(
             [
                 task_prefix
@@ -75,7 +98,7 @@ def collate_amr(
             ],
             padding=True,
             truncation=True,
-            max_length=input_max_seq_length,
+            max_length=max_length,
             return_tensors="pt",
         )
 
@@ -85,10 +108,24 @@ def collate_amr(
             batch["labels"] = batch["input_ids"].clone()
             labels = batch["labels"]
             eos_token_id = tok_wrapper.tokenizer.eos_token_id
+            idxs_to_remove = []
             for sample_idx in range(labels.size(0)):
                 # We find the first index where EOS occurs. Everything before it (and itself) is ignored
-                end_of_prompt = (labels[sample_idx] == eos_token_id).nonzero(as_tuple=True)[0][0]
-                labels[sample_idx].index_fill_(0, torch.arange(start=0, end=end_of_prompt + 1), -100)
+                # It is possible that we do not find an index when the max length is shorter than the input sentence
+                # because EOS is placed after the input sentence in CLM (and after that the linearized AMR)
+                try:
+                    end_of_prompt = (labels[sample_idx] == eos_token_id).nonzero(as_tuple=True)[0][0]
+                except IndexError:
+                    idxs_to_remove.append(sample_idx)
+                else:
+                    labels[sample_idx].index_fill_(0, torch.arange(start=0, end=end_of_prompt + 1), -100)
+
+            if idxs_to_remove:
+                logging.warning(f"Removed {len(idxs_to_remove):,} samples because they were so long that no EOS was found.")
+                # Only keep the items that have EOS
+                mask = torch.ones_like(batch["labels"], dtype=torch.bool)
+                mask[idxs_to_remove] = False
+                batch["labels"] = torch.masked_select(batch["labels"], mask)
 
     return batch
 
