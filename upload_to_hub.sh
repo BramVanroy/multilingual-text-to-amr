@@ -56,6 +56,8 @@ git lfs install
 huggingface-cli lfs-enable-largefiles .
 
 cp "$RESULTS_DIR/"* .
+# May lead to "Security warnings" on the hub because it is a pickled file
+rm -f training_args.bin
 
 # if trained with LoRA/adapters:
 if [ -f "adapter_model.bin" ]; then
@@ -74,15 +76,14 @@ if [ -f "adapter_model.bin" ]; then
     git checkout main
     git merge adapters
     ## Merge adapters
-    cd "$SCRIPT_DIR"
-    python merge_adapters.py --base_model_name "$BASE_MODEL" --adapter_model_name "$LOCAL_REPO_DIR" --output_name "$LOCAL_REPO_DIR"
+    python "${SCRIPT_DIR}/merge_adapters.py" --base_model_name "$BASE_MODEL" --adapter_model_name . --output_name .
 
     ## Push main
-    cd "$LOCAL_REPO_DIR"
     git rm adapter_*
     git add .
     git commit -m "init main model"
 else
+    python "${SCRIPT_DIR}/convert_to_safetensors.py" --model_name_or_path .
     git add .
     git commit -m "init main model"
 fi
