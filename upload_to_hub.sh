@@ -1,7 +1,8 @@
 #!/bin/bash
 usage() {
-  printf "Entrypoint to push model to the HF hub. If the model was trained with adapters, will
-  create a separate branch for the adapters and a main branch with the merged adapters.\n\n\
+  printf "Entrypoint to push model to the HF hub. If the model was trained with adapters, will\
+create a separate branch for the adapters and a main branch with the merged adapters.\n\
+Make sure to use an absolute path for the RESULTS_DIR!\n\n\
 \tUsage: $0 -d RESULTS_DIR -r HF_REPO_NAME [-b BASE_MODEL]\n" 1>&2
   exit 1
 }
