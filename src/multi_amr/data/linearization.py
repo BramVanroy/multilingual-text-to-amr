@@ -197,7 +197,7 @@ def linearized2penmanstr(tokens: Union[str, List[str]]) -> str:
     :return: a penman string
     """
     if isinstance(tokens, str):
-        tokens = tokenize_except_quotes(tokens)
+        tokens = tokens.split()
 
     # Remove any empty tokens, just to be sure
     tokens = [t.strip() for t in tokens if t.strip() != ""]
