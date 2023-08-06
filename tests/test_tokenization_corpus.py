@@ -1,122 +1,144 @@
+import logging
+from collections import Counter
+from itertools import product
+from multiprocessing import Manager, Pool
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
-import torch
+import smatch
 from tqdm import tqdm
 import penman
-from ftfy import fix_text
 
-from amr import AMR
-
-from multi_amr.data.linearization import penmanstr2linearized, linearized2penmanstr, do_remove_wiki
+from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
+from multi_amr.data.prepare_dataset import remove_wiki_from_graph, dfs_linearize
 from multi_amr.data.tokenization import AMRTokenizerWrapper
+from multi_amr.utils.calculate_smatch import calculate_smatch
+
+USE_FAST = (True, False)
+TOKENIZER_NAMES = (
+    "bigscience/bloomz-560m",
+    "facebook/mbart-large-cc25",
+    "google/mt5-base",
+    "facebook/nllb-200-3.3B"
+)
+REMOVE_WIKI = (True, False)
 
 
-def main(indir: str, start_from: Optional[int] = None):
+def main_sp(indir: str, start_from: Optional[int] = None):
+    # Not the same as main_mp/workers: here we can keep track of sequential graph_idx to skip forward if needed
+    # Useful for debugging
     pdin = Path(indir)
-    tree_idx = 0
-    # Replace en-dash by regular dash
-    normalize_punct = lambda s: s.replace("–", "-")
-    for use_fast in (True, False):
-        for tokenizer_name in (
-                "bigscience/bloomz-560m",
-                "facebook/mbart-large-cc25",
-                "google/mt5-base",
-                "facebook/nllb-200-3.3B"
-        ):
+    graph_idx = 0
+    runs_stats = {}
+
+    for use_fast in USE_FAST:
+        for tokenizer_name in TOKENIZER_NAMES:
             if tokenizer_name == "bigscience/bloomz-560m" and not use_fast:
                 # BLOOM does not have a slow tokenizer
                 continue
             tok_wrapper = AMRTokenizerWrapper.from_pretrained(tokenizer_name, use_fast=use_fast, legacy=True)
 
-            for remove_wiki in (True, False):
+            for remove_wiki in REMOVE_WIKI:
+                status_counter = Counter()
+                refs_penman = []
+                preds_penman = []
                 for pfin in tqdm(list(pdin.rglob("*.txt")),
                                  unit="file",
                                  desc=f"Remove wiki? {remove_wiki} Tok? {tokenizer_name} Fast? {use_fast}"):
                     with pfin.open(encoding="utf-8") as fhin:
-                        for tree in penman.iterparse(fhin):
-                            tree_idx += 1
-                            if start_from is not None and start_from > 0 and tree_idx < start_from:
+                        linearizeds = []
+                        for graph in penman.iterdecode(fhin):
+                            graph_idx += 1
+                            if start_from is not None and start_from > 0 and graph_idx < start_from:
                                 continue
-                            tree.reset_variables()
-                            orig_text = normalize_punct(fix_text(tree.metadata["snt"]))
-                            # NOTE: the fix_text is important to make sure the reference tree also is correctly formed, e.g.
-                            # (':op2', '"d’Intervention"'), -> (':op2', '"d\'Intervention"'),
-                            penman_str = normalize_punct(fix_text(penman.format(tree)))
 
+                            graph.metadata = []
                             if remove_wiki:
-                                penman_str = do_remove_wiki(penman_str)
+                                graph = remove_wiki_from_graph(graph)
 
-                            original_tree = penman.parse(penman_str)
+                            linearized = " ".join(dfs_linearize(graph))
+                            linearized = postprocess_str_after_linearization(linearized)
+                            linearizeds.append(linearized)
+                            refs_penman.append(penman.encode(graph))
 
-                            linearized = penmanstr2linearized(penman_str, remove_wiki=remove_wiki)
-                            encoded = tok_wrapper([linearized], padding=False, truncation=False, return_tensors="pt")
-                            input_ids = encoded["input_ids"]
-                            # Replace all the language IDs with the amr_token_id
-                            if tok_wrapper.lang_idxs is not None:
-                                input_ids[torch.isin(input_ids, tok_wrapper.lang_idxs)] = tok_wrapper.amr_token_idx
+                        encoded = tok_wrapper(linearizeds)
+                        output = tok_wrapper.batch_decode_amr_ids(encoded.input_ids, verbose=True)
 
-                            decoded = tok_wrapper.decode_and_fix_amr(input_ids)[0]
+                        for penmanstr, status in zip(output["penman"], output["status"]):
+                            status_counter[status.name] += 1
+                            preds_penman.append(penmanstr)
 
-                            try:
-                                delinearized_penman_str = linearized2penmanstr(decoded)
-                                delinearized_tree = penman.parse(delinearized_penman_str)
-                            except penman.exceptions.DecodeError as exc:
-                                print("META", tree.metadata)
-                                print("ORIG TREE", original_tree)
-                                print("LINEARIZED", linearized)
-                                print("DECODED", decoded)
-                                print("FILE", str(pfin))
-                                print("WIKI", remove_wiki)
-                                print("TREE ID", tree_idx)
-                                print("TOKENIZER", tokenizer_name)
-                                print("USE FAST", use_fast)
-                                raise exc
+                status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
+                runs_stats[(remove_wiki, tokenizer_name, use_fast)] = {
+                    "status_stats": status_stats,
+                    "smatch": {k: f"{v:.4f}" for k, v in calculate_smatch(refs_penman, preds_penman).items()}
+                }
+                print((remove_wiki, tokenizer_name, use_fast))
+                print(runs_stats[(remove_wiki, tokenizer_name, use_fast)])
 
-                            try:
-                                # Although we use penman to parse AMR, `smatch` uses its own AMR parser
-                                # so we also verify that our linearization/delinearization works with that
-                                amr_parsed = AMR.parse_AMR_line(delinearized_penman_str)
+    for params, stats in runs_stats.items():
+        remove_wiki, tokenizer_name, use_fast = params
+        print(f"Remove wiki? {remove_wiki} Tok? {tokenizer_name} Fast? {use_fast}")
+        print(stats)
+        print()
 
-                                if amr_parsed is None:
-                                    raise Exception("Error parsing AMR with amr.AMR library")
-                            except Exception as exc:
-                                print("META", tree.metadata)
-                                print("ORIG TREE", original_tree)
-                                print("LINEARIZED", linearized)
-                                print("DECODED", decoded)
-                                print("DELINEARIZED PENMAN", delinearized_penman_str)
-                                print("DELINEARIZED TREE", delinearized_tree)
-                                print("FILE", str(pfin))
-                                print("WIKI", remove_wiki)
-                                print("TREE ID", tree_idx)
-                                print("TOKENIZER", tokenizer_name)
-                                print("USE FAST", use_fast)
-                                raise exc
 
-                            if original_tree != delinearized_tree:
-                                print(tree.metadata)
-                                print("PENMAN", penman_str)
-                                print("LINEARIZED", penmanstr2linearized(penman_str))
-                                print("ENCODED", encoded["input_ids"])
-                                print("DECODED", tok_wrapper.tokenizer.decode(encoded["input_ids"][0], skip_special_tokens=True))
-                                print("DECODED_FIXED", decoded)
-                                print("ORIG TREE", original_tree)
-                                print("DELINEARIZED TREE", delinearized_tree)
-                                print("FILE", str(pfin))
-                                print("WIKI", remove_wiki)
-                                print("TREE ID", tree_idx)
-                                print("TOKENIZER", tokenizer_name)
-                                print("USE FAST", use_fast)
-                                raise ValueError("Tree mismatch between original tree and delinearized tree")
+def worker(pdin: Path, runs_stats: Manager.Dict, use_fast: bool, tokenizer_name: str, remove_wiki: bool):
+    tok_wrapper = AMRTokenizerWrapper.from_pretrained(tokenizer_name, use_fast=use_fast, legacy=True)
+    status_counter = Counter()
+    refs_penman = []
+    preds_penman = []
+    for pfin in tqdm(list(pdin.rglob("*.txt")),
+                     unit="file",
+                     desc=f"Remove wiki? {remove_wiki} Tok? {tokenizer_name} Fast? {use_fast}"):
+        with pfin.open(encoding="utf-8") as fhin:
+            linearizeds = []
+            for graph in penman.iterdecode(fhin):
+                graph.metadata = []
+                if remove_wiki:
+                    graph = remove_wiki_from_graph(graph)
 
-                            # # Check text tokenization
-                            # input_ids = tokenizer(orig_text)["input_ids"]
-                            # detokenized_text = tokenizer.decode(input_ids, skip_special_tokens=True)
-                            #
-                            # if orig_text != detokenized_text:
-                            #     print("ORIGI TEXT", orig_text)
-                            #     print("DETOK TEXT", detokenized_text)
+                linearized = " ".join(dfs_linearize(graph))
+                linearized = postprocess_str_after_linearization(linearized)
+                linearizeds.append(linearized)
+                refs_penman.append(penman.encode(graph))
+
+            encoded = tok_wrapper(linearizeds)
+            output = tok_wrapper.batch_decode_amr_ids(encoded.input_ids, verbose=True)
+
+            for penmanstr, status in zip(output["penman"], output["status"]):
+                status_counter[status.name] += 1
+                preds_penman.append(penmanstr)
+
+    status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
+    runs_stats[(remove_wiki, tokenizer_name, use_fast)] = {
+                "status_stats": status_stats,
+                "smatch": {k: f"{v:.4f}" for k, v in calculate_smatch(refs_penman, preds_penman).items()}
+            }
+
+    return runs_stats
+
+
+def main_mp(indir: str, num_workers: int):
+    pdin = Path(indir)
+
+    with Manager() as manager:
+        runs_stats = manager.dict()
+
+        with Pool(num_workers) as pool:
+            pool.starmap(
+                worker,
+                [
+                    (pdin, runs_stats, use_fast, tok_name, rm_wiki)
+                    for use_fast, tok_name, rm_wiki in product(USE_FAST, TOKENIZER_NAMES, REMOVE_WIKI)
+                ]
+            )
+
+        for params, stats in runs_stats.items():
+            remove_wiki, tokenizer_name, use_fast = params
+            print(f"Remove wiki? {remove_wiki} Tok? {tokenizer_name} Fast? {use_fast}")
+            print(stats)
+            print()
 
 
 if __name__ == "__main__":
@@ -130,6 +152,56 @@ if __name__ == "__main__":
     cparser.add_argument("indir", help="Input directory with AMR data. Will be recursively traversed. All .txt files"
                                        " will be tested.")
     cparser.add_argument("--start", type=int, help="Start processing from this tree index. Useful if you know exactly"
-                                                   " where something went wrong.")
+                                                   " where something went wrong. Won't work in multiprocessing")
+    cparser.add_argument("--num_workers", type=int, default=1,
+                         help="If > 1, will launch parallel processes to run tests")
     cargs = cparser.parse_args()
-    main(cargs.indir, cargs.start)
+    if cargs.num_workers > 1:
+        main_mp(cargs.indir, cargs.num_workers)
+    else:
+        main_sp(cargs.indir, cargs.start)
+
+"""
+RESULTS
+=======
+Remove wiki? True Tok? bigscience/bloomz-560m Fast? True
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9996, 'smatch_recall': 0.9996, 'smatch_fscore': 0.9996, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? False Tok? bigscience/bloomz-560m Fast? True
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9984, 'smatch_recall': 0.9984, 'smatch_fscore': 0.9984, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? True Tok? facebook/mbart-large-cc25 Fast? True
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9992, 'smatch_recall': 0.9989, 'smatch_fscore': 0.9991, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? False Tok? facebook/mbart-large-cc25 Fast? True
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9982, 'smatch_recall': 0.9982, 'smatch_fscore': 0.9982, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? True Tok? google/mt5-base Fast? True
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9991, 'smatch_recall': 0.9988, 'smatch_fscore': 0.9990, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? False Tok? google/mt5-base Fast? True
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9982, 'smatch_recall': 0.9981, 'smatch_fscore': 0.9981, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? True
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9992, 'smatch_recall': 0.9989, 'smatch_fscore': 0.9991, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? False Tok? facebook/nllb-200-3.3B Fast? True
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9982, 'smatch_recall': 0.9982, 'smatch_fscore': 0.9982, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? True Tok? facebook/mbart-large-cc25 Fast? False
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9991, 'smatch_recall': 0.9988, 'smatch_fscore': 0.9990, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? False Tok? facebook/mbart-large-cc25 Fast? False
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9982, 'smatch_recall': 0.9982, 'smatch_fscore': 0.9982, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? True Tok? google/mt5-base Fast? False
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9976, 'smatch_recall': 0.9973, 'smatch_fscore': 0.9975, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? False Tok? google/mt5-base Fast? False
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9968, 'smatch_recall': 0.9967, 'smatch_fscore': 0.9968, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? False
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9991, 'smatch_recall': 0.9988, 'smatch_fscore': 0.9990, 'ratio_invalid_amrs': 0.0}}
+
+Remove wiki? False Tok? facebook/nllb-200-3.3B Fast? False
+{'status_stats': 'OK: 1,722', 'smatch': {'smatch_precision': 0.9981, 'smatch_recall': 0.9980, 'smatch_fscore': 0.9980, 'ratio_invalid_amrs': 0.0}}"""

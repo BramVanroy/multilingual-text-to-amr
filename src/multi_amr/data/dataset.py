@@ -10,7 +10,6 @@ import torch
 from ftfy import fix_text
 from multi_amr.data.linearization import do_remove_wiki, penmanstr2linearized
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
-from multi_amr.data.tokens import AMR_LANG_CODE
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -37,7 +36,7 @@ def collate_amr(
     :param input_max_seq_length: optional max sequence length to truncate the input data to
     :param output_max_seq_length: optional max sequence length to truncate the output data (labels) to
     :param samples: a given batch
-    :return: a dictionary with keys such as input_ids and labels, with values tensors
+    :return: a dictionary with keys such as token_ids and labels, with values tensors
     """
     model_max_length = tok_wrapper.tokenizer.model_max_length
     src_langs = Counter([s["metadata"]["src_lang"] for s in samples])
@@ -112,9 +111,9 @@ def collate_amr(
         )
 
         if has_labels:
-            # Labels are a copy of the input_ids (causal LM). They are shifted within the forward pass so we do not
+            # Labels are a copy of the token_ids (causal LM). They are shifted within the forward pass so we do not
             # have to do that here. We do set the prompt (prefix + sentence + "\n" + EOS) to -100 to ignore it in loss.
-            batch["labels"] = batch["input_ids"].clone()
+            batch["labels"] = batch["token_ids"].clone()
             labels = batch["labels"]
             eos_token_id = tok_wrapper.tokenizer.eos_token_id
             idxs_to_remove = []

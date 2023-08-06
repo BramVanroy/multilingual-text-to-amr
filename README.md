@@ -115,7 +115,7 @@ README.
 The [tokenizer](src/multi_amr/data/tokenization.py) is updated to add AMR-specific functionality:
 
 - encoding penman AMR strings to token IDs by linearizing and then tokenizing with `.encode_penmanstrs()`;
-- decoding tokenized and linearized AMRs with `.decode_amr_and_fix()`. Note that the `clean_up_tokenization()` function
+- decoding tokenized and linearized AMRs with `.decode_amr_and_fix()`. Note that the `clean_up_amr_tokenization()` function
 is paramount to make sure that everything is working well to solve spacing issues left by the tokenizer.
 
 This approach was tested on the whole AMR 3.0 corpus. It can successfully go from all trees, to a linearized 
@@ -290,3 +290,51 @@ translate). Therefore, we add the special token `amr_XX` which we will use as a 
 ## LICENSE
 
 Distributed under a GPLv3 [license](LICENSE).
+
+
+# Tokenization results (original SPRING/AMRBART)
+Remove wiki? True Tok? bigscience/bloomz-560m Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9997', 'smatch_recall': '0.9997', 'smatch_fscore': '0.9997', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? bigscience/bloomz-560m Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9983', 'smatch_recall': '0.9983', 'smatch_fscore': '0.9983', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/mbart-large-cc25 Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9986', 'smatch_recall': '0.9986', 'smatch_fscore': '0.9986', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/mbart-large-cc25 Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9976', 'smatch_recall': '0.9980', 'smatch_fscore': '0.9978', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? google/mt5-base Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9987', 'smatch_recall': '0.9986', 'smatch_fscore': '0.9986', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? google/mt5-base Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9976', 'smatch_recall': '0.9980', 'smatch_fscore': '0.9978', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9987', 'smatch_recall': '0.9986', 'smatch_fscore': '0.9986', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/nllb-200-3.3B Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9976', 'smatch_recall': '0.9979', 'smatch_fscore': '0.9978', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/mbart-large-cc25 Fast? False
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9992', 'smatch_recall': '0.9987', 'smatch_fscore': '0.9989', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/mbart-large-cc25 Fast? False
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9982', 'smatch_recall': '0.9981', 'smatch_fscore': '0.9981', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? google/mt5-base Fast? False
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9992', 'smatch_recall': '0.9987', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? google/mt5-base Fast? False
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9982', 'smatch_recall': '0.9981', 'smatch_fscore': '0.9981', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? False
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9992', 'smatch_recall': '0.9987', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
+
+# Changes compared to spring/amrmbart
+- replaced :polarity - with :negation
+- use special </of> isntead of -of
+- add :prep-
+- add <rel> </rel> instead of (  )
+- different smart initializations

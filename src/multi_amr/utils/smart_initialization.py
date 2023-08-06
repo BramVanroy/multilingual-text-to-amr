@@ -1,18 +1,6 @@
 import torch
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
-from multi_amr.data.tokens import (
-    AMR_LANG_CODE,
-    CHOICE,
-    ENDLIT,
-    ENDREL,
-    MULTI_SENTENCE,
-    NEGATION,
-    OF_SUFFIX,
-    PREP_PREFIX,
-    STARTLIT,
-    STARTREL,
-    UNKOWN,
-)
+
 from transformers import PreTrainedModel
 
 
@@ -29,15 +17,16 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
     # Vocab size if the size without the added tokens, so the first added token is at
     # index=vocab_size
     for token_id, token in enumerate(tok_wrapper.added_vocab.keys(), tokenizer.vocab_size):
+        token = token.lstrip(tok_wrapper.token_prefix)
         if token.startswith(":"):
-            if token == ENDREL:
-                components = ["relation", "end", tokenizer.eos_token]
-            elif token == STARTREL:
-                components = ["relation", "start", tokenizer.eos_token]  # BOS is never used in MBART
-            elif token == ENDLIT:
-                components = ["relation", "end", "literal", '"']
-            elif token == STARTLIT:
-                components = ["relation", "start", "literal", '"']
+            if token == "</rel>":
+                components = ["relation", "end", "</div>"]  # Bold assumption that the model was trained on a bit of HTML data
+            elif token == "<rel>":
+                components = ["relation", "start", "<div>"]  # BOS is never used in MBART
+            elif token == "</lit>":
+                components = ["relation", "end", "literal", '"', "quote"]
+            elif token == "<lit>":
+                components = ["relation", "start", "literal", '"', "quote"]
             elif token == ":op":
                 components = ["relation", "operator"]
             elif token == ":snt":
@@ -47,33 +36,33 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
             elif token == ":quant":
                 components = ["relation", "quantity"]
             elif token == ":li":
-                components = ["relation", "list"]
+                components = ["relation", "list", "enumeration"]
             elif token == ":ord":
                 components = ["relation", "ordinal"]
             elif token == ":mod":
-                components = ["relation", "modify", "change"]
-            elif token == ":ref":
-                components = ["reference", "like", "similar"]
-            elif token == NEGATION:
+                components = ["relation", "modify", "change", "adjective", "modifier"]
+            elif token.startswith('<pointer:') and token.endswith('>'):
+                components = ["reference", "like", "similar", "pointer"]
+            elif token == ":negation":
                 components = ["not", "no"]
             elif token == ":year2":  # make explicit, otherwise it ends up as ["year2"]
                 components = ["year"]
-            elif token == PREP_PREFIX:
+            elif token == ":prep-":
                 components = ["by", "in", "near", "on", "at", "with"]  # random prepositions
             elif token == ":conj-as-if":
                 components = ["as-if", "as if"]
             else:
                 components = ["relation"] + token.lstrip(":").split("-")
         else:
-            if token == OF_SUFFIX:
+            if token == "</of>":
                 components = ["relation", "of", "have"]
-            elif token == UNKOWN:
+            elif token == "amr-unknown":
                 components = ["?", "who", "what", "why", "where", "when"]
-            elif token == CHOICE:
+            elif token == "amr-choice":
                 components = ["or"]
-            elif token == MULTI_SENTENCE:
-                components = ["relation", "paragraph", "sentence"]
-            elif token == AMR_LANG_CODE:  # AMR is most similar to English
+            elif token == "multi-sentence":
+                components = ["relation", "paragraph", "sentences", "list"]
+            elif token == "<AMR>":  # AMR is most similar to English
                 if tok_wrapper.tokenizer_type == TokenizerType.MBART:
                     components = ["en_XX"]
                 elif tok_wrapper.tokenizer_type == TokenizerType.NLLB:

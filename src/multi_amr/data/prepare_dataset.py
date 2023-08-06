@@ -1,4 +1,6 @@
-""""""
+import copy
+import json
+import re
 from enum import StrEnum, auto
 from os import PathLike
 from pathlib import Path
@@ -8,9 +10,70 @@ import pandas as pd
 import penman
 from datasets import Dataset, DatasetDict
 from ftfy import fix_text
-from multi_amr.data.linearization import do_remove_wiki
+from penman import Graph, Triple
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
 from tqdm import tqdm
+
+
+def remove_wiki_from_graph(graph: Graph) -> Graph:
+    triples = []
+    for t in graph.triples:
+        v1, rel, v2 = t
+        if rel == ":wiki":
+            t = Triple(v1, rel, "+")
+        triples.append(t)
+
+    return Graph(triples, metadata=graph.metadata)
+
+
+def tokenize_encoded_graph(linearized: str) -> List[str]:
+    linearized = re.sub(r"(\".+?\")", r" \1 ", linearized)
+    pieces = []
+    for piece in linearized.split():
+        if not (piece.startswith('"') and piece.endswith('"')):
+            piece = piece.replace("(", " ( ")
+            piece = piece.replace(")", " ) ")
+            piece = piece.replace(":", " :")
+            piece = piece.replace("/", " / ")
+            piece = piece.strip()
+
+        pieces.append(piece)
+    linearized = re.sub(r"\s+", " ", " ".join(pieces)).strip()
+    return linearized.split(" ")
+
+
+def dfs_linearize(graph: Graph, use_pointer_tokens: bool = True):
+    graph_ = copy.deepcopy(graph)
+    graph_.metadata = {}
+    linearized = penman.encode(graph_)
+    linearized_nodes = tokenize_encoded_graph(linearized)
+    # TODO: add replace -of -> :of-rel here?
+    # Then also change in tokenization clean up
+    # Maybe same with parentheses?
+
+    if use_pointer_tokens:
+        remap = {}
+        for i in range(1, len(linearized_nodes)):
+            nxt = linearized_nodes[i]
+            lst = linearized_nodes[i - 1]
+            if nxt == "/":
+                remap[lst] = f"<pointer:{len(remap)}>"
+        i = 1
+        linearized_nodes_ = [linearized_nodes[0]]
+        while i < (len(linearized_nodes)):
+            nxt = linearized_nodes[i]
+            lst = linearized_nodes_[-1]
+            if nxt in remap:
+                if lst == "(" and linearized_nodes[i + 1] == "/":
+                    nxt = remap[nxt]
+                    i += 1
+                elif lst.startswith(":"):
+                    nxt = remap[nxt]
+            linearized_nodes_.append(nxt)
+            i += 1
+        linearized_nodes = linearized_nodes_
+
+    return linearized_nodes
 
 
 class SplitType(StrEnum):
@@ -34,11 +97,13 @@ class SplitType(StrEnum):
 
 def prepare_dataset(
     amr_dirs: List[Union[str, PathLike]],
-    src_langs: List[str],
+    langs: List[str],
     output_dir: Union[str, PathLike],
     dedupe: bool = False,
     remove_wiki: bool = False,
-    lang: str = "en",
+    fix_ftfy: bool = False,
+    normalize_punct: bool = False,
+    detokenize: bool = False,
 ):
     """Given a directory of AMR files, deduplicate all files so that every file contains unique files. We also process
      the text for the sake of normalization. This is needed because the AMR3.0 corpus sometimes has unexpected
@@ -47,24 +112,29 @@ def prepare_dataset(
      is only ftfy and punctuation normalized.
 
     :param amr_dirs: dirs with sub directories train, training, dev, valid, and or test. For multilingual datasets, you
-     can enter multiple paths to their respective paths. Make sure to specify their respecitve language with 'src_langs'
-    :param src_langs: languages associated, in order, with 'amr_dirs'
+     can enter multiple paths to their respective paths. Make sure to specify their respecitve language code with
+     'langs'
+    :param langs: language codes (e.g. 'en') of the text (not the AMR but the sentences). This will be used for
+     punctuation normalization and detokenization. Add one per dir in 'amr_dirs'
     :param output_dir: dir to write the new structure and files to with fixed sentences
     :param dedupe: whether to deduplicate the data. This will ensure that there will be no duplicates within and
      between splits
     :param remove_wiki: whether to remove wiki from the AMR entries
-    :param lang: which language code is the text in (not the AMR)? This will be used for normalization
+    :param fix_ftfy: whether to fix text issues with ftfy in both the sentence and the linearized AMR
+    :param normalize_punct: whether to normalize punctuation in both the sentence and the linearized AMR
+    :param detokenize: whether to detokenize to sentence (not the linearized AMR)
     """
 
     pdout = Path(output_dir).resolve()
     pdout.mkdir(exist_ok=True, parents=True)
-    punct_norm_amr = MosesPunctNormalizer(lang="en")
-    punct_norm_text = MosesPunctNormalizer(lang=lang)
-    detokenizer = MosesDetokenizer(lang=lang)
-    detokenize = detokenizer.detokenize
-    data = {"metadata": [], "sentence": [], "penmanstr": [], "split_type": [], "src_lang": []}
+    punct_norm_amr = MosesPunctNormalizer(lang="en")  # Use English because AMR is most like English
+    data = {"metadata": [], "sentence": [], "amr": [], "split_type": [], "src_lang_idx": []}
 
-    for amr_dir, src_lang in zip(amr_dirs, src_langs):
+    for src_lang_idx, (src_lang, amr_dir) in enumerate(zip(langs, amr_dirs)):
+        punct_norm_text = MosesPunctNormalizer(lang=src_lang)
+        detokenizer = MosesDetokenizer(lang=src_lang)
+        detokenize_func = detokenizer.detokenize
+
         pdin = Path(amr_dir).resolve()
         for psplit in pdin.glob("*"):
             if not psplit.is_dir():
@@ -74,48 +144,64 @@ def prepare_dataset(
 
             for pfin in tqdm(list(psplit.glob("*.txt")), unit="file", desc=split_type):
                 with pfin.open(encoding="utf-8") as fhin:
-                    for tree in penman.iterparse(fhin):
-                        tree.reset_variables()
-                        metadata = {**tree.metadata, "src_lang": src_lang}
-                        data["metadata"].append(metadata)
-                        sentence = tree.metadata["snt"]
-                        # 1. Fix text
-                        # 2. Normalize punctuation (e.g. NLLB does not support en-dashes)
-                        # 3. Detokenize
-                        sentence = punct_norm_text.normalize(fix_text(sentence))
-                        sentence = detokenize(sentence.split())
-                        data["sentence"].append(sentence)
-                        # It seems that some AMR is unparseable in some cases due to metadata (?; e.g. in test set)
-                        # so we empty the metadata before continuing
-                        tree.metadata = {}
-
-                        # NOTE: the fix_text is important to make sure the reference tree also is correctly formed,
-                        # e.g. (':op2', '"d’Intervention"'), -> (':op2', '"d\'Intervention"'),
-                        # 1. Fix
-                        # 2. Normalize punctuations -- note that this will remove indentation from the penman str,
-                        # but it should still work correctly when parsed with penman
-                        penman_str = punct_norm_amr.normalize((fix_text(penman.format(tree))))
+                    for graph in penman.iterdecode(fhin):
                         if remove_wiki:
-                            penman_str = do_remove_wiki(penman_str)
-                        data["penmanstr"].append(penman_str)
+                            graph = remove_wiki_from_graph(graph)
+                        linearized = " ".join(dfs_linearize(graph))
+                        sentence = graph.metadata["snt"]
+
+                        if fix_ftfy:
+                            sentence = fix_text(sentence)
+                            linearized = fix_text(linearized)
+
+                        if normalize_punct:
+                            sentence = punct_norm_text.normalize(sentence)
+                            linearized = punct_norm_amr.normalize(linearized)
+
+                        if detokenize:
+                            sentence = detokenize_func(sentence.split())
+
+                        data["metadata"].append(graph.metadata)
+                        data["sentence"].append(sentence)
+                        data["amr"].append(linearized)
                         data["split_type"].append(split_type)
-                        data["src_lang"].append(src_lang)
+                        # We just use an index, so that during training we can re-use the same dataset with different
+                        # src_langs even though the data is the same. Sometimes we may need 'en_XX', other times
+                        # 'English', or 'Latn_eng'. We can set that in our training config.
+                        data["src_lang_idx"].append(src_lang_idx)
 
     df = pd.DataFrame(data)
     del data
 
+    print("Example data")
+    print(df.head(3))
+
+    processing_info = {
+        "amr_dirs": amr_dirs,
+        "langs": langs,
+        "dedupe": dedupe,
+        "remove_wiki": remove_wiki,
+        "fix_ftfy": fix_ftfy,
+        "normalize_punct": normalize_punct,
+        "detokenize": detokenize,
+    }
+
     if dedupe:
         df_len_before = len(df.index)
         df.drop_duplicates(subset=["sentence"], inplace=True)
-        print(f"Dropped {(df_len_before-len(df.index)):,} duplicates!")
+        print(f"Dropped {(df_len_before - len(df.index)):,} duplicates!")
+        processing_info["num_dropped_duplicates"] = df_len_before - len(df.index)
 
     datasets = DatasetDict()
+    processing_info["final_sizes"] = {}
     for split_type, groupdf in df.groupby("split_type"):
         groupdf.drop(columns=["split_type"], inplace=True)
         datasets[split_type] = Dataset.from_pandas(groupdf)
         print(f"Processed {split_type} set containing {len(groupdf):,} samples!")
+        processing_info["final_sizes"][split_type] = len(groupdf)
 
     datasets.save_to_disk(pdout)
+    pdout.joinpath("processing_info.json").write_text(json.dumps(processing_info, indent=4), encoding="utf-8")
 
 
 def main():
@@ -129,13 +215,12 @@ def main():
         help="dirs with sub directories train, training, dev, valid, and or test. For"
         " multilingual datasets, you can enter multiple paths to their respective"
         " paths. Make sure to specify their respecitve language with 'src_langs'",
-        required=True,
     )
     cparser.add_argument(
-        "-s",
-        "--src_langs",
+        "--langs",
         nargs="+",
-        help="languages associated, in order, with 'amr_dirs'",
+        help="language codes (e.g. 'en') of the text (not the AMR but the sentences). This will be used for"
+        " punctuation normalization and detokenization. Add one per dir in 'amr_dirs'",
         required=True,
     )
     cparser.add_argument("-o", "--output_dir", help="dir to write the dataset files to")
@@ -151,9 +236,19 @@ def main():
         help="whether to remove wiki from the AMR entries",
     )
     cparser.add_argument(
-        "--lang",
-        default="en",
-        help="which language code is the text in (not the AMR)? This will be used for normalization.",
+        "--fix_ftfy",
+        action="store_true",
+        help="whether to fix text issues with ftfy in both the sentence and the linearized AMR",
+    )
+    cparser.add_argument(
+        "--normalize_punct",
+        action="store_true",
+        help="whether to normalize punctuation in both the sentence and the linearized AMR",
+    )
+    cparser.add_argument(
+        "--detokenize",
+        action="store_true",
+        help="whether to detokenize to sentence (not the linearized AMR)",
     )
 
     cargs = cparser.parse_args()
