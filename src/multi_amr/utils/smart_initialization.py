@@ -1,6 +1,5 @@
 import torch
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
-
 from transformers import PreTrainedModel
 
 
@@ -20,7 +19,11 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
         token = token.lstrip(tok_wrapper.token_prefix)
         if token.startswith(":"):
             if token == "</rel>":
-                components = ["relation", "end", "</div>"]  # Bold assumption that the model was trained on a bit of HTML data
+                components = [
+                    "relation",
+                    "end",
+                    "</div>",
+                ]  # Bold assumption that the model was trained on a bit of HTML data
             elif token == "<rel>":
                 components = ["relation", "start", "<div>"]  # BOS is never used in MBART
             elif token == "</lit>":
@@ -41,7 +44,7 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
                 components = ["relation", "ordinal"]
             elif token == ":mod":
                 components = ["relation", "modify", "change", "adjective", "modifier"]
-            elif token.startswith('<pointer:') and token.endswith('>'):
+            elif token.startswith("<pointer:") and token.endswith(">"):
                 components = ["reference", "like", "similar", "pointer"]
             elif token == ":negation":
                 components = ["not", "no"]

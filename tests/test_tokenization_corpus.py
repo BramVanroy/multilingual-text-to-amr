@@ -1,11 +1,9 @@
-import logging
 from collections import Counter
 from itertools import product
 from multiprocessing import Manager, Pool
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, Dict
 
-import smatch
 from tqdm import tqdm
 import penman
 
@@ -40,13 +38,13 @@ def main_sp(indir: str, start_from: Optional[int] = None):
 
             for remove_wiki in REMOVE_WIKI:
                 status_counter = Counter()
-                refs_penman = []
-                preds_penman = []
+                num_not_perfect_smatch = 0
                 for pfin in tqdm(list(pdin.rglob("*.txt")),
                                  unit="file",
                                  desc=f"Remove wiki? {remove_wiki} Tok? {tokenizer_name} Fast? {use_fast}"):
                     with pfin.open(encoding="utf-8") as fhin:
                         linearizeds = []
+                        refs_penman = []
                         for graph in penman.iterdecode(fhin):
                             graph_idx += 1
                             if start_from is not None and start_from > 0 and graph_idx < start_from:
@@ -64,14 +62,21 @@ def main_sp(indir: str, start_from: Optional[int] = None):
                         encoded = tok_wrapper(linearizeds)
                         output = tok_wrapper.batch_decode_amr_ids(encoded.input_ids, verbose=True)
 
-                        for penmanstr, status in zip(output["penman"], output["status"]):
+                        for ref_penmanstr, pred_penmanstr, status in zip(refs_penman, output["penman"], output["status"]):
                             status_counter[status.name] += 1
-                            preds_penman.append(penmanstr)
+                            score = calculate_smatch([ref_penmanstr], [pred_penmanstr])
+                            if score["smatch_fscore"] != 1:
+                                print("Not a good match!!")
+                                print("ref:", ref_penmanstr)
+                                print("pred:", pred_penmanstr)
+                                print()
+                                num_not_perfect_smatch += 1
 
                 status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
                 runs_stats[(remove_wiki, tokenizer_name, use_fast)] = {
                     "status_stats": status_stats,
-                    "smatch": {k: f"{v:.4f}" for k, v in calculate_smatch(refs_penman, preds_penman).items()}
+                    "num_not_perfect_smatch": num_not_perfect_smatch,
+                    "percent_not_perfect_smatch": 100*num_not_perfect_smatch / status_counter.total(),
                 }
                 print((remove_wiki, tokenizer_name, use_fast))
                 print(runs_stats[(remove_wiki, tokenizer_name, use_fast)])
@@ -83,16 +88,16 @@ def main_sp(indir: str, start_from: Optional[int] = None):
         print()
 
 
-def worker(pdin: Path, runs_stats: Manager.Dict, use_fast: bool, tokenizer_name: str, remove_wiki: bool):
+def worker(pdin: Path, runs_stats: Dict, use_fast: bool, tokenizer_name: str, remove_wiki: bool):
     tok_wrapper = AMRTokenizerWrapper.from_pretrained(tokenizer_name, use_fast=use_fast, legacy=True)
     status_counter = Counter()
-    refs_penman = []
-    preds_penman = []
+    num_not_perfect_smatch = 0
     for pfin in tqdm(list(pdin.rglob("*.txt")),
                      unit="file",
                      desc=f"Remove wiki? {remove_wiki} Tok? {tokenizer_name} Fast? {use_fast}"):
         with pfin.open(encoding="utf-8") as fhin:
             linearizeds = []
+            refs_penman = []
             for graph in penman.iterdecode(fhin):
                 graph.metadata = []
                 if remove_wiki:
@@ -106,14 +111,20 @@ def worker(pdin: Path, runs_stats: Manager.Dict, use_fast: bool, tokenizer_name:
             encoded = tok_wrapper(linearizeds)
             output = tok_wrapper.batch_decode_amr_ids(encoded.input_ids, verbose=True)
 
-            for penmanstr, status in zip(output["penman"], output["status"]):
+            for ref_penmanstr, pred_penmanstr, status in zip(refs_penman, output["penman"], output["status"]):
                 status_counter[status.name] += 1
-                preds_penman.append(penmanstr)
+                score = calculate_smatch([ref_penmanstr], [pred_penmanstr])
+                if score["smatch_fscore"] != 1:
+                    print("Not a good match!!")
+                    print("ref:", ref_penmanstr)
+                    print()
+                    num_not_perfect_smatch += 1
 
     status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
     runs_stats[(remove_wiki, tokenizer_name, use_fast)] = {
                 "status_stats": status_stats,
-                "smatch": {k: f"{v:.4f}" for k, v in calculate_smatch(refs_penman, preds_penman).items()}
+                "num_not_perfect_smatch": num_not_perfect_smatch,
+                "percent_not_perfect_smatch": 100*num_not_perfect_smatch / status_counter.total(),
             }
 
     return runs_stats

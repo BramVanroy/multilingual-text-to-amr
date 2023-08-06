@@ -332,6 +332,55 @@ Remove wiki? False Tok? google/mt5-base Fast? False
 Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? False
 {'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9992', 'smatch_recall': '0.9987', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
 
+# REV 2
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9988', 'smatch_recall': '0.9991', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9988', 'smatch_recall': '0.9991', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? google/mt5-base Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9988', 'smatch_recall': '0.9991', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/nllb-200-3.3B Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9974', 'smatch_recall': '0.9977', 'smatch_fscore': '0.9975', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? google/mt5-base Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9974', 'smatch_recall': '0.9978', 'smatch_fscore': '0.9976', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/mbart-large-cc25 Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9974', 'smatch_recall': '0.9978', 'smatch_fscore': '0.9976', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? bigscience/bloomz-560m Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9996', 'smatch_recall': '0.9996', 'smatch_fscore': '0.9996', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? bigscience/bloomz-560m Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9983', 'smatch_recall': '0.9983', 'smatch_fscore': '0.9983', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? bigscience/bloomz-560m Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9996', 'smatch_recall': '0.9996', 'smatch_fscore': '0.9996', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? bigscience/bloomz-560m Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9983', 'smatch_recall': '0.9983', 'smatch_fscore': '0.9983', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/mbart-large-cc25 Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9997', 'smatch_recall': '0.9997', 'smatch_fscore': '0.9997', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/mbart-large-cc25 Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9983', 'smatch_recall': '0.9983', 'smatch_fscore': '0.9983', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? google/mt5-base Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9997', 'smatch_recall': '0.9997', 'smatch_fscore': '0.9997', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? google/mt5-base Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9983', 'smatch_recall': '0.9983', 'smatch_fscore': '0.9983', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9997', 'smatch_recall': '0.9997', 'smatch_fscore': '0.9997', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/nllb-200-3.3B Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9982', 'smatch_recall': '0.9982', 'smatch_fscore': '0.9982', 'ratio_invalid_amrs': '0.0000'}}
+
+
 # Changes compared to spring/amrmbart
 - replaced :polarity - with :negation
 - use special </of> isntead of -of

@@ -1,12 +1,11 @@
 import logging
 from enum import StrEnum, auto
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
-import numpy as np
 import penman
 import torch
 from multi_amr.data.additional_tokens import get_added_vocabulary
-from multi_amr.data.postprocessing_graph import tokens2graph
+from multi_amr.data.postprocessing_graph import ParsedStatus, tokens2graph
 from multi_amr.data.postprocessing_str import (
     clean_up_amr_tokenization,
     postprocess_str_after_delinearization,
@@ -85,7 +84,7 @@ class AMRTokenizerWrapper:
 
         self.added_vocab = self.tokenizer.get_added_vocab()
         self.amr_token_idx = self.tokenizer.convert_tokens_to_ids("<AMR>")
-        self.all_special_ids_tensor = torch.LongTensor(self.tokenizer.all_special_ids + [self.amr_token_idx])
+        self.special_ids_and_amr_token_id = self.tokenizer.all_special_ids + [self.amr_token_idx]
 
     @classmethod
     def from_pretrained(cls, *args, legacy: bool = True, **kwargs):
@@ -122,43 +121,35 @@ class AMRTokenizerWrapper:
 
         return self.tokenizer(linearizeds, **tokenizer_kwargs)
 
-    def batch_decode_amr_ids(self, all_token_ids: List[List[int]], verbose:bool = False, **tokenizer_kwargs) -> Dict[str, List]:
+    def batch_decode_amr_ids(
+        self, all_token_ids: List[List[int]], verbose: bool = False, **tokenizer_kwargs
+    ) -> Dict[str, List]:
         """
         Returns a dict with `penman` and `status` keys.
         """
-        if isinstance(all_token_ids, torch.Tensor):
-            if all_token_ids.dim() == 1:
-                token_ids = all_token_ids.unsqueeze(dim=0)
-        elif isinstance(all_token_ids, np.ndarray):
-            if all_token_ids.ndim == 1:
-                token_ids = np.expand_dims(all_token_ids, axis=0)
-        elif isinstance(all_token_ids[0], int):
-            token_ids = [all_token_ids]
-
-        if not isinstance(all_token_ids, torch.Tensor):
-            all_token_ids = torch.LongTensor(all_token_ids)
-
         output = {"penman": [], "status": []}
         for token_ids in all_token_ids:
-            token_ids = self.remove_special_tokens(token_ids)
-            print("after remove special", token_ids)
-            decoded = self.tokenizer.decode(token_ids, **tokenizer_kwargs)
-            print(decoded)
-            sequence = clean_up_amr_tokenization(decoded)
-            print(sequence)
-            sequence = postprocess_str_after_delinearization(sequence)
-            print(sequence)
-            graph, status = tokens2graph(sequence.split(), verbose=verbose)
-            output["penman"].append(penman.encode(graph))
+            penmanstr, status = self.decode_amr_ids(token_ids, verbose=verbose, **tokenizer_kwargs)
+            output["penman"].append(penmanstr)
             output["status"].append(status)
 
         return output
 
-    def remove_special_tokens(self, input_ids: torch.LongTensor):
+    def decode_amr_ids(
+        self, token_ids: List[int], verbose: bool = False, **tokenizer_kwargs
+    ) -> Tuple[str, ParsedStatus]:
+        token_ids = self.remove_special_tokens(token_ids)
+        decoded = self.tokenizer.decode(token_ids, **tokenizer_kwargs)
+        sequence = clean_up_amr_tokenization(decoded)
+        sequence = postprocess_str_after_delinearization(sequence)
+        graph, status = tokens2graph(sequence.split(), verbose=verbose)
+
+        return penman.encode(graph), status
+
+    def remove_special_tokens(self, input_ids: List[int]):
         """NOTE: only removes special tokens and AMR, NOT the added tokens.
         Does not work on batches (because not every sequences is equally long as required by torch tensors)"""
 
         # Because `<AMR>` is not a real "special token", it does not get ignored so we have to remove it ourselves
-        # It is included in all_special_ids_tensor
-        return input_ids[~torch.isin(input_ids, self.all_special_ids_tensor)]
-
+        # It is included in special_ids_and_amr_token_id
+        return [idx for idx in input_ids if idx not in self.special_ids_and_amr_token_id]

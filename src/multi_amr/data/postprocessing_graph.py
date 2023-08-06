@@ -1,12 +1,13 @@
 import enum
 import re
 import sys
+from collections import Counter
 from typing import List, Tuple
 
 import networkx as nx
 import penman
 from penman import Graph
-
+from penman.tree import _default_variable_prefix
 
 BACKOFF = penman.Graph(
     [
@@ -67,7 +68,7 @@ def fix_and_make_graph(nodes):
         else:
             nodes_.append(n)
     nodes = nodes_
-    print("first loop", nodes)
+
     i = 0
     nodes_ = []
     while i < len(nodes):
@@ -85,14 +86,28 @@ def fix_and_make_graph(nodes):
             nodes_.append(nxt)
         i += 1
     nodes = nodes_
-    print("second loop", nodes)
+
+    # Build pointer maps so we can create better varnames
+    i = 0
+    pointer_map = {}
+    varname_counter = Counter()
+    while i < len(nodes)-2:
+        open_rel_token = nodes[i]
+        pointer_token = nodes[i+1]
+        token = nodes[i+2]
+
+        if open_rel_token.strip() == "(" and pointer_token.strip().startswith("<pointer:"):
+            varname = _default_variable_prefix(token)
+            varname_counter[varname] += 1
+            pointer_map[pointer_token] = varname if varname_counter[varname] < 2 else f"{varname}{varname_counter[varname]}"
+        i += 1
 
     i = 1
     nodes_ = [nodes[0]]
     while i < len(nodes):
         nxt = nodes[i]
         if isinstance(nxt, str) and nxt.startswith("<pointer:"):
-            nxt = "z" + nxt[9:-1]
+            nxt = pointer_map[nxt]
             fol = nodes[i + 1]
             # is not expansion
             if isinstance(fol, str) and (fol.startswith(":") or (fol == ")")):
@@ -106,7 +121,6 @@ def fix_and_make_graph(nodes):
             nodes_.append(nxt)
         i += 1
     nodes = nodes_
-    print("third loop", nodes)
 
     i = 0
     nodes_ = []
@@ -123,7 +137,7 @@ def fix_and_make_graph(nodes):
     if last:
         nodes_.append(nodes[-1])
     nodes = nodes_
-    print("fourth loop", nodes)
+
     i = 0
     nodes_ = []
     while i < (len(nodes)):
@@ -136,7 +150,7 @@ def fix_and_make_graph(nodes):
             nodes_.append(nodes[i])
             i += 1
     nodes = nodes_
-    print("fifth loop", nodes)
+
     i = 0
     newvars = 0
     variables = set()
@@ -163,7 +177,7 @@ def fix_and_make_graph(nodes):
             nodes_.append(next)
 
         i += 1
-    print("sixth loop", nodes)
+
     nodes = nodes_
     pieces_ = []
     open_cnt = 0
