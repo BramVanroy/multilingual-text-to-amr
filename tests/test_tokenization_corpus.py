@@ -9,7 +9,7 @@ import penman
 
 from multi_amr.data.postprocessing_graph import reorder_graph_triples
 from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
-from multi_amr.data.prepare_dataset import remove_wiki_from_graph, dfs_linearize
+from multi_amr.data.linearization import remove_wiki_from_graph, dfs_linearize
 from multi_amr.data.tokenization import AMRTokenizerWrapper
 from multi_amr.utils.calculate_smatch import calculate_smatch
 
@@ -94,8 +94,8 @@ def main_sp(indir: str, start_from: Optional[int] = None):
         status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
         runs_stats[(rm_wiki, tok_name, use_fast)] = {
             "status_stats": status_stats,
-            "num_not_perfect_smatch": num_not_perfect_smatch,
-            "percent_not_perfect_smatch": f"{(100*num_not_perfect_smatch / status_counter.total()):.2f}%",
+            "num_not_perfect_match": num_not_perfect_smatch,
+            "percent_not_perfect_match": f"{(100*num_not_perfect_smatch / status_counter.total()):.2f}%",
             "smatch": {k: f"{v:.4f}" for k, v in score.items()}
         }
 
@@ -141,8 +141,8 @@ def worker(pdin: Path, runs_stats: Dict, use_fast: bool, tokenizer_name: str, re
     status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
     runs_stats[(remove_wiki, tokenizer_name, use_fast)] = {
                 "status_stats": status_stats,
-                "num_not_perfect_smatch": num_not_perfect_smatch,
-                "percent_not_perfect_smatch": f"{(100*num_not_perfect_smatch / status_counter.total()):.2f}%",
+                "num_not_perfect_match": num_not_perfect_smatch,
+                "percent_not_perfect_match": f"{(100*num_not_perfect_smatch / status_counter.total()):.2f}%",
             }
 
     return runs_stats

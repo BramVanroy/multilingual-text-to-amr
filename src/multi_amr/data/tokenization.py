@@ -11,7 +11,7 @@ from multi_amr.data.postprocessing_str import (
     postprocess_str_after_delinearization,
     postprocess_str_after_linearization, tokenize_except_quotes,
 )
-from multi_amr.data.prepare_dataset import dfs_linearize, remove_wiki_from_graph
+from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
 from transformers import (
     AutoTokenizer,
     BloomTokenizerFast,

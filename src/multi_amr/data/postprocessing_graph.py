@@ -57,7 +57,7 @@ def connect_graph_if_not_connected(graph):
     return graph, ParsedStatus.FIXED
 
 
-def fix_and_make_graph(nodes, verbose: bool = False):
+def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
     nodes_ = []
     for n in nodes:
         if isinstance(n, str):
@@ -70,7 +70,6 @@ def fix_and_make_graph(nodes, verbose: bool = False):
     nodes = nodes_
     if verbose:
         print("After loop 1", nodes)
-
     i = 0
     nodes_ = []
     while i < len(nodes):
@@ -91,7 +90,7 @@ def fix_and_make_graph(nodes, verbose: bool = False):
     if verbose:
         print("After loop 2", nodes)
 
-    # Build pointer maps so we can create better varnames
+        # Build pointer maps so we can create better varnames
     i = 0
     pointer_map = {}
     varname_counter = Counter()
@@ -245,7 +244,11 @@ def fix_and_make_graph(nodes, verbose: bool = False):
                 if next in ("/", "EDGE", "MODE", ")"):
                     pieces.append(piece)
             elif prev == "/":
-                if next in ("INST", "I"):
+                # Having a "VAR" _after_ an instance marker / should not usually be allowed,
+                # but sometimes the VAR pattern matches an actual token. E.g. `f / f4` where f4 refers to the
+                # keyboard key (?) and the derived varname is therefore 'f'. Coincidentally the actual token, here,
+                # matches the pattern for a VAR
+                if next in ("INST", "I", "VAR"):
                     pieces.append(piece)
             elif prev == "INST":
                 if next in (")", "EDGE", "MODE"):
@@ -266,8 +269,9 @@ def fix_and_make_graph(nodes, verbose: bool = False):
             elif prev == "CONST":
                 if next in (")", "EDGE", "MODE"):
                     pieces.append(piece)
+
     if verbose:
-        print("After loop 8", nodes)
+        print("After loop 8", pieces)
 
     pieces_ = []
     open_cnt = 0
@@ -285,7 +289,7 @@ def fix_and_make_graph(nodes, verbose: bool = False):
             break
     pieces = pieces_ + [")"] * (open_cnt - closed_cnt)
     if verbose:
-        print("After loop 9", nodes)
+        print("After loop 9", pieces)
 
     linearized = re.sub(r"\s+", " ", " ".join(pieces)).strip()
 
@@ -308,28 +312,33 @@ def fix_and_make_graph(nodes, verbose: bool = False):
     graph = penman.Graph(triples)
     linearized = penman.encode(graph)
     if verbose:
-        print("After loop 10", nodes)
+        print("After loop 10", linearized)
 
     def fix_text(_linearized=linearized):
         n = 0
 
         def _repl1(match):
             nonlocal n
-            out = match.group(1) + match.group(2) + str(3000 + n) + " / " + match.group(2) + match.group(3)
+            out = match.group(1) + match.group(2) + match.group(3) + str(3000 + n) + " / " + match.group(3) + match.group(4)
             n += 1
             return out
 
-        _linearized = re.sub(r"(\(\s?)([a-z])([^\/:)]+[:\)])", _repl1, _linearized, flags=re.IGNORECASE | re.MULTILINE)
-
-        def _repl2(match):
-            return match.group(1)
+        # For invalid nodes, this will transform
+        # - :op4 (RPF) -> :op4 (R3000 / RPF)
+        # - :op4 hell(RPF) ->  :op4 (R3000 / RPF) (destructive but should not occur)
+        # - :op4 "hell(RPF)" -> :op4 "hell(RPF)" (untouched, literal)
+        _linearized = re.sub(r"(:[a-zA-Z0-6]+\s+)(?!\")(?:.*?)(\(\s?)([a-z])([^\/:)]+[:\)])", _repl1, _linearized, flags=re.IGNORECASE | re.MULTILINE)
+        if verbose:
+            print("after fix_text repl1", _linearized)
 
         _linearized = re.sub(
             r"(\(\s*[a-z][\d+]\s*\/\s*[^\s\)\(:\/]+\s*)((?:/\s*[^\s\)\(:\/]+\s*)+)",
-            _repl2,
+            r"\1",
             _linearized,
             flags=re.IGNORECASE | re.MULTILINE,
         )
+        if verbose:
+            print("after fix_text repl2", _linearized)
 
         # adds a ':' to args w/o it
         _linearized = re.sub(r"([^:])(ARG)", r"\1 :\2", _linearized)
@@ -341,7 +350,7 @@ def fix_and_make_graph(nodes, verbose: bool = False):
 
     linearized = fix_text(linearized)
     if verbose:
-        print("After fix text", nodes)
+        print("After fix text", linearized)
     g = penman.decode(linearized)
     g = reorder_graph_triples(g)
 
