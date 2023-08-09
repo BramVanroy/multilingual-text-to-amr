@@ -57,7 +57,7 @@ def connect_graph_if_not_connected(graph):
     return graph, ParsedStatus.FIXED
 
 
-def fix_and_make_graph(nodes):
+def fix_and_make_graph(nodes, verbose: bool = False):
     nodes_ = []
     for n in nodes:
         if isinstance(n, str):
@@ -68,6 +68,8 @@ def fix_and_make_graph(nodes):
         else:
             nodes_.append(n)
     nodes = nodes_
+    if verbose:
+        print("After loop 1", nodes)
 
     i = 0
     nodes_ = []
@@ -77,7 +79,7 @@ def fix_and_make_graph(nodes):
         if isinstance(nxt, str) and nxt.startswith("<pointer:"):
             e = nxt.find(">")
             if e != len(nxt) - 1:
-                pst = nxt[e + 1 :]
+                pst = nxt[e + 1:]
                 nxt = nxt[: e + 1]
             nodes_.append(nxt)
             if pst is not None:
@@ -86,21 +88,26 @@ def fix_and_make_graph(nodes):
             nodes_.append(nxt)
         i += 1
     nodes = nodes_
+    if verbose:
+        print("After loop 2", nodes)
 
     # Build pointer maps so we can create better varnames
     i = 0
     pointer_map = {}
     varname_counter = Counter()
-    while i < len(nodes)-2:
+    while i < len(nodes) - 2:
         open_rel_token = nodes[i]
-        pointer_token = nodes[i+1]
-        token = nodes[i+2]
+        pointer_token = nodes[i + 1]
+        token = nodes[i + 2]
 
         if open_rel_token.strip() == "(" and pointer_token.strip().startswith("<pointer:"):
             varname = _default_variable_prefix(token)
             varname_counter[varname] += 1
-            pointer_map[pointer_token] = varname if varname_counter[varname] < 2 else f"{varname}{varname_counter[varname]}"
+            pointer_map[pointer_token] = varname if varname_counter[
+                                                        varname] < 2 else f"{varname}{varname_counter[varname]}"
         i += 1
+    if verbose:
+        print("Pointer map", pointer_map)
 
     i = 1
     nodes_ = [nodes[0]]
@@ -121,6 +128,8 @@ def fix_and_make_graph(nodes):
             nodes_.append(nxt)
         i += 1
     nodes = nodes_
+    if verbose:
+        print("After loop 3", nodes)
 
     i = 0
     nodes_ = []
@@ -137,6 +146,8 @@ def fix_and_make_graph(nodes):
     if last:
         nodes_.append(nodes[-1])
     nodes = nodes_
+    if verbose:
+        print("After loop 4", nodes)
 
     i = 0
     nodes_ = []
@@ -150,6 +161,8 @@ def fix_and_make_graph(nodes):
             nodes_.append(nodes[i])
             i += 1
     nodes = nodes_
+    if verbose:
+        print("After loop 5", nodes)
 
     i = 0
     newvars = 0
@@ -162,7 +175,7 @@ def fix_and_make_graph(nodes):
         if next == "/":
             last = nodes_[-1]
             if last in variables:
-                last_remap = f"z{newvars+1000}"
+                last_remap = f"z{newvars + 1000}"
                 newvars += 1
                 nodes_[-1] = last_remap
                 remap[last] = last_remap
@@ -175,10 +188,11 @@ def fix_and_make_graph(nodes):
 
         else:
             nodes_.append(next)
-
         i += 1
-
     nodes = nodes_
+    if verbose:
+        print("After loop 6", nodes)
+
     pieces_ = []
     open_cnt = 0
     closed_cnt = 0
@@ -194,6 +208,8 @@ def fix_and_make_graph(nodes):
         if open_cnt == closed_cnt:
             break
     nodes = pieces_ + [")"] * (open_cnt - closed_cnt)
+    if verbose:
+        print("After loop 7", nodes)
 
     pieces = []
     for piece in nodes:
@@ -207,10 +223,13 @@ def fix_and_make_graph(nodes):
             prev = _classify(pieces[-1])
             next = _classify(piece)
 
+            # Do not wrap foating numbers in double quotes. E.g. :quant 303.3
+            piece_is_number = all([c == "." or c.isdigit() for c in piece]) and piece.count(".") < 2
+
             if next == "CONST":
                 quote = False
                 for char in (",", ":", "/", "(", ")", ".", "!", "?", "\\", "_", "="):
-                    if char in piece:
+                    if char in piece and not (char == "." and piece_is_number):
                         quote = True
                         break
                 if quote:
@@ -247,6 +266,8 @@ def fix_and_make_graph(nodes):
             elif prev == "CONST":
                 if next in (")", "EDGE", "MODE"):
                     pieces.append(piece)
+    if verbose:
+        print("After loop 8", nodes)
 
     pieces_ = []
     open_cnt = 0
@@ -263,6 +284,8 @@ def fix_and_make_graph(nodes):
         if open_cnt == closed_cnt:
             break
     pieces = pieces_ + [")"] * (open_cnt - closed_cnt)
+    if verbose:
+        print("After loop 9", nodes)
 
     linearized = re.sub(r"\s+", " ", " ".join(pieces)).strip()
 
@@ -284,6 +307,8 @@ def fix_and_make_graph(nodes):
             triples.append(triple)
     graph = penman.Graph(triples)
     linearized = penman.encode(graph)
+    if verbose:
+        print("After loop 10", nodes)
 
     def fix_text(_linearized=linearized):
         n = 0
@@ -315,8 +340,44 @@ def fix_and_make_graph(nodes):
         return _linearized
 
     linearized = fix_text(linearized)
+    if verbose:
+        print("After fix text", nodes)
     g = penman.decode(linearized)
+    g = reorder_graph_triples(g)
+
     return g
+
+
+def reorder_graph_triples(g: Graph):
+    """We order the triples in the graph so that we keep the first triple in order, and
+    then we recursively follow so that the order is depth-first and that the :instance
+    always comes first in its subtree"""
+    triples = g.triples
+    curr_var = triples[0][0]
+    sorted_triples = []
+    vars_done = set()
+
+    def collect_triples_with_var(var):
+        if var in vars_done:
+            return
+        vars_done.add(var)
+
+        # Instance always comes first
+        for t in triples:
+            if t[0] == var:
+                if t[1] == ":instance":
+                    sorted_triples.append(t)
+        # Non-instance
+        for t in triples:
+            if t[0] == var:
+                if t[1] != ":instance":
+                    sorted_triples.append(t)
+                    if re.match(r"[a-z]\d*", t[2]):
+                        # depth-first
+                        collect_triples_with_var(t[2])
+
+    collect_triples_with_var(curr_var)
+    return Graph(sorted_triples)
 
 
 def _classify(node):
@@ -349,25 +410,26 @@ def _classify(node):
 
 def tokens2graph(tokens: List[str], verbose: bool = False) -> Tuple[Graph, ParsedStatus]:
     try:
-        graph_ = graph = fix_and_make_graph(tokens)
+        graph_ = graph = fix_and_make_graph(tokens, verbose=verbose)
     except Exception as e:
         if verbose:
             print("Building failure:", file=sys.stderr)
             print(tokens, file=sys.stderr)
             print(e, file=sys.stderr)
         return BACKOFF, ParsedStatus.BACKOFF
-    try:
-        graph, status = connect_graph_if_not_connected(graph)
-        if status == ParsedStatus.BACKOFF:
+    else:
+        try:
+            graph, status = connect_graph_if_not_connected(graph)
+            if status == ParsedStatus.BACKOFF:
+                if verbose:
+                    print("Reconnection 1 failure:")
+                    print(tokens, file=sys.stderr)
+                    print(graph_, file=sys.stderr)
+            return graph, status
+        except Exception as e:
+            print("Reconnction 2 failure:", file=sys.stderr)
             if verbose:
-                print("Reconnection 1 failure:")
+                print(e, file=sys.stderr)
                 print(tokens, file=sys.stderr)
                 print(graph_, file=sys.stderr)
-        return graph, status
-    except Exception as e:
-        print("Reconnction 2 failure:", file=sys.stderr)
-        if verbose:
-            print(e, file=sys.stderr)
-            print(tokens, file=sys.stderr)
-            print(graph_, file=sys.stderr)
-        return BACKOFF, ParsedStatus.BACKOFF
+            return BACKOFF, ParsedStatus.BACKOFF

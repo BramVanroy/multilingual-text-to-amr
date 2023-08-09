@@ -7,19 +7,25 @@ from typing import Optional, Dict
 from tqdm import tqdm
 import penman
 
+from multi_amr.data.postprocessing_graph import reorder_graph_triples
 from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
 from multi_amr.data.prepare_dataset import remove_wiki_from_graph, dfs_linearize
 from multi_amr.data.tokenization import AMRTokenizerWrapper
 from multi_amr.utils.calculate_smatch import calculate_smatch
 
-USE_FAST = (True, False)
+# USE_FAST = (True, False)
+# TOKENIZER_NAMES = (
+#     "bigscience/bloomz-560m",
+#     "facebook/mbart-large-cc25",
+#     "google/mt5-base",
+#     "facebook/nllb-200-3.3B"
+# )
+# REMOVE_WIKI = (True, False)
+USE_FAST = (True,)
 TOKENIZER_NAMES = (
     "bigscience/bloomz-560m",
-    "facebook/mbart-large-cc25",
-    "google/mt5-base",
-    "facebook/nllb-200-3.3B"
 )
-REMOVE_WIKI = (True, False)
+REMOVE_WIKI = (True,)
 
 
 def main_sp(indir: str, start_from: Optional[int] = None):
@@ -29,57 +35,69 @@ def main_sp(indir: str, start_from: Optional[int] = None):
     graph_idx = 0
     runs_stats = {}
 
-    for use_fast in USE_FAST:
-        for tokenizer_name in TOKENIZER_NAMES:
-            if tokenizer_name == "bigscience/bloomz-560m" and not use_fast:
-                # BLOOM does not have a slow tokenizer
-                continue
-            tok_wrapper = AMRTokenizerWrapper.from_pretrained(tokenizer_name, use_fast=use_fast, legacy=True)
+    for use_fast, tok_name, rm_wiki in product(USE_FAST, TOKENIZER_NAMES, REMOVE_WIKI):
+        if tok_name == "bigscience/bloomz-560m" and not use_fast:
+            # BLOOM does not have a slow tokenizer
+            continue
+        tok_wrapper = AMRTokenizerWrapper.from_pretrained(tok_name, use_fast=use_fast, legacy=True)
 
-            for remove_wiki in REMOVE_WIKI:
-                status_counter = Counter()
-                num_not_perfect_smatch = 0
-                for pfin in tqdm(list(pdin.rglob("*.txt")),
-                                 unit="file",
-                                 desc=f"Remove wiki? {remove_wiki} Tok? {tokenizer_name} Fast? {use_fast}"):
-                    with pfin.open(encoding="utf-8") as fhin:
-                        linearizeds = []
-                        refs_penman = []
-                        for graph in penman.iterdecode(fhin):
-                            graph_idx += 1
-                            if start_from is not None and start_from > 0 and graph_idx < start_from:
-                                continue
+        num_not_perfect_smatch = 0
+        all_refs_penman = []
+        all_linearizeds = []
+        all_preds_penman = []
+        status_counter = Counter()
+        for pfin in tqdm(list(pdin.rglob("*.txt")),
+                         unit="file",
+                         desc=f"Remove wiki? {rm_wiki} Tok? {tok_name} Fast? {use_fast}"):
+            with pfin.open(encoding="utf-8") as fhin:
+                for graph in penman.iterdecode(fhin):
+                    graph_idx += 1
+                    if start_from is not None and start_from > 0 and graph_idx < start_from:
+                        continue
 
-                            graph.metadata = []
-                            if remove_wiki:
-                                graph = remove_wiki_from_graph(graph)
+                    graph.metadata = []
+                    if rm_wiki:
+                        graph = remove_wiki_from_graph(graph)
 
-                            linearized = " ".join(dfs_linearize(graph))
-                            linearized = postprocess_str_after_linearization(linearized)
-                            linearizeds.append(linearized)
-                            refs_penman.append(penman.encode(graph))
+                    graph = reorder_graph_triples(graph)
+                    linearized = " ".join(dfs_linearize(graph))
+                    linearized = postprocess_str_after_linearization(linearized)
+                    all_linearizeds.append(linearized)
 
-                        encoded = tok_wrapper(linearizeds)
-                        output = tok_wrapper.batch_decode_amr_ids(encoded.input_ids, verbose=True)
+                    tree = penman.configure(graph)
+                    tree.reset_variables()
+                    ref_penman = penman.format(tree)
+                    all_refs_penman.append(ref_penman)
 
-                        for ref_penmanstr, pred_penmanstr, status in zip(refs_penman, output["penman"], output["status"]):
-                            status_counter[status.name] += 1
-                            score = calculate_smatch([ref_penmanstr], [pred_penmanstr])
-                            if score["smatch_fscore"] != 1:
-                                print("Not a good match!!")
-                                print("ref:", ref_penmanstr)
-                                print("pred:", pred_penmanstr)
-                                print()
-                                num_not_perfect_smatch += 1
+        for linearized, ref_penman in zip(all_linearizeds, all_refs_penman):
+            encoded = tok_wrapper(linearized)
+            pred_penman, status = tok_wrapper.decode_amr_ids(encoded.input_ids, reset_variables=True)
 
-                status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
-                runs_stats[(remove_wiki, tokenizer_name, use_fast)] = {
-                    "status_stats": status_stats,
-                    "num_not_perfect_smatch": num_not_perfect_smatch,
-                    "percent_not_perfect_smatch": 100*num_not_perfect_smatch / status_counter.total(),
-                }
-                print((remove_wiki, tokenizer_name, use_fast))
-                print(runs_stats[(remove_wiki, tokenizer_name, use_fast)])
+            all_preds_penman.append(pred_penman)
+            status_counter[status] += 1
+
+            ref_graph = penman.decode(ref_penman)
+            pred_graph = penman.decode(pred_penman)
+            if ref_graph != pred_graph:
+                print(f"Not an exact graph match")
+                print("linearized input:", linearized)
+                print("ref:", ref_penman)
+                print("pred:", pred_penman)
+                print("idx:", graph_idx)
+                print()
+                num_not_perfect_smatch += 1
+
+        assert len(all_preds_penman) == len(all_refs_penman) == len(all_linearizeds)
+
+        # Calculate corpus-level smatch
+        score = calculate_smatch(all_refs_penman, all_preds_penman)
+        status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
+        runs_stats[(rm_wiki, tok_name, use_fast)] = {
+            "status_stats": status_stats,
+            "num_not_perfect_smatch": num_not_perfect_smatch,
+            "percent_not_perfect_smatch": f"{(100*num_not_perfect_smatch / status_counter.total()):.2f}%",
+            "smatch": {k: f"{v:.4f}" for k, v in score.items()}
+        }
 
     for params, stats in runs_stats.items():
         remove_wiki, tokenizer_name, use_fast = params
@@ -124,7 +142,7 @@ def worker(pdin: Path, runs_stats: Dict, use_fast: bool, tokenizer_name: str, re
     runs_stats[(remove_wiki, tokenizer_name, use_fast)] = {
                 "status_stats": status_stats,
                 "num_not_perfect_smatch": num_not_perfect_smatch,
-                "percent_not_perfect_smatch": 100*num_not_perfect_smatch / status_counter.total(),
+                "percent_not_perfect_smatch": f"{(100*num_not_perfect_smatch / status_counter.total()):.2f}%",
             }
 
     return runs_stats

@@ -5,6 +5,12 @@ import smatch
 
 
 def calculate_smatch(refs_penman: List[str], preds_penman: List[str]):
+    if not (num_refs := len(refs_penman)) or not (num_preds := len(refs_penman)) or num_refs != num_preds:
+        # Walrus consequence: if the if evaluates to true on the first or, only num_refs is defined,
+        # and num_preds is not. So have to use len() here!
+        raise ValueError(f"Number of references ({num_refs}) and predictions ({len(refs_penman)}) must be equal"
+                         f" and greater than zero.")
+
     total_match_num = total_test_num = total_gold_num = 0
     n_invalid = 0
 

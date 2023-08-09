@@ -9,7 +9,7 @@ from multi_amr.data.postprocessing_graph import ParsedStatus, tokens2graph
 from multi_amr.data.postprocessing_str import (
     clean_up_amr_tokenization,
     postprocess_str_after_delinearization,
-    postprocess_str_after_linearization,
+    postprocess_str_after_linearization, tokenize_except_quotes,
 )
 from multi_amr.data.prepare_dataset import dfs_linearize, remove_wiki_from_graph
 from transformers import (
@@ -101,7 +101,7 @@ class AMRTokenizerWrapper:
         return self.tokenizer(*args, **kwargs)
 
     def batch_encode_penmanstrs(
-        self, penmanstrs: List[str], remove_wiki: bool = False, remove_metadata: bool = True, **tokenizer_kwargs
+        self, penmanstrs: List[str], remove_wiki: bool = False, remove_metadata: bool = True, verbose: bool = False, **tokenizer_kwargs
     ):
         if isinstance(penmanstrs, str):
             raise TypeError("Input 'penmanstrs' must be a list of strings")
@@ -116,35 +116,48 @@ class AMRTokenizerWrapper:
                 graph = remove_wiki_from_graph(graph)
 
             linearized = " ".join(dfs_linearize(graph))
-            linearized = postprocess_str_after_linearization(linearized)
+            linearized = postprocess_str_after_linearization(linearized, verbose=verbose)
             linearizeds.append(linearized)
 
         return self.tokenizer(linearizeds, **tokenizer_kwargs)
 
     def batch_decode_amr_ids(
-        self, all_token_ids: List[List[int]], verbose: bool = False, **tokenizer_kwargs
+        self, all_token_ids: List[List[int]], verbose: bool = False, reset_variables: bool = False, **tokenizer_kwargs
     ) -> Dict[str, List]:
         """
         Returns a dict with `penman` and `status` keys.
         """
         output = {"penman": [], "status": []}
         for token_ids in all_token_ids:
-            penmanstr, status = self.decode_amr_ids(token_ids, verbose=verbose, **tokenizer_kwargs)
+            penmanstr, status = self.decode_amr_ids(token_ids, verbose=verbose, reset_variables=reset_variables, **tokenizer_kwargs)
             output["penman"].append(penmanstr)
             output["status"].append(status)
 
         return output
 
     def decode_amr_ids(
-        self, token_ids: List[int], verbose: bool = False, **tokenizer_kwargs
+        self, token_ids: List[int], verbose: bool = False, reset_variables: bool = False, **tokenizer_kwargs
     ) -> Tuple[str, ParsedStatus]:
         token_ids = self.remove_special_tokens(token_ids)
         decoded = self.tokenizer.decode(token_ids, **tokenizer_kwargs)
         sequence = clean_up_amr_tokenization(decoded)
-        sequence = postprocess_str_after_delinearization(sequence)
-        graph, status = tokens2graph(sequence.split(), verbose=verbose)
+        if verbose:
+            print("after cleanup", sequence)
 
-        return penman.encode(graph), status
+        sequence = postprocess_str_after_delinearization(sequence)
+        if verbose:
+            print("after postprocess", sequence)
+        graph, status = tokens2graph(tokenize_except_quotes(sequence), verbose=verbose)
+
+        if reset_variables:
+            # To tree so that we can reset the variables
+            tree = penman.configure(graph)
+            tree.reset_variables()
+            penmanstr = penman.format(tree)
+        else:
+            penmanstr = penman.encode(graph)
+
+        return penmanstr, status
 
     def remove_special_tokens(self, input_ids: List[int]):
         """NOTE: only removes special tokens and AMR, NOT the added tokens.
