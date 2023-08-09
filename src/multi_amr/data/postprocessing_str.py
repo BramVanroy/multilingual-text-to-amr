@@ -83,6 +83,9 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
     delinearized = delinearized.replace(":negation", ":polarity -")
     delinearized = delinearized.replace("</of>", "-of")
 
+    # Glue role digits together, e.g. ':op1 0 <rel>' -> :op10 <rel>
+    delinearized = re.sub(r"(:[a-zA-Z0-9]+)\s+(\d+) <(rel|lit)>", r"\1\2 <\3>", delinearized)
+
     def reverse_literal(match):
         rel = match.group(1).strip()
         content = match.group(2).strip()
@@ -92,6 +95,11 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
         return f':{rel} "{content}"'
 
     delinearized = re.sub(r":([a-zA-Z0-9]+)\s+<lit>(.*?)</lit>", reverse_literal, delinearized)
+
+    # Glue numbers back together, e.g. ':quant -547' -> ':quant -547'
+    # but should not trigger for literal values, like ':value "34 61 09 91 12 135"'
+    delinearized = re.sub(r"(?<![\"\d])(\s+-?\d*\.?\d*) (\d+)", r"\1\2", delinearized)
+
     delinearized = delinearized.replace("<rel>", "(")
     delinearized = delinearized.replace("</rel>", ")")
 

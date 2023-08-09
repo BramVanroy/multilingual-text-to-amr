@@ -136,10 +136,10 @@ class AMRTokenizerWrapper:
         return output
 
     def decode_amr_ids(
-        self, token_ids: List[int], verbose: bool = False, reset_variables: bool = False, **tokenizer_kwargs
+        self, token_ids: List[int], verbose: bool = False, reset_variables: bool = False, clean_up_tokenization_spaces: bool = False, **tokenizer_kwargs
     ) -> Tuple[str, ParsedStatus]:
         token_ids = self.remove_special_tokens(token_ids)
-        decoded = self.tokenizer.decode(token_ids, **tokenizer_kwargs)
+        decoded = self.tokenizer.decode(token_ids, clean_up_tokenization_spaces=clean_up_tokenization_spaces, **tokenizer_kwargs)
         sequence = clean_up_amr_tokenization(decoded)
         if verbose:
             print("after cleanup", sequence)

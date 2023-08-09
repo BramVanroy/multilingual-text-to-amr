@@ -4,6 +4,7 @@ from multiprocessing import Manager, Pool
 from pathlib import Path
 from typing import Optional, Dict
 
+from ftfy import fix_text
 from tqdm import tqdm
 import penman
 
@@ -13,19 +14,19 @@ from multi_amr.data.linearization import remove_wiki_from_graph, dfs_linearize
 from multi_amr.data.tokenization import AMRTokenizerWrapper
 from multi_amr.utils.calculate_smatch import calculate_smatch
 
-# USE_FAST = (True, False)
-# TOKENIZER_NAMES = (
-#     "bigscience/bloomz-560m",
-#     "facebook/mbart-large-cc25",
-#     "google/mt5-base",
-#     "facebook/nllb-200-3.3B"
-# )
-# REMOVE_WIKI = (True, False)
-USE_FAST = (True,)
+USE_FAST = (True, False)
 TOKENIZER_NAMES = (
     "bigscience/bloomz-560m",
+    "facebook/mbart-large-cc25",
+    "google/mt5-base",
+    "facebook/nllb-200-3.3B"
 )
-REMOVE_WIKI = (True,)
+REMOVE_WIKI = (True, False)
+# USE_FAST = (True,)
+# TOKENIZER_NAMES = (
+#     "facebook/mbart-large-cc25",
+# )
+# REMOVE_WIKI = (False,)
 
 
 def main_sp(indir: str, start_from: Optional[int] = None):
@@ -60,6 +61,10 @@ def main_sp(indir: str, start_from: Optional[int] = None):
                         graph = remove_wiki_from_graph(graph)
 
                     graph = reorder_graph_triples(graph)
+                    # NLLB does not support en-dashes -> normalize
+                    cleaned_punct_penman = fix_text(penman.encode(graph).replace("–", "-"))
+                    graph = penman.decode(cleaned_punct_penman)
+
                     linearized = " ".join(dfs_linearize(graph))
                     linearized = postprocess_str_after_linearization(linearized)
                     all_linearizeds.append(linearized)
@@ -106,69 +111,6 @@ def main_sp(indir: str, start_from: Optional[int] = None):
         print()
 
 
-def worker(pdin: Path, runs_stats: Dict, use_fast: bool, tokenizer_name: str, remove_wiki: bool):
-    tok_wrapper = AMRTokenizerWrapper.from_pretrained(tokenizer_name, use_fast=use_fast, legacy=True)
-    status_counter = Counter()
-    num_not_perfect_smatch = 0
-    for pfin in tqdm(list(pdin.rglob("*.txt")),
-                     unit="file",
-                     desc=f"Remove wiki? {remove_wiki} Tok? {tokenizer_name} Fast? {use_fast}"):
-        with pfin.open(encoding="utf-8") as fhin:
-            linearizeds = []
-            refs_penman = []
-            for graph in penman.iterdecode(fhin):
-                graph.metadata = []
-                if remove_wiki:
-                    graph = remove_wiki_from_graph(graph)
-
-                linearized = " ".join(dfs_linearize(graph))
-                linearized = postprocess_str_after_linearization(linearized)
-                linearizeds.append(linearized)
-                refs_penman.append(penman.encode(graph))
-
-            encoded = tok_wrapper(linearizeds)
-            output = tok_wrapper.batch_decode_amr_ids(encoded.input_ids, verbose=True)
-
-            for ref_penmanstr, pred_penmanstr, status in zip(refs_penman, output["penman"], output["status"]):
-                status_counter[status.name] += 1
-                score = calculate_smatch([ref_penmanstr], [pred_penmanstr])
-                if score["smatch_fscore"] != 1:
-                    print("Not a good match!!")
-                    print("ref:", ref_penmanstr)
-                    print()
-                    num_not_perfect_smatch += 1
-
-    status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
-    runs_stats[(remove_wiki, tokenizer_name, use_fast)] = {
-                "status_stats": status_stats,
-                "num_not_perfect_match": num_not_perfect_smatch,
-                "percent_not_perfect_match": f"{(100*num_not_perfect_smatch / status_counter.total()):.2f}%",
-            }
-
-    return runs_stats
-
-
-def main_mp(indir: str, num_workers: int):
-    pdin = Path(indir)
-
-    with Manager() as manager:
-        runs_stats = manager.dict()
-
-        with Pool(num_workers) as pool:
-            pool.starmap(
-                worker,
-                [
-                    (pdin, runs_stats, use_fast, tok_name, rm_wiki)
-                    for use_fast, tok_name, rm_wiki in product(USE_FAST, TOKENIZER_NAMES, REMOVE_WIKI)
-                ]
-            )
-
-        for params, stats in runs_stats.items():
-            remove_wiki, tokenizer_name, use_fast = params
-            print(f"Remove wiki? {remove_wiki} Tok? {tokenizer_name} Fast? {use_fast}")
-            print(stats)
-            print()
-
 
 if __name__ == "__main__":
     import argparse
@@ -186,7 +128,7 @@ if __name__ == "__main__":
                          help="If > 1, will launch parallel processes to run tests")
     cargs = cparser.parse_args()
     if cargs.num_workers > 1:
-        main_mp(cargs.indir, cargs.num_workers)
+        raise NotImplementedError("Multi-processing not implemented")
     else:
         main_sp(cargs.indir, cargs.start)
 
