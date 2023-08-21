@@ -76,10 +76,5 @@ default_section = "FIRSTPARTY"
 known_first_party = "multi_amr"
 lines_after_imports = 2
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-filterwarnings = ["ignore::DeprecationWarning:tensorflow.*:"]
-markers = ["slow: mark test as slow. Especially useful for neural metrics."]
-
 # flake8 is in setup.cfg as it does not support toml:
 # https://github.com/PyCQA/flake8/issues/234
