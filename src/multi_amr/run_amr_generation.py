@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import List
 
 import evaluate as evaluate
-from smatchpp import Smatchpp, solvers, preprocess
 import numpy as np
 import penman
 import transformers
@@ -16,6 +15,7 @@ from amr import AMR
 from datasets import DatasetDict
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.dataset import AMRDataset, collate_amr
+from multi_amr.data.postprocessing_graph import ParsedStatus
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.parse_cli import parse_cli
 from multi_amr.peft_callback import PeftSavingCallback
@@ -23,6 +23,7 @@ from multi_amr.trainer import AMRTrainer
 from multi_amr.utils.smart_initialization import freeze_encoder, smart_initialization
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from peft.utils import TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING
+from smatchpp import Smatchpp, preprocess, solvers
 from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, EarlyStoppingCallback, set_seed
 from transformers.trainer_utils import get_last_checkpoint
 
@@ -172,16 +173,16 @@ def main():
     graph_standardizer = preprocess.AMRStandardizer(syntactic_standardization="dereify")
     ilp = solvers.ILP()
     smatch_metric = Smatchpp(alignmentsolver=ilp, graph_standardizer=graph_standardizer)
+
     def calculate_smatch(references: List[str], predictions: List[str]):
         score, optimization_status = smatch_metric.score_corpus(references, predictions)
         score = score["main"]
         return {
-            "smatch_precision": score["Precision"],
-            "smatch_recall": score["Recall"],
-            "smatch_fscore": score["F1"],
+            "smatch_precision": score["Precision"]["result"],
+            "smatch_recall": score["Recall"]["result"],
+            "smatch_fscore": score["F1"]["result"],
         }
 
-    sb_metric = evaluate.load("sacrebleu")
     acc_metric = evaluate.load("accuracy")
 
     def preprocess_logits_for_metrics(logits, labels):
@@ -193,20 +194,22 @@ def main():
 
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
-
+        num_samples = len(labels)
         # CLM models need to reshift their labels
-        if tok_wrapper.tokenizer in (TokenizerType.BLOOM,):
+        if tok_wrapper.tokenizer_type in (TokenizerType.BLOOM,):
             labels = labels[:, 1:]
             preds = preds[:, :-1]
 
         # BLEU
-        labels_for_bleu = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
-        preds_for_bleu = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
-        ref_linearizations = tok_wrapper.decode_and_fix_amr(labels_for_bleu)
-        pred_linearizations = tok_wrapper.decode_and_fix_amr(preds_for_bleu)
+        labels_for_smatch = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
+        preds_for_smatch = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
+        refs_penman = tok_wrapper.batch_decode_amr_ids(labels_for_smatch, reset_variables=True)["penman"]
+        preds_decoded = tok_wrapper.batch_decode_amr_ids(preds_for_smatch, reset_variables=True)
+        preds_penman, preds_status = preds_decoded["penman"], preds_decoded["preds_status"]
 
-        sb = {"bleu": sb_metric.compute(predictions=pred_linearizations, references=ref_linearizations)["score"]}
-        smatch_score = calculate_smatch(ref_linearizations, pred_linearizations)
+        num_not_recoverable = sum([1 for status in preds_status if status == ParsedStatus.BACKOFF])
+        percent_not_recoverable = {"percent_not_recoverable": num_not_recoverable * 100 / num_samples}
+        smatch_score = calculate_smatch(refs_penman, preds_penman)
 
         # We can only calculate accuracy when we have the same number of predicted tokens and reference tokens
         # which is only the case when predict_with_generate is false
@@ -218,9 +221,9 @@ def main():
             labels_for_acc = labels_for_acc[mask]
             preds_for_acc = preds_for_acc[mask]
             acc = acc_metric.compute(predictions=preds_for_acc, references=labels_for_acc)
-            return {**acc, **sb, **smatch_score}
+            return {**acc, **smatch_score, **percent_not_recoverable}
 
-        return {**sb, **smatch_score}
+        return {**smatch_score, **percent_not_recoverable}
 
     #######################
     # Load datasets #
