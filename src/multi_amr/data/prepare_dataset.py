@@ -1,4 +1,5 @@
 import json
+import string
 from enum import StrEnum, auto
 from os import PathLike
 from pathlib import Path
@@ -112,7 +113,7 @@ def prepare_dataset(
     df = pd.DataFrame(data)
     del data
 
-    print("Example data")
+    print("Example data (before filtering)")
     print(df.head(3))
 
     processing_info = {
@@ -123,13 +124,17 @@ def prepare_dataset(
         "fix_ftfy": fix_ftfy,
         "normalize_punct": normalize_punct,
         "detokenize": detokenize,
+        "remove_bracketed": remove_bracketed,
     }
 
+    # Drop all rows where sentence begins and ends with open/close brackets
+    # Such as `( End )` or `<p>Hello world</p>`
     if remove_bracketed:
-        # TODO
-        # drop all rows where sentence begins and ends with open/close brackets
-        # Such as `( End )` or `<p>Hello world</p>`
-        pass
+
+        def starts_ends_with_punctuation(s):
+            return s.startswith(tuple(string.punctuation)) and s.endswith(tuple(string.punctuation))
+
+        df = df[~df["sentence"].apply(starts_ends_with_punctuation)]
 
     if dedupe:
         df_len_before = len(df.index)
@@ -139,11 +144,14 @@ def prepare_dataset(
 
     datasets = DatasetDict()
     processing_info["final_sizes"] = {}
+    processing_info["kept_ids"] = {}
     for split_type, groupdf in df.groupby("split_type"):
         groupdf.drop(columns=["split_type"], inplace=True)
         datasets[split_type] = Dataset.from_pandas(groupdf)
+        datasets[split_type].to_json(pdout.joinpath(f"{split_type}.jsonl"))
         print(f"Processed {split_type} set containing {len(groupdf):,} samples!")
         processing_info["final_sizes"][split_type] = len(groupdf)
+        processing_info["kept_ids"][split_type] = sorted([m["id"] for m in groupdf.metadata])
 
     datasets.save_to_disk(pdout)
     pdout.joinpath("processing_info.json").write_text(json.dumps(processing_info, indent=4), encoding="utf-8")
@@ -157,7 +165,7 @@ def main():
         "-i",
         "--amr_dirs",
         nargs="+",
-        help="dirs with sub directories train, training, dev, valid, and or test. For"
+        help="dirs with sub directories {train, training}, {dev, valid}, and/or test. For"
         " multilingual datasets, you can enter multiple paths to their respective"
         " paths. Make sure to specify their respecitve language with 'src_langs'",
     )
@@ -194,6 +202,11 @@ def main():
         "--detokenize",
         action="store_true",
         help="whether to detokenize to sentence (not the linearized AMR)",
+    )
+    cparser.add_argument(
+        "--remove_bracketed",
+        action="store_true",
+        help="whether to remove sentences that start and end with a punctuation mark (such as `( End )`)",
     )
 
     cargs = cparser.parse_args()
