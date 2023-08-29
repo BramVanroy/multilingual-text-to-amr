@@ -45,7 +45,6 @@ def dfs_linearize(graph: Graph, use_pointer_tokens: bool = True):
             nxt = linearized_nodes[i]
             lst = linearized_nodes[i - 1]
             # Only add pointers if we are not inside a literal
-
             if nxt == "/" and re.match(r"[a-z]\d*", lst) is not None:
                 remap[lst] = f"<pointer:{len(remap)}>"
         i = 1

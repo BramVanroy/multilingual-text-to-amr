@@ -74,6 +74,8 @@ def main_sp(indir: str, start_from: Optional[int] = None):
                     if rm_wiki:
                         graph = remove_wiki_from_graph(graph)
 
+                    # Mostly needed to ensure depth-first order for exact matching of the graph
+                    # In terms of smatch score this should not matter
                     graph = reorder_graph_triples(graph)
                     # NLLB does not support en-dashes -> normalize
                     cleaned_punct_penman = fix_text(penman.encode(graph).replace("–", "-"))

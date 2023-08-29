@@ -69,7 +69,6 @@ def prepare_dataset(
     """
     pdout = Path(output_dir).resolve()
     pdout.mkdir(exist_ok=True, parents=True)
-    punct_norm_amr = MosesPunctNormalizer(lang="en")  # Use English because AMR is most like English
     data = {"metadata": [], "sentence": [], "linearized_penman": [], "split_type": [], "src_lang_idx": []}
 
     for src_lang_idx, (src_lang, amr_dir) in enumerate(zip(langs, amr_dirs)):
@@ -98,7 +97,6 @@ def prepare_dataset(
 
                         if normalize_punct:
                             sentence = punct_norm_text.normalize(sentence)
-                            linearized = punct_norm_amr.normalize(linearized)
 
                         if detokenize:
                             sentence = detokenize_func(sentence.split())
@@ -198,7 +196,7 @@ def main():
     cparser.add_argument(
         "--normalize_punct",
         action="store_true",
-        help="whether to normalize punctuation in both the sentence and the linearized AMR",
+        help="whether to normalize punctuation in the sentence",
     )
     cparser.add_argument(
         "--detokenize",
