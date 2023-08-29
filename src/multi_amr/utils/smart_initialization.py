@@ -23,7 +23,7 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
                     "relation",
                     "end",
                     "</div>",
-                ]  # Bold assumption that the model was trained on a bit of HTML data
+                ]  # Bold (?) assumption that the model was trained on a bit of HTML data
             elif token == "<rel>":
                 components = ["relation", "start", "<div>"]  # BOS is never used in MBART
             elif token == "</lit>":

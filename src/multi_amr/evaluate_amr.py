@@ -6,9 +6,7 @@ import smatch
 import torch
 from datasets import DatasetDict
 from multi_amr.constraints import AMRLogitsProcessor
-from multi_amr.data.linearization import linearized2penmanstr
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
-from multi_amr.data.tokens import AMR_LANG_CODE
 from tqdm import tqdm
 from transformers import (
     AutoModelForCausalLM,

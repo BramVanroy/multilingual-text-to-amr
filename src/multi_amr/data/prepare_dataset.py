@@ -42,6 +42,7 @@ def prepare_dataset(
     fix_ftfy: bool = False,
     normalize_punct: bool = False,
     detokenize: bool = False,
+    remove_bracketed: bool = False,
 ):
     """Given a directory of AMR files, deduplicate all files so that every file contains unique files. We also process
      the text for the sake of normalization. This is needed because the AMR3.0 corpus sometimes has unexpected
@@ -61,8 +62,9 @@ def prepare_dataset(
     :param fix_ftfy: whether to fix text issues with ftfy in both the sentence and the linearized AMR
     :param normalize_punct: whether to normalize punctuation in both the sentence and the linearized AMR
     :param detokenize: whether to detokenize to sentence (not the linearized AMR)
+    :param remove_bracketed: whether to remove sentences that begin and end with open/close brackets, such as `( End )`
+     or `<p>Hello world</p>`
     """
-
     pdout = Path(output_dir).resolve()
     pdout.mkdir(exist_ok=True, parents=True)
     punct_norm_amr = MosesPunctNormalizer(lang="en")  # Use English because AMR is most like English
@@ -123,6 +125,12 @@ def prepare_dataset(
         "normalize_punct": normalize_punct,
         "detokenize": detokenize,
     }
+
+    if remove_bracketed:
+        # TODO
+        # drop all rows where sentence begins and ends with open/close brackets
+        # Such as `( End )` or `<p>Hello world</p>`
+        pass
 
     if dedupe:
         df_len_before = len(df.index)
