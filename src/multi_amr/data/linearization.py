@@ -63,6 +63,6 @@ def dfs_linearize(graph: Graph, use_pointer_tokens: bool = True):
             i += 1
         linearized_nodes = linearized_nodes_
 
-    linearized_nodes = [tstrip for t in linearized_nodes if (tstrip  := t.strip())]
+    linearized_nodes = [tstrip for t in linearized_nodes if (tstrip := t.strip())]
 
     return linearized_nodes

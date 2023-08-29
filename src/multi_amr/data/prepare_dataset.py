@@ -8,10 +8,9 @@ import pandas as pd
 import penman
 from datasets import Dataset, DatasetDict
 from ftfy import fix_text
+from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
 from tqdm import tqdm
-
-from multi_amr.data.linearization import remove_wiki_from_graph, dfs_linearize
 
 
 class SplitType(StrEnum):

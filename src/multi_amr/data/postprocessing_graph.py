@@ -9,6 +9,7 @@ import penman
 from penman import Graph
 from penman.tree import _default_variable_prefix
 
+
 BACKOFF = penman.Graph(
     [
         penman.Triple("d2", ":instance", "dog"),
@@ -78,7 +79,7 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
         if isinstance(nxt, str) and nxt.startswith("<pointer:"):
             e = nxt.find(">")
             if e != len(nxt) - 1:
-                pst = nxt[e + 1:]
+                pst = nxt[e + 1 :]
                 nxt = nxt[: e + 1]
             nodes_.append(nxt)
             if pst is not None:
@@ -102,8 +103,9 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
         if open_rel_token.strip() == "(" and pointer_token.strip().startswith("<pointer:"):
             varname = _default_variable_prefix(token)
             varname_counter[varname] += 1
-            pointer_map[pointer_token] = varname if varname_counter[
-                                                        varname] < 2 else f"{varname}{varname_counter[varname]}"
+            pointer_map[pointer_token] = (
+                varname if varname_counter[varname] < 2 else f"{varname}{varname_counter[varname]}"
+            )
         i += 1
     if verbose:
         print("Pointer map", pointer_map)
@@ -319,7 +321,15 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
 
         def _repl1(match):
             nonlocal n
-            out = match.group(1) + match.group(2) + match.group(3) + str(3000 + n) + " / " + match.group(3) + match.group(4)
+            out = (
+                match.group(1)
+                + match.group(2)
+                + match.group(3)
+                + str(3000 + n)
+                + " / "
+                + match.group(3)
+                + match.group(4)
+            )
             n += 1
             return out
 
@@ -327,7 +337,12 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
         # - :op4 (RPF) -> :op4 (R3000 / RPF)
         # - :op4 hell(RPF) ->  :op4 (R3000 / RPF) (destructive but should not occur)
         # - :op4 "hell(RPF)" -> :op4 "hell(RPF)" (untouched, literal)
-        _linearized = re.sub(r"(:[a-zA-Z0-6]+\s+)(?!\")(?:.*?)(\(\s?)([a-z])([^\/:)]+[:\)])", _repl1, _linearized, flags=re.IGNORECASE | re.MULTILINE)
+        _linearized = re.sub(
+            r"(:[a-zA-Z0-6]+\s+)(?!\")(?:.*?)(\(\s?)([a-z])([^\/:)]+[:\)])",
+            _repl1,
+            _linearized,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
         if verbose:
             print("after fix_text repl1", _linearized)
 

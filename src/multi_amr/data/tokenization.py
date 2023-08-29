@@ -5,13 +5,14 @@ from typing import Dict, List, Tuple
 import penman
 import torch
 from multi_amr.data.additional_tokens import get_added_vocabulary
+from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
 from multi_amr.data.postprocessing_graph import ParsedStatus, tokens2graph
 from multi_amr.data.postprocessing_str import (
     clean_up_amr_tokenization,
     postprocess_str_after_delinearization,
-    postprocess_str_after_linearization, tokenize_except_quotes,
+    postprocess_str_after_linearization,
+    tokenize_except_quotes,
 )
-from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
 from transformers import (
     AutoTokenizer,
     BloomTokenizerFast,
@@ -101,7 +102,12 @@ class AMRTokenizerWrapper:
         return self.tokenizer(*args, **kwargs)
 
     def batch_encode_penmanstrs(
-        self, penmanstrs: List[str], remove_wiki: bool = False, remove_metadata: bool = True, verbose: bool = False, **tokenizer_kwargs
+        self,
+        penmanstrs: List[str],
+        remove_wiki: bool = False,
+        remove_metadata: bool = True,
+        verbose: bool = False,
+        **tokenizer_kwargs,
     ):
         if isinstance(penmanstrs, str):
             raise TypeError("Input 'penmanstrs' must be a list of strings")
@@ -129,17 +135,26 @@ class AMRTokenizerWrapper:
         """
         output = {"penman": [], "status": []}
         for token_ids in all_token_ids:
-            penmanstr, status = self.decode_amr_ids(token_ids, verbose=verbose, reset_variables=reset_variables, **tokenizer_kwargs)
+            penmanstr, status = self.decode_amr_ids(
+                token_ids, verbose=verbose, reset_variables=reset_variables, **tokenizer_kwargs
+            )
             output["penman"].append(penmanstr)
             output["status"].append(status)
 
         return output
 
     def decode_amr_ids(
-        self, token_ids: List[int], verbose: bool = False, reset_variables: bool = False, clean_up_tokenization_spaces: bool = False, **tokenizer_kwargs
+        self,
+        token_ids: List[int],
+        verbose: bool = False,
+        reset_variables: bool = False,
+        clean_up_tokenization_spaces: bool = False,
+        **tokenizer_kwargs,
     ) -> Tuple[str, ParsedStatus]:
         token_ids = self.remove_special_tokens(token_ids)
-        decoded = self.tokenizer.decode(token_ids, clean_up_tokenization_spaces=clean_up_tokenization_spaces, **tokenizer_kwargs)
+        decoded = self.tokenizer.decode(
+            token_ids, clean_up_tokenization_spaces=clean_up_tokenization_spaces, **tokenizer_kwargs
+        )
         sequence = clean_up_amr_tokenization(decoded)
         if verbose:
             print("after cleanup", sequence)

@@ -8,15 +8,14 @@ from pathlib import Path
 from typing import List
 
 import evaluate as evaluate
+from smatchpp import Smatchpp, solvers, preprocess
 import numpy as np
 import penman
-import smatch
 import transformers
 from amr import AMR
 from datasets import DatasetDict
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.dataset import AMRDataset, collate_amr
-from multi_amr.data.linearization import linearized2penmanstr
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.parse_cli import parse_cli
 from multi_amr.peft_callback import PeftSavingCallback
@@ -87,9 +86,9 @@ def main():
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
-    ############################
+    ##############################
     # Load tok_wrapper and model #
-    ############################
+    ##############################
     tokenizer_kwargs = {
         "cache_dir": model_args.cache_dir,
         "revision": model_args.model_revision,
@@ -146,7 +145,7 @@ def main():
                 target_modules = TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING[model_args.model_type]
             else:
                 raise KeyError(
-                    "Cannot automatically derive model type. Specify '--model_type' explicitly."
+                    "Cannot automatically derive model type for LoRA. Specify '--model_type' explicitly."
                     " See https://github.com/huggingface/peft/blob/e06d94ddeb6c70913593740618df76908b918d66/src/peft/utils/other.py#L262"
                 )
 
@@ -170,71 +169,16 @@ def main():
     #######################
     # CUSTOM METRICS #
     #######################
+    graph_standardizer = preprocess.AMRStandardizer(syntactic_standardization="dereify")
+    ilp = solvers.ILP()
+    smatch_metric = Smatchpp(alignmentsolver=ilp, graph_standardizer=graph_standardizer)
     def calculate_smatch(references: List[str], predictions: List[str]):
-        total_match_num = total_test_num = total_gold_num = 0
-        n_invalid = 0
-        pdout = Path(training_args.output_dir)
-        with pdout.joinpath("invalid-amrs.txt").open("a", encoding="utf-8") as fh_invalid, pdout.joinpath(
-            "valid-amrs.txt"
-        ).open("a", encoding="utf-8") as fh_valid:
-            for sentid, (ref, pred) in enumerate(zip(references, predictions), 1):
-                ref_penman = linearized2penmanstr(ref)
-
-                try:
-                    # First parse with `penman`, which is less sensitive than AMR.parse_AMR_line
-                    # and then back to valid penman string
-                    pred_penman = linearized2penmanstr(pred)
-                    pred_parsed = penman.parse(pred_penman)
-                    pred_penman = penman.format(pred_parsed)
-                    if AMR.parse_AMR_line(pred_penman) is None:
-                        raise Exception
-                except Exception:
-                    n_invalid += 1
-                    if data_args.save_amrs:
-                        fh_invalid.write(
-                            f"PRED_ERROR\nPRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}"
-                            f"\nREF LINEAR: {ref}\n\n"
-                        )
-                    continue
-
-                try:
-                    best_match_num, test_triple_num, gold_triple_num = smatch.get_amr_match(
-                        ref_penman, pred_penman, sent_num=sentid
-                    )
-                except Exception:
-                    n_invalid += 1
-                    # At this point, any error is probably caused by the prediction
-                    if data_args.save_amrs:
-                        fh_invalid.write(
-                            f"SMATCH_ERROR\nPRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}"
-                            f"\nREF LINEAR: {ref}\n\n"
-                        )
-                    continue
-
-                total_match_num += best_match_num
-                total_test_num += test_triple_num
-                total_gold_num += gold_triple_num
-                # clear the matching triple dictionary for the next AMR pair
-                smatch.match_triple_dict.clear()
-                if data_args.save_amrs:
-                    fh_valid.write(
-                        f"PRED: {pred_penman}\nREF: {ref_penman}\nPRED LINEAR: {pred}\nREF LINEAR: {ref}\n\n"
-                    )
-
-            if n_invalid > 0:
-                logger.warning(
-                    f"{n_invalid:,} ({n_invalid / len(predictions) * 100:.2f}%) prediction(s) were not valid AMR. "
-                    f" Smatch  scores only reflect the performance on valid AMR structures! Invalid structures have"
-                    f" been appended to invalid-amrs.txt in the output directory."
-                )
-
-        score = smatch.compute_f(total_match_num, total_test_num, total_gold_num)
-
+        score, optimization_status = smatch_metric.score_corpus(references, predictions)
+        score = score["main"]
         return {
-            "smatch_precision": score[0],
-            "smatch_recall": score[1],
-            "smatch_fscore": score[2],
-            "ratio_invalid_amrs": n_invalid / len(predictions) * 100,
+            "smatch_precision": score["Precision"],
+            "smatch_recall": score["Recall"],
+            "smatch_fscore": score["F1"],
         }
 
     sb_metric = evaluate.load("sacrebleu")
@@ -452,7 +396,6 @@ def main():
                 with pf_predictions.open("w", encoding="utf-8") as fh_preds:
                     for pred_linearized in preds_linearized:
                         try:
-                            pred_penman = linearized2penmanstr(pred_linearized)
                             pred_parsed = penman.parse(pred_penman)
                             pred_penman = penman.format(pred_parsed)
                             if AMR.parse_AMR_line(pred_penman) is None:
