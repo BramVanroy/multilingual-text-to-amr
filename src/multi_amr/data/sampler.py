@@ -1,10 +1,9 @@
 import logging
 from collections import defaultdict
-from typing import Iterator, List, Union
+from typing import Iterator, List
 
 import torch
 from datasets import Dataset
-from multi_amr.data.dataset import AMRDataset
 from torch.utils.data import Sampler
 from torch.utils.data.distributed import DistributedSampler
 
@@ -13,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_src_lang_grouped_indices(
-    dataset: Union[AMRDataset, Dataset],
+    dataset: Dataset,
     batch_size: int,
     keep_incomplete_batches: bool = False,
     shuffle: bool = True,
@@ -36,7 +35,7 @@ def get_src_lang_grouped_indices(
     :return: indices of the dataset, ordered in such a way so that they are homogenous in their source language (with
     the potential exception of the last batch(es))
     """
-    src_langs = [sample["metadata"]["src_lang"] for sample in dataset]
+    src_langs = [sample["src_lang_idx"] for sample in dataset]
     is_predict = len([d["penmanstr"] for d in dataset if d["penmanstr"]]) == 0
 
     if is_predict:
@@ -70,19 +69,13 @@ def get_src_lang_grouped_indices(
             lang_idxs = lang_idxs[indices]
 
         if group_by_length:
-            # Using character lengths for sentences, because tokens might be split up into arbitrary number of tokens
-            # N. characters seems a better approximation of relative lengths
-            # NOTE: AMRDataset is basic access with access on the row, but an Arrow Dataset requires indexing on the column
-            if isinstance(dataset, AMRDataset):
-                lengthed = [(idx, len(dataset[idx]["sentence"]), len(dataset[idx]["penmanstr"])) for idx in lang_idxs]
-            else:
-                lengthed = []
+            lengthed = []
 
-                def find_lengths(sample, idx):
-                    lengthed.append((idx, len(sample["sentence"]), len(sample["penmanstr"])))
-                    return None
+            def find_lengths(sample, idx):
+                lengthed.append((idx, len(sample["sentence"]), len(sample["penmanstr"])))
+                return None
 
-                dataset.map(find_lengths, with_indices=True)
+            dataset.map(find_lengths, with_indices=True)
 
             # Sort by input and output lengths, and extract lang_idxs
             lang_idxs = torch.LongTensor([tup[0] for tup in sorted(lengthed, key=lambda tup: tup[1:], reverse=True)])
@@ -123,10 +116,9 @@ def get_src_lang_grouped_indices(
 
 class SrcLangGroupedSampler(Sampler):
     """Sampler that samples indices in a way that groups together source languages while also having some randomness"""
-
     def __init__(
         self,
-        dataset: Union[AMRDataset, Dataset],
+        dataset: Dataset,
         batch_size: int,
         keep_incomplete_batches: bool = False,
         shuffle: bool = True,
@@ -139,6 +131,7 @@ class SrcLangGroupedSampler(Sampler):
         self.shuffle = shuffle
         self.group_by_length = group_by_length
         self.generator = generator
+        super().__init__(dataset)
 
     def __len__(self) -> int:
         return len(self.dataset)
@@ -160,7 +153,7 @@ class DistributedSrcLangGroupedSampler(DistributedSampler):
 
     def __init__(
         self,
-        dataset: AMRDataset,
+        dataset: Dataset,
         batch_size: int,
         *args,
         keep_incomplete_batches: bool = True,

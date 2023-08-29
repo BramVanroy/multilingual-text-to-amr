@@ -2,8 +2,8 @@ from collections import Counter
 from itertools import product
 from multiprocessing import Manager, Pool
 from pathlib import Path
-from typing import Optional, Dict
-
+from typing import Optional, Dict, List
+from smatchpp import Smatchpp, preprocess, solvers
 from ftfy import fix_text
 from tqdm import tqdm
 import penman
@@ -12,7 +12,6 @@ from multi_amr.data.postprocessing_graph import reorder_graph_triples
 from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
 from multi_amr.data.linearization import remove_wiki_from_graph, dfs_linearize
 from multi_amr.data.tokenization import AMRTokenizerWrapper
-from multi_amr.utils.calculate_smatch import calculate_smatch
 
 USE_FAST = (True, False)
 TOKENIZER_NAMES = (
@@ -27,6 +26,21 @@ REMOVE_WIKI = (True, False)
 #     "facebook/mbart-large-cc25",
 # )
 # REMOVE_WIKI = (False,)
+
+
+graph_standardizer = preprocess.AMRStandardizer(syntactic_standardization="dereify")
+ilp = solvers.ILP()
+smatch_metric = Smatchpp(alignmentsolver=ilp, graph_standardizer=graph_standardizer)
+
+
+def calculate_smatch(references: List[str], predictions: List[str]):
+    score, optimization_status = smatch_metric.score_corpus(references, predictions)
+    score = score["main"]
+    return {
+        "smatch_precision": score["Precision"]["result"],
+        "smatch_recall": score["Recall"]["result"],
+        "smatch_fscore": score["F1"]["result"],
+    }
 
 
 def main_sp(indir: str, start_from: Optional[int] = None):
@@ -96,6 +110,7 @@ def main_sp(indir: str, start_from: Optional[int] = None):
 
         # Calculate corpus-level smatch
         score = calculate_smatch(all_refs_penman, all_preds_penman)
+        print("SCORE", score)
         status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
         runs_stats[(rm_wiki, tok_name, use_fast)] = {
             "status_stats": status_stats,

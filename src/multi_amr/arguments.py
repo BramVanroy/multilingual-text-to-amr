@@ -120,48 +120,17 @@ class DataTrainingArguments:
 
     src_langs: List[str] = field(
         metadata={
-            "help": "A list of source languages that corresponds with the given order in"
-            " `train|validation directories`. Make sure that the right language code is used with"
-            " respect to the model that you are using."
+            "help": "A list of source languages that corresponds with the given indexes in"
+            " your dataset. Make sure that the right language (code) is used with"
+            " respect to the model that you are using. For instance, some models require specific language codes, such"
+            " as mBART 'en_XX', but others require written text 'English'"
         },
     )
-    preprocessed_dataset: Optional[str] = field(
-        default=None,
+    preprocessed_dataset: str = field(
         metadata={
             "help": "Paths to a dataset that has already been fully processed (not"
             " collated yet). This should be a HF Dataset that has been saved"
             " to disk and can be loaded with DatasetDict.load_from_disk"
-        },
-    )
-    train_directories: Optional[List[str]] = field(
-        default=None,
-        metadata={
-            "help": "Directories that contains training data. Will recursively be traversed for *.txt files."
-            " One directory per source language."
-        },
-    )
-    validation_directories: Optional[List[str]] = field(
-        default=None,
-        metadata={
-            "help": "Directory that contains validation data. Will recursively be traversed for *.txt files."
-            " One directory per source language."
-        },
-    )
-    test_directories: Optional[List[str]] = field(
-        default=None,
-        metadata={
-            "help": "Directory that contains test data. Will recursively be traversed for *.txt files."
-            " One directory per source language. Will only be used when using predict functionality."
-        },
-    )
-    test_data_has_labels: bool = field(
-        default=True,
-        metadata={
-            "help": (
-                "Whether or not the .txt files in the test_directories contain AMR data (so :sent sentences as well as"
-                "AMR graphs) or not (plain text files). The predictions will be written to an output file"
-                " test_predictions.txt. If AMR labels, the evaluation scores will also be printed."
-            )
         },
     )
     input_max_seq_length: Optional[int] = field(

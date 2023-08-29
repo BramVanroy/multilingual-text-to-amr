@@ -14,7 +14,7 @@ import transformers
 from amr import AMR
 from datasets import DatasetDict
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
-from multi_amr.data.dataset import AMRDataset, collate_amr
+from multi_amr.data.collator import collate_amr
 from multi_amr.data.postprocessing_graph import ParsedStatus
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.parse_cli import parse_cli
@@ -200,7 +200,7 @@ def main():
             labels = labels[:, 1:]
             preds = preds[:, :-1]
 
-        # BLEU
+        # SMATCH
         labels_for_smatch = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
         preds_for_smatch = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
         refs_penman = tok_wrapper.batch_decode_amr_ids(labels_for_smatch, reset_variables=True)["penman"]
@@ -228,50 +228,45 @@ def main():
     #######################
     # Load datasets #
     #######################
+    def check_lang_idx(_dataset: Dataset, split_type: str):
+        src_langs_idxs = set(_dataset["src_lang_idx"].to_list())
+        for lang_idx in src_langs_idxs:
+            try:
+                logger.info(f"Setting lang index {lang_idx} to {data_args.src_langs[lang_idx]}")
+            except IndexError:
+                raise IndexError(f"It seems that you have more indices in your {split_type} dataset ({src_langs_idxs})"
+                                 f" than you have specified 'src_langs' ({data_args.src_langs}) in your script config"
+                                 f" or arguments.")
+
     train_dataset = None
     validation_dataset = None
-    if data_args.preprocessed_dataset is not None:
-        raw_datasets = DatasetDict.load_from_disk(data_args.preprocessed_dataset)
-        logger.info(f"Using preprocessed datasets at {data_args.preprocessed_dataset}")
-        if training_args.do_train:
-            if "train" not in raw_datasets:
-                raise ValueError("--do_train requires a train dataset")
+    raw_datasets = DatasetDict.load_from_disk(data_args.preprocessed_dataset)
+    logger.info(f"Using preprocessed datasets at {data_args.preprocessed_dataset}")
+    if training_args.do_train:
+        if "train" not in raw_datasets:
+            raise ValueError("--do_train requires a train dataset")
 
-            train_dataset = raw_datasets["train"]
-            if data_args.max_train_samples is not None:
-                max_train_samples = min(len(train_dataset), data_args.max_train_samples)
-                train_dataset = train_dataset.select(range(max_train_samples))
+        train_dataset = raw_datasets["train"]
+        if data_args.max_train_samples is not None:
+            max_train_samples = min(len(train_dataset), data_args.max_train_samples)
+            train_dataset = train_dataset.select(range(max_train_samples))
+        check_lang_idx(train_dataset, "train")
 
-        if training_args.do_eval or training_args.do_eval:
-            if "validation" not in raw_datasets:
-                raise ValueError("--do_eval and --do_train require a validation dataset")
+    if training_args.do_eval or training_args.do_eval:
+        if "validation" not in raw_datasets:
+            raise ValueError("--do_eval and --do_train require a validation dataset")
 
-            validation_dataset = raw_datasets["validation"]
-            if data_args.max_eval_samples is not None:
-                max_eval_samples = min(len(validation_dataset), data_args.max_eval_samples)
-                validation_dataset = validation_dataset.select(range(max_eval_samples))
-    else:
-        if training_args.do_train:
-            train_dataset = AMRDataset(
-                data_args.train_directories,
-                src_langs=data_args.src_langs,
-                remove_wiki=data_args.remove_wiki,
-                max_samples_per_language=max(1, data_args.max_train_samples // len(data_args.src_langs)),
-            )
+        validation_dataset = raw_datasets["validation"]
+        if data_args.max_eval_samples is not None:
+            max_eval_samples = min(len(validation_dataset), data_args.max_eval_samples)
+            validation_dataset = validation_dataset.select(range(max_eval_samples))
+        check_lang_idx(train_dataset, "validation")
 
-        # Always validate during training
-        # So with --do_train we also use the validation set
-        # but with --do_eval we get a final performance of the best model on the validation set
-        if training_args.do_train or training_args.do_eval:
-            validation_dataset = AMRDataset(
-                data_args.validation_directories,
-                src_langs=data_args.src_langs,
-                remove_wiki=data_args.remove_wiki,
-                max_samples_per_language=max(1, data_args.max_eval_samples // len(data_args.src_langs)),
-            )
     logger.info(f"Loaded datasets!")
-    logger.info(f"Train: {str(train_dataset)}")
-    logger.info(f"Validation: {str(validation_dataset)}")
+    if train_dataset:
+            logger.info(f"Train: {str(train_dataset)}")
+    if validation_dataset:
+        logger.info(f"Validation: {str(validation_dataset)}")
 
     training_args.remove_unused_columns = False
     # If you want to use early stopping, both arguments have to be specified. Throw error if just one is specified.
@@ -338,13 +333,11 @@ def main():
             trainer.create_model_card(**kwargs)
 
     # Evaluation
-    max_length = training_args.generation_max_length
-    num_beams = training_args.generation_num_beams
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
         metrics = trainer.evaluate(
-            max_length=max_length,
-            num_beams=num_beams,
+            max_length=training_args.generation_max_length,
+            num_beams=training_args.generation_num_beams,
             penalty_alpha=training_args.penalty_alpha,
             top_k=training_args.top_k,
             do_sample=training_args.do_sample,
@@ -365,6 +358,7 @@ def main():
 
     if training_args.do_predict:
         logger.info("*** Predict ***")
+        raise    NotImplementedError("do_predict not implemented yet")
         # TODO: implement this for --preprocessed_dataset
         # Loop over every language separately to avoid missing batches from the dataloader
         # and to keep track of the performance of each language separately

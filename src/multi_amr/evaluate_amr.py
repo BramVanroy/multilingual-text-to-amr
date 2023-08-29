@@ -1,12 +1,11 @@
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-import penman
-import smatch
 import torch
 from datasets import DatasetDict
 from multi_amr.constraints import AMRLogitsProcessor
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
+from smatchpp import Smatchpp, preprocess, solvers
 from tqdm import tqdm
 from transformers import (
     AutoModelForCausalLM,
@@ -108,9 +107,10 @@ def evaluate(
     if dataset_split:
         test_dataset = test_dataset[dataset_split]
 
-    total_match_num = total_test_num = total_gold_num = 0
     sentid = 0
     n_invalid = 0
+    references = []
+    predictions = []
     for batch in tqdm(batchify(test_dataset), unit="batch", total=max(1, len(test_dataset) // batch_size)):
         for sentence, ref_penman, pred_linearized in zip(
             batch["sentence"],
@@ -119,27 +119,21 @@ def evaluate(
                 texts=batch["sentence"], src_lang=src_lang, model=model, tok_wrapper=tok_wrapper, **gen_kwargs
             ),
         ):
-            sentid += 1
-            # First parse with `penman`, which is less sensitive than AMR.parse_AMR_line
-            # and then back to valid penman string
-            pred_penman = linearized2penmanstr(pred_linearized)
+            references.append(ref_penman)
+            references.append(pred_linearized)
+            # TODO: change pred_linearized
 
-            try:
-                pred_parsed = penman.parse(pred_penman)
-                pred_penman = penman.format(pred_parsed)
-                best_match_num, test_triple_num, gold_triple_num = smatch.get_amr_match(
-                    ref_penman, pred_penman, sent_num=sentid
-                )
-            except Exception as exc:
-                n_invalid += 1
-            else:
-                total_match_num += best_match_num
-                total_test_num += test_triple_num
-                total_gold_num += gold_triple_num
-                # clear the matching triple dictionary for the next AMR pair
-                smatch.match_triple_dict.clear()
+    graph_standardizer = preprocess.AMRStandardizer(syntactic_standardization="dereify")
+    ilp = solvers.ILP()
+    smatch_metric = Smatchpp(alignmentsolver=ilp, graph_standardizer=graph_standardizer)
 
-    score = smatch.compute_f(total_match_num, total_test_num, total_gold_num)
+    score, optimization_status = smatch_metric.score_corpus(references, predictions)
+    score = score["main"]
+    score = {
+        "smatch_precision": score["Precision"],
+        "smatch_recall": score["Recall"],
+        "smatch_fscore": score["F1"],
+    }
 
     print(f"Evaluation scores of {model_name} on {preprocessed_dataset}")
     print("Smatch: ", f"p={score[0]:.4f},r={score[1]:.4f},f={score[2]:.4f}")

@@ -1,7 +1,7 @@
 from typing import Optional
 
 import torch
-from multi_amr.data.dataset import AMRDataset
+from multi_amr.data.collator import AMRDataset
 from multi_amr.data.sampler import DistributedSrcLangGroupedSampler, SrcLangGroupedSampler
 from torch.utils.data import RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler

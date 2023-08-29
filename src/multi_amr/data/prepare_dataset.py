@@ -13,6 +13,8 @@ from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
 from tqdm import tqdm
 
+from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
+
 
 class SplitType(StrEnum):
     TRAIN = auto()
@@ -68,7 +70,7 @@ def prepare_dataset(
     pdout = Path(output_dir).resolve()
     pdout.mkdir(exist_ok=True, parents=True)
     punct_norm_amr = MosesPunctNormalizer(lang="en")  # Use English because AMR is most like English
-    data = {"metadata": [], "sentence": [], "amr": [], "split_type": [], "src_lang_idx": []}
+    data = {"metadata": [], "sentence": [], "linearized_penman": [], "split_type": [], "src_lang_idx": []}
 
     for src_lang_idx, (src_lang, amr_dir) in enumerate(zip(langs, amr_dirs)):
         punct_norm_text = MosesPunctNormalizer(lang=src_lang)
@@ -87,7 +89,7 @@ def prepare_dataset(
                     for graph in penman.iterdecode(fhin):
                         if remove_wiki:
                             graph = remove_wiki_from_graph(graph)
-                        linearized = " ".join(dfs_linearize(graph))
+                        linearized = postprocess_str_after_linearization(" ".join(dfs_linearize(graph)))
                         sentence = graph.metadata["snt"]
 
                         if fix_ftfy:
@@ -103,7 +105,7 @@ def prepare_dataset(
 
                         data["metadata"].append(graph.metadata)
                         data["sentence"].append(sentence)
-                        data["amr"].append(linearized)
+                        data["linearized_penman"].append(linearized)
                         data["split_type"].append(split_type)
                         # We just use an index, so that during training we can re-use the same dataset with different
                         # src_langs even though the data is the same. Sometimes we may need 'en_XX', other times

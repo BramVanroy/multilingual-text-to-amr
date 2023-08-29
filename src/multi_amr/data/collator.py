@@ -1,17 +1,11 @@
 import logging
 import sys
 from collections import Counter
-from os import PathLike
-from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 
-import penman
 import torch
-from ftfy import fix_text
-from multi_amr.data.linearization import do_remove_wiki, penmanstr2linearized
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
-from torch.utils.data import Dataset
-from tqdm import tqdm
+
 
 
 logging.basicConfig(
@@ -39,6 +33,15 @@ def collate_amr(
     :return: a dictionary with keys such as token_ids and labels, with values tensors
     """
     model_max_length = tok_wrapper.tokenizer.model_max_length
+    if input_max_seq_length is not None and input_max_seq_length > model_max_length:
+        raise ValueError(
+            f"'input_max_seq_length' ({input_max_seq_length}) cannot be larger than max model size ({model_max_length})"
+        )
+    if output_max_seq_length is not None and output_max_seq_length > model_max_length:
+        raise ValueError(
+            f"'output_max_seq_length' ({output_max_seq_length}) cannot be larger than max model size ({model_max_length})"
+        )
+
     src_langs = Counter([s["metadata"]["src_lang"] for s in samples])
     src_lang = src_langs.most_common(1)[0][0]
     if len(src_langs.keys()) > 1:
@@ -54,19 +57,10 @@ def collate_amr(
         tok_wrapper.tokenizer.src_lang = src_lang
     elif tok_wrapper.tokenizer_type in (TokenizerType.T5, TokenizerType.BLOOM):
         # T5 can use prefixes
-        task_prefix = f"translate {src_lang} to {AMR_LANG_CODE}: "
+        task_prefix = f"translate {src_lang} to {tok_wrapper.amr_token}: "
 
-    has_labels = bool(len([s["penmanstr"] for s in samples if s["penmanstr"]]))
+    has_labels = bool(len([s["linearized_penman"] for s in samples if s["linearized_penman"]]))
     if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.T5):
-        if input_max_seq_length is not None and input_max_seq_length > model_max_length:
-            raise ValueError(
-                f"'input_max_seq_length' ({input_max_seq_length}) cannot be larger than max model size ({model_max_length})"
-            )
-        if output_max_seq_length is not None and output_max_seq_length > model_max_length:
-            raise ValueError(
-                f"'output_max_seq_length' ({output_max_seq_length}) cannot be larger than max model size ({model_max_length})"
-            )
-
         # ENCODER-DECODERS
         batch = tok_wrapper(
             [task_prefix + s["sentence"] for s in samples],
@@ -77,8 +71,8 @@ def collate_amr(
         )
 
         if has_labels:
-            batch["labels"] = tok_wrapper.encode_penmanstrs(
-                [s["penmanstr"] for s in samples],
+            batch["labels"] = tok_wrapper(
+                [s["linearized_penman"] for s in samples],
                 max_length=output_max_seq_length,
             ).input_ids
             batch["labels"] = torch.where(batch["labels"] == tok_wrapper.tokenizer.pad_token_id, -100, batch["labels"])
@@ -100,7 +94,7 @@ def collate_amr(
                 + "\n"
                 + tok_wrapper.tokenizer.eos_token
                 + (
-                    penmanstr2linearized(s["penmanstr"]) if has_labels else ""
+                    s["linearized_penman"] if has_labels else ""
                 )  # Only add "labels" in train/eval mode, not in predict
                 for s in samples
             ],
@@ -138,80 +132,3 @@ def collate_amr(
                 batch["labels"] = torch.masked_select(batch["labels"], mask)
 
     return batch
-
-
-class AMRDataset(Dataset):
-    def __init__(
-        self,
-        dins: List[Union[str, PathLike]],
-        src_langs: List[str],
-        remove_wiki: bool = False,
-        max_samples_per_language: Optional[int] = None,
-        is_predict: bool = False,
-    ):
-        if src_langs is None or dins is None or len(dins) != len(src_langs):
-            raise ValueError(
-                "The number of input directories (one per language) is not the same as the number of given"
-                " source languages. These have to be the same. Make sure that the given source languages"
-                " are language codes that are compatible with the model that you use."
-            )
-
-        self.pdins = [Path(din) for din in dins]
-        self.src_langs = src_langs
-        self.remove_wiki = remove_wiki
-        self.max_samples_per_language = max_samples_per_language
-
-        self.sentences = []
-        self.penmanstrs = []
-        self.metadatas = []
-
-        for src_lang, pdin in zip(self.src_langs, self.pdins):
-            if not pdin.exists():
-                raise FileNotFoundError(f"The given directory, {str(pdin)}, was not found.")
-
-            n_samples = 0
-            for pfin in tqdm(list(pdin.rglob("*.txt")), unit="file", desc=f"Processing data for {src_lang}"):
-                with pfin.open(encoding="utf-8") as fhin:
-                    if is_predict:
-                        for line in fhin:
-                            self.sentences.append(line.strip())
-                            metadata = {"src_lang": src_lang}
-                            self.metadatas.append(metadata)
-                            n_samples += 1
-                            if self.max_samples_per_language and n_samples == self.max_samples_per_language:
-                                break
-                    else:
-                        for tree in penman.iterparse(fhin):
-                            tree.reset_variables()
-                            metadata = {**tree.metadata, "src_lang": src_lang}
-                            self.metadatas.append(metadata)
-                            self.sentences.append(tree.metadata["snt"])
-                            # It seems that some AMR is unparseable in some cases due to metadata (?; e.g. in test set)
-                            # so we empty the metadata before continuing
-                            tree.metadata = {}
-
-                            # NOTE: the fix_text is important to make sure the reference tree also is correctly formed,
-                            # e.g. (':op2', '"d’Intervention"'), -> (':op2', '"d\'Intervention"'),
-                            penman_str = fix_text(penman.format(tree))
-                            if self.remove_wiki:
-                                penman_str = do_remove_wiki(penman_str)
-                            self.penmanstrs.append(penman_str)
-
-                            n_samples += 1
-
-                            if self.max_samples_per_language and n_samples == self.max_samples_per_language:
-                                break
-
-                if self.max_samples_per_language and n_samples == self.max_samples_per_language:
-                    break
-
-    def __len__(self):
-        return len(self.sentences)
-
-    def __getitem__(self, idx: int):
-        return {
-            "id": idx,
-            "sentence": self.sentences[idx],
-            "penmanstr": self.penmanstrs[idx] if idx < len(self.penmanstrs) else None,  # No penmans in predict-mode
-            "metadata": self.metadatas[idx],
-        }
