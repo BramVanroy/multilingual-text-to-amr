@@ -36,30 +36,6 @@ def _is_filename(text: str) -> bool:
     return match is not None
 
 
-def clean_up_amr_tokenization(out_string: str) -> str:
-    """Clean up a list of simple English tokenization artifacts like spaces before punctuations and abbreviated forms.
-    :param out_string: the text to clean up
-    :return: the cleaned-up string
-    """
-    out_string = (
-        # AMR specific
-        out_string.replace(" -quantity", "-quantity")
-        .replace(" -entity", "-entity")
-        .replace(" </of>", "</of>")
-    )
-    # Clean-up whitespaces before doing regexes (this is important!)
-    out_string = " ".join(out_string.split())
-
-    # AMR specific
-    # Generic prepositions/conjunctions, e.g. `:prep-by` or `:conj-as-if`
-    out_string = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", out_string)
-
-    # Clean-up whitespaces
-    out_string = " ".join(out_string.split())
-
-    return out_string
-
-
 def postprocess_str_after_linearization(linearized: str, verbose: bool = False) -> str:
     linearized = linearized.replace(":polarity -", ":negation")
     linearized = re.sub(r"-of(?=\s|$)", " </of>", linearized)
@@ -92,46 +68,89 @@ def postprocess_str_after_linearization(linearized: str, verbose: bool = False) 
 
 
 def postprocess_str_after_delinearization(delinearized: str) -> str:
-    delinearized = delinearized.replace(":negation", ":polarity -")
-    delinearized = delinearized.replace("</of>", "-of")
+    delinearized = (
+        # AMR specific
+        delinearized.replace(" -quantity", "-quantity")
+        .replace(" -entity", "-entity")
+        .replace(" </of>", "</of>")
+    )
+
+    # AMR specific
+    # Generic prepositions/conjunctions, e.g. `:prep-by` or `:conj-as-if`
+    delinearized = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", delinearized)
+    delinearized = delinearized.replace(":negation", " :polarity - ")
+    delinearized = delinearized.replace("</of>", "-of ")
+
+    # Add spaces around :-roles like :op1
+    # Include `-` for e.g. :prep-with
+    delinearized = re.sub(r"(:[a-zA-Z][a-zA-Z0-9-]+)", r" \1 ", delinearized)
 
     # Glue role digits together, e.g. ':op1 0 <rel>' -> :op10 <rel>
-    delinearized = re.sub(r"(:[a-zA-Z0-9]+)\s+(\d+) <(rel|lit)>", r"\1\2 <\3>", delinearized)
+    delinearized = re.sub(r"(:[a-zA-Z][a-zA-Z0-9]+)\s+(\d+)\s*<(rel|lit)>", r"\1\2 <\3>", delinearized)
 
     def reverse_literal(match):
         rel = match.group(1).strip()
         content = match.group(2).strip()
-        if rel.startswith(("wiki", "op")):
+        if rel.startswith(("wiki", "op", "value")):
+            # E.g. `<lit> Russian submarine Yury Dolgorukiy (K-53 5) </lit>` -> (K-535)
+            # But will probably lead to quite some false positives
+            # Luckily this will mostly occur inside wiki, which we mostly do not use
+            content = re.sub(r"(\d+)\s+(\d+)", r"\1\2", content)
+            #  <lit> Russian submarine Yury Dolgorukiy (K -535) </lit> -> K-535
+            content = re.sub(r"\s+-\s*(\d+)", r"-\1", content)
             content = content.replace(" ", "_")
 
         return f':{rel} "{content}"'
 
-    delinearized = re.sub(r":([a-zA-Z0-9]+)\s+<lit>(.*?)</lit>", reverse_literal, delinearized)
+    delinearized = re.sub(r":([a-zA-Z][a-zA-Z0-9]+)\s*<lit>(.*?)</lit>", reverse_literal, delinearized)
 
-    # Glue numbers back together, e.g. ':quant -547' -> ':quant -547'
+    # Glue numbers back together, e.g. ':quant -54 7' -> ':quant -547'
     # but should not trigger for literal values, like ':value "34 61 09 91 12 135"'
-    delinearized = re.sub(r"(?<![\"\d])(\s+-?\d*\.?\d*) (\d+)", r"\1\2", delinearized)
+    # Should not consider glueing things back to roles (like `:op1 12 "hello"` -> `:op112`); that is dealt with earlier
+    delinearized = re.sub(r"(?<![\"\D])(-?\d*\.?\d*)\s+(\d+)(?!\s*[\d\"<:])", r"\1\2", delinearized)
 
-    delinearized = delinearized.replace("<rel>", "(")
-    delinearized = delinearized.replace("</rel>", ")")
+    # Add -of back to utterances for regular words (NOT for -of roles)
+    # E.g., `:mod <rel> <pointer:4> first-of -all </rel>` -> `first-of-all </rel>`
+    # E.g., `jet-of f-01 :ARG1` -> `jet-off-01 :ARG1`
+    delinearized = re.sub(r"-of\s+([-a-zA-Z0-9]+)\s*(?=[<:])", r"-of\1 ", delinearized)
+
+    def fix_dashes(match):
+        # Glue together concepts with dashes that might have been split
+        # E.g. `<pointer:6> take-into-ac count-04 :ARG0` -> `take-into-account-04`
+        # E.g. `<pointer:3> have-degree -of -resemblance -91 :ARG1` -> `have-degree-of-resemblance`
+        pointer = match.group(1).strip()
+        content = re.sub(r"\s", "", match.group(2).strip())
+
+        return f'{pointer} {content} '
+
+    delinearized = re.sub(r"(<pointer:\d+>)\s*([-a-z\d\s]+)\s*(?=[<:])", fix_dashes, delinearized)
+
+    delinearized = delinearized.replace("<rel>", " ( ")
+    delinearized = delinearized.replace("</rel>", " ) ")
+    # Remove duplicate spaces
+    delinearized = " ".join(delinearized.split())
 
     return delinearized
 
 
-def tokenize_except_quotes(input_str: str) -> List[str]:
+def tokenize_except_quotes_and_angles(input_str: str) -> list[str]:
     """Split a given string into tokens by white-space EXCEPT for the tokens within quotation marks, do not split those.
     E.g.: `"25 bis"` is one token. This is important to ensure that all special values that are enclosed in double
-    quotation marks are also considered as a single token.
+    quotation marks are also considered as a single token. Also does not tokenize things inside tags like <rel>.
 
+    <rel><pointer:0>end-01</rel> -> ['<rel>', '<pointer:0>', 'end-01', '</rel>']
     :param input_str: string to tokenize
     :return: a list of tokens
     """
     tokens = []
     tmp_str = ""
     quoted_started = False
+    angled_started = False
 
     for char in input_str:
         is_quote = char == '"'
+        is_open_angled = char == '<'
+        is_close_angled = char == '>'
         if not tmp_str:
             tmp_str += char
             quoted_started = is_quote
@@ -144,15 +163,28 @@ def tokenize_except_quotes(input_str: str) -> List[str]:
                     quoted_started = False
                 else:
                     tmp_str += char
+            elif angled_started:
+                if is_close_angled:
+                    tmp_str += char
+                    tokens.append(tmp_str.strip())
+                    tmp_str = ""
+                    angled_started = False
+                else:
+                    tmp_str += char
             else:
                 if char.isspace():
                     tokens.append(tmp_str.strip())
                     tmp_str = ""
+                elif is_open_angled:
+                    tokens.append(tmp_str.strip())
+                    angled_started = True
+                    tmp_str = "<"
                 else:
                     tmp_str += char
 
                 if is_quote:
                     quoted_started = True
 
-    tokens.append(tmp_str.strip())
+    if tmp_str.strip():
+        tokens.append(tmp_str.strip())
     return tokens

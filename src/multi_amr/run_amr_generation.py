@@ -12,7 +12,7 @@ import numpy as np
 import penman
 import transformers
 from amr import AMR
-from datasets import DatasetDict
+from datasets import DatasetDict, Dataset
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.collator import collate_amr
 from multi_amr.data.postprocessing_graph import ParsedStatus
@@ -229,7 +229,7 @@ def main():
     # Load datasets #
     #######################
     def check_lang_idx(_dataset: Dataset, split_type: str):
-        src_langs_idxs = set(_dataset["src_lang_idx"].to_list())
+        src_langs_idxs = _dataset.unique("src_lang_idx")
         for lang_idx in src_langs_idxs:
             try:
                 logger.info(f"Setting lang index {lang_idx} to {data_args.src_langs[lang_idx]}")
@@ -294,6 +294,7 @@ def main():
         tokenizer=tok_wrapper.tokenizer,
         data_collator=partial(
             collate_amr,
+            src_langs=data_args.src_langs,
             tok_wrapper=tok_wrapper,
             input_max_seq_length=data_args.input_max_seq_length,
             output_max_seq_length=data_args.output_max_seq_length,

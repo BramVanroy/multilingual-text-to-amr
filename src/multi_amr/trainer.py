@@ -1,7 +1,7 @@
 from typing import Optional
 
+from datasets import Dataset
 import torch
-from multi_amr.data.collator import AMRDataset
 from multi_amr.data.sampler import DistributedSrcLangGroupedSampler, SrcLangGroupedSampler
 from torch.utils.data import RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
@@ -78,7 +78,7 @@ class AMRTrainer(Seq2SeqTrainer):
                     seed=seed,
                 )
 
-    def _get_eval_sampler(self, eval_dataset: AMRDataset) -> Optional[torch.utils.data.Sampler]:
+    def _get_eval_sampler(self, eval_dataset: Dataset) -> Optional[torch.utils.data.Sampler]:
         if self.args.group_by_lang:
             if self.args.world_size <= 1:
                 # We use batch_size * gradient_accumulation_steps as a single batch size

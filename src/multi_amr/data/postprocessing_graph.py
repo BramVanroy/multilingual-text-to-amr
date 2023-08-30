@@ -91,7 +91,7 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
     if verbose:
         print("After loop 2", nodes)
 
-        # Build pointer maps so we can create better varnames
+    # Build pointer maps so we can create better varnames
     i = 0
     pointer_map = {}
     varname_counter = Counter()

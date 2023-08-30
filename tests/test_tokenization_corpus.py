@@ -1,12 +1,12 @@
 from collections import Counter
 from itertools import product
-from multiprocessing import Manager, Pool
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional,  List
 from smatchpp import Smatchpp, preprocess, solvers
 from ftfy import fix_text
 from tqdm import tqdm
 import penman
+from unidecode import unidecode
 
 from multi_amr.data.postprocessing_graph import reorder_graph_triples
 from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
@@ -18,14 +18,15 @@ TOKENIZER_NAMES = (
     "bigscience/bloomz-560m",
     "facebook/mbart-large-cc25",
     "google/mt5-base",
-    "facebook/nllb-200-3.3B"
+    "facebook/nllb-200-3.3B",
+    "google/flan-t5-base",
 )
 REMOVE_WIKI = (True, False)
 # USE_FAST = (True,)
 # TOKENIZER_NAMES = (
-#     "facebook/mbart-large-cc25",
+#     "google/mt5-base",
 # )
-# REMOVE_WIKI = (False,)
+# REMOVE_WIKI = (True,)
 
 
 graph_standardizer = preprocess.AMRStandardizer(syntactic_standardization="dereify")
@@ -79,6 +80,14 @@ def main_sp(indir: str, start_from: Optional[int] = None):
                     graph = reorder_graph_triples(graph)
                     # NLLB does not support en-dashes -> normalize
                     cleaned_punct_penman = fix_text(penman.encode(graph).replace("–", "-"))
+                    if not rm_wiki:
+                        # `Erdoğan` -> `Erdogan`: useful for models that do not support special characters
+                        # This is only needed in wiki entries - in other places they are already normalized
+                        # In practice this is NOT a good idea because if we change the wiki entry, the wiki page cannot
+                        # be found anymore. We do it here to make sure that our testing works
+                        # In reality, we train without wiki anyway so it does not matter...
+                        cleaned_punct_penman = unidecode(cleaned_punct_penman)
+
                     graph = penman.decode(cleaned_punct_penman)
 
                     linearized = " ".join(dfs_linearize(graph))
@@ -90,9 +99,22 @@ def main_sp(indir: str, start_from: Optional[int] = None):
                     ref_penman = penman.format(tree)
                     all_refs_penman.append(ref_penman)
 
+        if not all_refs_penman:
+            continue
+
         for linearized, ref_penman in zip(all_linearizeds, all_refs_penman):
             encoded = tok_wrapper(linearized)
-            pred_penman, status = tok_wrapper.decode_amr_ids(encoded.input_ids, reset_variables=True)
+            try:
+                pred_penman, status = tok_wrapper.decode_amr_ids(encoded.input_ids, reset_variables=True)
+            except Exception as exc:
+                print(f"Error decoding")
+                print("linearized input:", linearized)
+                print("input ids:", encoded.input_ids)
+                print("converted input ids:", tok_wrapper.tokenizer.convert_ids_to_tokens(encoded.input_ids))
+                print("ref:", ref_penman)
+                print("idx:", graph_idx)
+                print()
+                raise exc
 
             all_preds_penman.append(pred_penman)
             status_counter[status] += 1
@@ -107,6 +129,7 @@ def main_sp(indir: str, start_from: Optional[int] = None):
                 print("idx:", graph_idx)
                 print()
                 num_not_perfect_smatch += 1
+                raise Exception("Not equal")
 
         assert len(all_preds_penman) == len(all_refs_penman) == len(all_linearizeds)
 

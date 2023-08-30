@@ -36,7 +36,7 @@ def tokenize_encoded_graph(linearized: str) -> List[str]:
 def dfs_linearize(graph: Graph, use_pointer_tokens: bool = True):
     graph_ = copy.deepcopy(graph)
     graph_.metadata = {}
-    linearized = penman.encode(graph_)
+    linearized = penman.encode(graph_).replace("–", "-")  # NLLB does not have an en-hyphen
     linearized_nodes = tokenize_encoded_graph(linearized)
 
     if use_pointer_tokens:

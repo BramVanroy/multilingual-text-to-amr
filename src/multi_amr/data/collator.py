@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 def collate_amr(
     samples: List[dict],
+    src_langs: List[str],
     tok_wrapper: AMRTokenizerWrapper,
     input_max_seq_length: Optional[int] = None,
     output_max_seq_length: Optional[int] = None,
@@ -42,9 +43,10 @@ def collate_amr(
             f"'output_max_seq_length' ({output_max_seq_length}) cannot be larger than max model size ({model_max_length})"
         )
 
-    src_langs = Counter([s["metadata"]["src_lang"] for s in samples])
-    src_lang = src_langs.most_common(1)[0][0]
-    if len(src_langs.keys()) > 1:
+    src_lang_idxs = Counter([s["src_lang_idx"] for s in samples])
+    src_lang_idx = src_lang_idxs.most_common(1)[0][0]
+    src_lang = src_langs[src_lang_idx]
+    if len(src_lang_idxs.keys()) > 1:
         logging.warning(
             "This given batch consists of multiple source language. Therefore, the tok_wrapper will"
             f" append a single language code ({src_lang}) that is not applicable to all samples, which may"
@@ -57,7 +59,7 @@ def collate_amr(
         tok_wrapper.tokenizer.src_lang = src_lang
     elif tok_wrapper.tokenizer_type in (TokenizerType.T5, TokenizerType.BLOOM):
         # T5 can use prefixes
-        task_prefix = f"translate {src_lang} to {tok_wrapper.amr_token}: "
+        task_prefix = f"Translate {src_lang} to {tok_wrapper.amr_token}: "
 
     has_labels = bool(len([s["linearized_penman"] for s in samples if s["linearized_penman"]]))
     if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.T5):
@@ -74,7 +76,11 @@ def collate_amr(
             batch["labels"] = tok_wrapper(
                 [s["linearized_penman"] for s in samples],
                 max_length=output_max_seq_length,
+                padding=True,
+                truncation=True,
+                return_tensors="pt",
             ).input_ids
+
             batch["labels"] = torch.where(batch["labels"] == tok_wrapper.tokenizer.pad_token_id, -100, batch["labels"])
     else:
         if input_max_seq_length is None or output_max_seq_length is None:
@@ -130,5 +136,8 @@ def collate_amr(
                 mask = torch.ones_like(batch["labels"], dtype=torch.bool)
                 mask[idxs_to_remove] = False
                 batch["labels"] = torch.masked_select(batch["labels"], mask)
+
+    print(batch)
+    exit()
 
     return batch

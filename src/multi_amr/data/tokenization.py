@@ -8,10 +8,9 @@ from multi_amr.data.additional_tokens import get_added_vocabulary
 from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
 from multi_amr.data.postprocessing_graph import ParsedStatus, tokens2graph
 from multi_amr.data.postprocessing_str import (
-    clean_up_amr_tokenization,
     postprocess_str_after_delinearization,
     postprocess_str_after_linearization,
-    tokenize_except_quotes,
+    tokenize_except_quotes_and_angles,
 )
 from transformers import (
     AutoTokenizer,
@@ -66,7 +65,8 @@ class AMRTokenizerWrapper:
         else:
             raise ValueError(f"Tokenizer type '{type(self.tokenizer)}' not supported.")
 
-        tokens_to_add = get_added_vocabulary(prefix=self.token_prefix)
+        # tokens_to_add = get_added_vocabulary(prefix=self.token_prefix)
+        tokens_to_add = get_added_vocabulary()
         tokens_to_add = set(tokens_to_add)
         voc = set(self.tokenizer.get_vocab().keys())
         new_tokens = list(sorted(tokens_to_add - voc))
@@ -155,19 +155,23 @@ class AMRTokenizerWrapper:
         decoded = self.tokenizer.decode(
             token_ids, clean_up_tokenization_spaces=clean_up_tokenization_spaces, **tokenizer_kwargs
         )
-        sequence = clean_up_amr_tokenization(decoded)
         if verbose:
-            print("after cleanup", sequence)
+            print("after decoding", decoded)
 
-        sequence = postprocess_str_after_delinearization(sequence)
+        sequence = postprocess_str_after_delinearization(decoded)
         if verbose:
             print("after postprocess", sequence)
-        graph, status = tokens2graph(tokenize_except_quotes(sequence), verbose=verbose)
+        graph, status = tokens2graph(tokenize_except_quotes_and_angles(sequence), verbose=verbose)
 
         if reset_variables:
             # To tree so that we can reset the variables
             tree = penman.configure(graph)
-            tree.reset_variables()
+            try:
+                tree.reset_variables()
+            except Exception as exc:
+                print(sequence)
+                print(graph)
+                raise exc
             penmanstr = penman.format(tree)
         else:
             penmanstr = penman.encode(graph)
