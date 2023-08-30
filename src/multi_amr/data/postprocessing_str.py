@@ -1,6 +1,8 @@
 import re
 from typing import List
 
+from multi_amr.data.additional_tokens import get_added_vocabulary
+
 
 def _is_url(text: str) -> bool:
     # Modified from django https://github.com/django/django/blob/stable/1.3.x/django/core/validators.py#L45
@@ -38,7 +40,7 @@ def _is_filename(text: str) -> bool:
 
 def postprocess_str_after_linearization(linearized: str, verbose: bool = False) -> str:
     linearized = linearized.replace(":polarity -", ":negation")
-    linearized = re.sub(r"-of(?=\s|$)", " </of>", linearized)
+    linearized = re.sub(r"-of(?=\s|$)", "</of>", linearized)
 
     # Re-implementation of SPRING, which also replaces "_" with " "
     # https://github.com/SapienzaNLP/spring/blob/39079940d028ba0dde4c1af60432be49f67d76f8/spring_amr/tokenization_bart.py#L143-L144
@@ -47,7 +49,7 @@ def postprocess_str_after_linearization(linearized: str, verbose: bool = False) 
         content = match.group(1)
         if not (_is_url(content) or _is_email(content) or _is_filename(content)):
             content = content.replace("_", " ")
-        return f"<lit> {content} </lit>"
+        return f"<lit> {content}</lit>"
 
     linearized = re.sub(r'"(.*?)"', replace_literal, linearized)
     if verbose:
@@ -55,7 +57,7 @@ def postprocess_str_after_linearization(linearized: str, verbose: bool = False) 
 
     # Replace parentheses but only if they are not inside <lit>
     def replace_rel(match):
-        return " <rel> " if match.group() == "(" else " </rel> "
+        return "<rel>" if match.group() == "(" else "</rel>"
 
     linearized = re.sub(r"(?<!<lit>)\((?![^<]*<\/lit>)|(?<!<lit>)\)(?![^<]*<\/lit>)", replace_rel, linearized)
     if verbose:
@@ -63,6 +65,11 @@ def postprocess_str_after_linearization(linearized: str, verbose: bool = False) 
 
     # Remove duplicate spaces
     linearized = " ".join(linearized.split())
+
+    linearized = re.sub(r" <(\/?)(pointer|rel|lit|AMR|of)", r"<\1\2", linearized)
+    # Make sure that added tokens have no space in front of them because some tokenizers may
+    # tokenize those spaces explicitly as `[Ġ, </rel>, Ġ, :op2]`
+    linearized = re.sub(rf" ({'|'.join(get_added_vocabulary())})", r"\1", linearized)
 
     return linearized
 
@@ -83,31 +90,45 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
 
     # Add spaces around :-roles like :op1
     # Include `-` for e.g. :prep-with
-    delinearized = re.sub(r"(:[a-zA-Z][a-zA-Z0-9-]+)", r" \1 ", delinearized)
+    # But not when in a literal!
+    # E.g. do not split `:value <lit> http://online.wsj.com/article/NA_WSJ_PUB:SB123258358706104403.html </lit>`
+    delinearized = re.sub(r"(?<!<lit>)\s+(\S+?)\s*(:[a-zA-Z][a-zA-Z0-9-]+)", r" \1 \2 ", delinearized)
 
     # Glue role digits together, e.g. ':op1 0 <rel>' -> :op10 <rel>
     delinearized = re.sub(r"(:[a-zA-Z][a-zA-Z0-9]+)\s+(\d+)\s*<(rel|lit)>", r"\1\2 <\3>", delinearized)
 
     def reverse_literal(match):
-        rel = match.group(1).strip()
-        content = match.group(2).strip()
+        prev_item = match.group(1).strip() if match.group(1) else ""
+        rel = match.group(2).strip()
+        content = match.group(3).strip()
         if rel.startswith(("wiki", "op", "value")):
             # E.g. `<lit> Russian submarine Yury Dolgorukiy (K-53 5) </lit>` -> (K-535)
             # But will probably lead to quite some false positives
             # Luckily this will mostly occur inside wiki, which we mostly do not use
-            content = re.sub(r"(\d+)\s+(\d+)", r"\1\2", content)
-            #  <lit> Russian submarine Yury Dolgorukiy (K -535) </lit> -> K-535
-            content = re.sub(r"\s+-\s*(\d+)", r"-\1", content)
-            content = content.replace(" ", "_")
+            # Just ignore phone number entities
+            if prev_item not in ("phone-number-entity",):
+                content = re.sub(r"(\d+)\s+(\d+)", r"\1\2", content)
+                #  <lit> Russian submarine Yury Dolgorukiy (K -535) </lit> -> K-535
+                content = re.sub(r"\s+-\s*(\d+)", r"-\1", content)
 
-        return f':{rel} "{content}"'
+            if rel.startswith(("wiki", "op")):
+                content = content.replace(" ", "_")
+            elif rel.startswith("value"):
+                # In some cases, like url-entities, we may need to brute-force test whether removing all spaces of the
+                # content results in an url, filename or email. If so, keep it like that.
+                # This is not always perfect because URLs are sometimes (incorrectly) written with spaces in the corpus
+                merged_content = content.replace(" ", "")
+                if _is_url(merged_content) or _is_filename(merged_content) or _is_email(merged_content):
+                    content = merged_content
 
-    delinearized = re.sub(r":([a-zA-Z][a-zA-Z0-9]+)\s*<lit>(.*?)</lit>", reverse_literal, delinearized)
+        return f'{prev_item} :{rel} "{content}"'
+
+    delinearized = re.sub(r"(\S+)?\s*:([a-zA-Z][a-zA-Z0-9]+)\s*<lit>(.*?)</lit>", reverse_literal, delinearized)
 
     # Glue numbers back together, e.g. ':quant -54 7' -> ':quant -547'
     # but should not trigger for literal values, like ':value "34 61 09 91 12 135"'
     # Should not consider glueing things back to roles (like `:op1 12 "hello"` -> `:op112`); that is dealt with earlier
-    delinearized = re.sub(r"(?<![\"\D])(-?\d*\.?\d*)\s+(\d+)(?!\s*[\d\"<:])", r"\1\2", delinearized)
+    delinearized = re.sub(r"(?<![\"\D])(-?\d+\.?\d*)\s+(\d+)(?!\s*[\d\"<:])", r"\1\2", delinearized)
 
     # Add -of back to utterances for regular words (NOT for -of roles)
     # E.g., `:mod <rel> <pointer:4> first-of -all </rel>` -> `first-of-all </rel>`

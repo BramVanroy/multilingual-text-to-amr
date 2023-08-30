@@ -17,7 +17,9 @@ USE_FAST = (True, False)
 TOKENIZER_NAMES = (
     "bigscience/bloomz-560m",
     "facebook/mbart-large-cc25",
+    "facebook/mbart-large-50-many-to-one-mmt",
     "google/mt5-base",
+    "t5-base",
     "facebook/nllb-200-3.3B",
     "google/flan-t5-base",
 )
@@ -129,7 +131,6 @@ def main_sp(indir: str, start_from: Optional[int] = None):
                 print("idx:", graph_idx)
                 print()
                 num_not_perfect_smatch += 1
-                raise Exception("Not equal")
 
         assert len(all_preds_penman) == len(all_refs_penman) == len(all_linearizeds)
 

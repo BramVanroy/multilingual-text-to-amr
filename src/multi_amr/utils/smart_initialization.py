@@ -12,6 +12,10 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
     that spans [-noise_range, +noise_range]. The default is the default noise used in SPRING
     :return: the model with updated weights for the added tokens
     """
+    # TODO: add spaces in front of the components where that is needed
+    # It is expected that semantics are better with the space in front because the
+    # model will have built better representations for in-context (so with prefix space)
+
     tokenizer = tok_wrapper.tokenizer
     # Vocab size if the size without the added tokens, so the first added token is at
     # index=vocab_size

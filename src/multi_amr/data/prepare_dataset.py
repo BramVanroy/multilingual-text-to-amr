@@ -130,11 +130,13 @@ def prepare_dataset(
     # Drop all rows where sentence begins and ends with open/close brackets
     # Such as `( End )` or `<p>Hello world</p>`
     if remove_bracketed:
-
         def starts_ends_with_punctuation(s):
             return s.startswith(tuple(string.punctuation)) and s.endswith(tuple(string.punctuation))
 
         df = df[~df["sentence"].apply(starts_ends_with_punctuation)]
+
+    # Remove rows with "amr-unintelligible"
+    df = df[~df.C.str.contains("amr-unintelligible")]
 
     if dedupe:
         df_len_before = len(df.index)

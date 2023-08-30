@@ -22,6 +22,8 @@ from transformers import (
     PreTrainedTokenizerBase,
     T5Tokenizer,
     T5TokenizerFast,
+MBart50Tokenizer,
+MBart50TokenizerFast,
 )
 
 
@@ -40,7 +42,7 @@ class AMRTokenizerWrapper:
         self.tokenizer = tokenizer
 
         self.amr_token = "<AMR>"
-        if isinstance(self.tokenizer, (MBartTokenizer, MBartTokenizerFast)):
+        if isinstance(self.tokenizer, (MBartTokenizer, MBartTokenizerFast, MBart50Tokenizer, MBart50TokenizerFast)):
             self.tokenizer_type = TokenizerType.MBART
             self.tokenizer.tgt_lang = self.amr_token  # AMR is always target in our case
             self.lang_idxs = torch.LongTensor(list(self.tokenizer.lang_code_to_id.values()))
