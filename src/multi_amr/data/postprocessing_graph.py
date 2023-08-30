@@ -62,7 +62,11 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
     nodes_ = []
     for n in nodes:
         if isinstance(n, str):
-            if n.startswith("<") and n.endswith(">") and (not n.startswith("<pointer:")):
+            if (
+                n.startswith("<")
+                and n.endswith(">")
+                and (not n.startswith(("<pointer:", "<TEL>", "<URL>", "<EMAIL>")))
+            ):
                 pass
             else:
                 nodes_.append(n)

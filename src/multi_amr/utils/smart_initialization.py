@@ -81,33 +81,39 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
             else:
                 components = token.split("-")
 
-        # Only keep non-empty items. Might occur when splitting, e.g. "-quantity"
-        components = [item for item in components if item]
-
         if noise_range:
             components_vector = torch.FloatTensor(model.config.hidden_size).uniform_(-noise_range, +noise_range)
         else:
             components_vector = torch.zeros(model.config.hidden_size)
         # Filter empty strings, possible after split
-        components = " ".join([c for c in components if c])
-        components_ids = tokenizer.encode(components, add_special_tokens=False)
+        components = [c for c in components if c]
+        components_ids = [tok_wrapper.tokenizer.encode(f" {item}", add_special_tokens=False) for item in components]
 
-        if tok_wrapper.tokenizer_type in [TokenizerType.MBART, TokenizerType.NLLB]:
+        if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB):
             components_vector += torch.stack(
-                [model.model.shared.weight.data[idx].clone() for idx in components_ids], dim=0
+                [
+                    torch.stack([model.model.shared.weight.data[idx].clone() for idx in comp_ids]).mean(dim=0)
+                    for comp_ids in components_ids
+                ]
             ).mean(dim=0)
             model.model.shared.weight.data[token_id] = components_vector
         elif tok_wrapper.tokenizer_type == TokenizerType.T5:
             components_vector += torch.stack(
-                [model.shared.weight.data[idx].clone() for idx in components_ids], dim=0
+                [
+                    torch.stack([model.shared.weight.data[idx].clone() for idx in comp_ids]).mean(dim=0)
+                    for comp_ids in components_ids
+                ]
             ).mean(dim=0)
-
             model.shared.weight.data[token_id] = components_vector
         elif tok_wrapper.tokenizer_type == TokenizerType.BLOOM:
             components_vector += torch.stack(
-                [model.transformer.word_embeddings.weight.data[idx].clone() for idx in components_ids], dim=0
+                [
+                    torch.stack([model.transformer.word_embeddings.weight.data[idx].clone() for idx in comp_ids]).mean(
+                        dim=0
+                    )
+                    for comp_ids in components_ids
+                ]
             ).mean(dim=0)
-
             model.transformer.word_embeddings.weight.data[token_id] = components_vector
         else:
             raise NotImplementedError(f"Model with type {tok_wrapper.tokenizer_type} not implemented yet.")

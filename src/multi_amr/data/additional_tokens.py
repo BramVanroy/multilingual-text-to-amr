@@ -2542,6 +2542,7 @@ _tokens_to_add = [
     ":consist",
     "url-entity",
     "phone-number-entity",
+    "email-address-entity",
     "political-movement",
     "et-cetera",
     "at-least",
@@ -5557,7 +5558,16 @@ _tokens_to_add = [
     "<AMR>",
     ":negation",
     "</of>",
+    "<TEL>",
+    "<URL>",
+    "<EMAIL>",
 ]
+
+SPECIAL_ENTITIES_MAP = {
+    "phone-number-entity": "<TEL>",
+    "url-entity": "<URL>",
+    "email-address-entity": "<EMAIL>",
+}
 
 
 @lru_cache

@@ -7,7 +7,6 @@ import torch
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 
 
-
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
@@ -27,10 +26,11 @@ def collate_amr(
     """Collate a given batch from the dataset by 1. tokenizing a given sentence and getting its attention mask,
     token_ids, etc. for input; 2. linearizing and tokenizing the associated penman str as the labels.
 
+    :param samples: a given batch
+    :param src_langs: a list of languages, can be 'English' or 'en_XX' depending on the model
     :param tok_wrapper: modified AMR tokenizer wrapper to use
     :param input_max_seq_length: optional max sequence length to truncate the input data to
     :param output_max_seq_length: optional max sequence length to truncate the output data (labels) to
-    :param samples: a given batch
     :return: a dictionary with keys such as token_ids and labels, with values tensors
     """
     model_max_length = tok_wrapper.tokenizer.model_max_length
@@ -58,8 +58,8 @@ def collate_amr(
         # Set the source lang to the main language in this batch so that the correct token can be added (not used by T5)
         tok_wrapper.tokenizer.src_lang = src_lang
     elif tok_wrapper.tokenizer_type in (TokenizerType.T5, TokenizerType.BLOOM):
-        # T5 can use prefixes
-        task_prefix = f"Translate {src_lang} to {tok_wrapper.amr_token}: "
+        # T5 can use prefixes. Lower case "translate", like in T5 pretraining
+        task_prefix = f"translate {src_lang} to {tok_wrapper.amr_token}: "
 
     has_labels = bool(len([s["linearized_penman"] for s in samples if s["linearized_penman"]]))
     if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.T5):
@@ -136,8 +136,5 @@ def collate_amr(
                 mask = torch.ones_like(batch["labels"], dtype=torch.bool)
                 mask[idxs_to_remove] = False
                 batch["labels"] = torch.masked_select(batch["labels"], mask)
-
-    print(batch)
-    exit()
 
     return batch

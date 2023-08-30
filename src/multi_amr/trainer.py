@@ -1,7 +1,7 @@
 from typing import Optional
 
-from datasets import Dataset
 import torch
+from datasets import Dataset
 from multi_amr.data.sampler import DistributedSrcLangGroupedSampler, SrcLangGroupedSampler
 from torch.utils.data import RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
@@ -85,10 +85,10 @@ class AMRTrainer(Seq2SeqTrainer):
                 # so that every optimization step, we are optimizing for a single language
                 return SrcLangGroupedSampler(
                     batch_size=self.args.per_device_eval_batch_size,
-                    keep_incomplete_batches=self.args.keep_incomplete_batches,
+                    keep_incomplete_batches=True,
                     dataset=eval_dataset,
                     shuffle=False,
-                    group_by_length=self.args.group_by_length,
+                    group_by_length=False,
                 )
             else:
                 return DistributedSrcLangGroupedSampler(
@@ -96,9 +96,9 @@ class AMRTrainer(Seq2SeqTrainer):
                     dataset=eval_dataset,
                     num_replicas=self.args.world_size,
                     rank=self.args.process_index,
-                    keep_incomplete_batches=self.args.keep_incomplete_batches,
+                    keep_incomplete_batches=True,
                     shuffle=False,
-                    group_by_length=self.args.group_by_length,
+                    group_by_length=False,
                 )
 
         if self.args.world_size <= 1:

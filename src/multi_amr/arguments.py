@@ -287,3 +287,11 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
             " items that, combined, account for p%. Only works if predict_with_generate=True."
         },
     )
+    generation_max_length: int = field(
+        default=180,
+        metadata={"help": "The max. generation length when getting predictions for dev or test sets."},
+    )
+    num_beams: int = field(
+        default=5,
+        metadata={"help": "The number of beams to use for generation when getting predictions for dev or test sets."},
+    )

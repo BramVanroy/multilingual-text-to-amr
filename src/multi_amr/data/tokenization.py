@@ -5,16 +5,13 @@ from typing import Dict, List, Tuple
 import penman
 import torch
 from multi_amr.data.additional_tokens import get_added_vocabulary
-from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
 from multi_amr.data.postprocessing_graph import ParsedStatus, tokens2graph
-from multi_amr.data.postprocessing_str import (
-    postprocess_str_after_delinearization,
-    postprocess_str_after_linearization,
-    tokenize_except_quotes_and_angles,
-)
+from multi_amr.data.postprocessing_str import postprocess_str_after_delinearization, tokenize_except_quotes_and_angles
 from transformers import (
     AutoTokenizer,
     BloomTokenizerFast,
+    MBart50Tokenizer,
+    MBart50TokenizerFast,
     MBartTokenizer,
     MBartTokenizerFast,
     NllbTokenizer,
@@ -22,8 +19,6 @@ from transformers import (
     PreTrainedTokenizerBase,
     T5Tokenizer,
     T5TokenizerFast,
-MBart50Tokenizer,
-MBart50TokenizerFast,
 )
 
 
@@ -103,32 +98,6 @@ class AMRTokenizerWrapper:
     def __call__(self, *args, **kwargs):
         return self.tokenizer(*args, **kwargs)
 
-    def batch_encode_penmanstrs(
-        self,
-        penmanstrs: List[str],
-        remove_wiki: bool = False,
-        remove_metadata: bool = True,
-        verbose: bool = False,
-        **tokenizer_kwargs,
-    ):
-        if isinstance(penmanstrs, str):
-            raise TypeError("Input 'penmanstrs' must be a list of strings")
-
-        linearizeds = []
-        for penmanstr in penmanstrs:
-            graph = penman.decode(penmanstr)
-            if remove_metadata:
-                graph.metadata = []
-
-            if remove_wiki:
-                graph = remove_wiki_from_graph(graph)
-
-            linearized = " ".join(dfs_linearize(graph))
-            linearized = postprocess_str_after_linearization(linearized, verbose=verbose)
-            linearizeds.append(linearized)
-
-        return self.tokenizer(linearizeds, **tokenizer_kwargs)
-
     def batch_decode_amr_ids(
         self, all_token_ids: List[List[int]], verbose: bool = False, reset_variables: bool = False, **tokenizer_kwargs
     ) -> Dict[str, List]:
@@ -170,10 +139,12 @@ class AMRTokenizerWrapper:
             tree = penman.configure(graph)
             try:
                 tree.reset_variables()
-            except Exception as exc:
-                print(sequence)
-                print(graph)
-                raise exc
+            except Exception:
+                logger.error(
+                    "Failed trying to reset tree variables. This is expected in early training when graphs are"
+                    " poorly formed. Will just return not reset graph"
+                )
+                return penman.encode(graph), status
             penmanstr = penman.format(tree)
         else:
             penmanstr = penman.encode(graph)

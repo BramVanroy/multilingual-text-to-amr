@@ -9,11 +9,12 @@ import pandas as pd
 import penman
 from datasets import Dataset, DatasetDict
 from ftfy import fix_text
+from multi_amr.data.additional_tokens import SPECIAL_ENTITIES_MAP
 from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
+from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
+from penman import Triple
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
 from tqdm import tqdm
-
-from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
 
 
 class SplitType(StrEnum):
@@ -45,6 +46,7 @@ def prepare_dataset(
     normalize_punct: bool = False,
     detokenize: bool = False,
     remove_bracketed: bool = False,
+    replace_entities: bool = False,
 ):
     """Given a directory of AMR files, deduplicate all files so that every file contains unique files. We also process
      the text for the sake of normalization. This is needed because the AMR3.0 corpus sometimes has unexpected
@@ -66,6 +68,8 @@ def prepare_dataset(
     :param detokenize: whether to detokenize to sentence (not the linearized AMR)
     :param remove_bracketed: whether to remove sentences that begin and end with open/close brackets, such as `( End )`
      or `<p>Hello world</p>`
+    :param replace_entities: whether to replace URL, email, and phone number entities by <URL>, <EMAIL>, <TEL>
+     respectively
     """
     pdout = Path(output_dir).resolve()
     pdout.mkdir(exist_ok=True, parents=True)
@@ -88,6 +92,34 @@ def prepare_dataset(
                     for graph in penman.iterdecode(fhin):
                         if remove_wiki:
                             graph = remove_wiki_from_graph(graph)
+
+                        if replace_entities:
+                            varmap = {}
+
+                            # Find vars that are a url, email or tel
+                            for source, role, target in graph.triples:
+                                if role == ":instance":
+                                    if target in SPECIAL_ENTITIES_MAP:
+                                        varmap[source] = target
+
+                            new_triples = []
+                            # Find values that refer to url, email or tel vars and replace with special token
+                            for source, role, target in graph.triples:
+                                # In exceptional cases, the actual URL may be hidden under an op instead of value
+                                if (
+                                    source in varmap
+                                    and role.startswith((":value", ":op"))
+                                    and target.startswith('"')
+                                    and target.endswith('"')
+                                ):
+                                    ent_type = varmap[source]
+                                    repl = SPECIAL_ENTITIES_MAP[ent_type]
+                                    new_triples.append(Triple(source, role, repl))
+                                else:
+                                    new_triples.append(Triple(source, role, target))
+
+                            graph = penman.Graph(new_triples, metadata=graph.metadata)
+
                         linearized = postprocess_str_after_linearization(" ".join(dfs_linearize(graph)))
                         sentence = graph.metadata["snt"]
 
@@ -130,13 +162,14 @@ def prepare_dataset(
     # Drop all rows where sentence begins and ends with open/close brackets
     # Such as `( End )` or `<p>Hello world</p>`
     if remove_bracketed:
+
         def starts_ends_with_punctuation(s):
             return s.startswith(tuple(string.punctuation)) and s.endswith(tuple(string.punctuation))
 
         df = df[~df["sentence"].apply(starts_ends_with_punctuation)]
 
     # Remove rows with "amr-unintelligible"
-    df = df[~df.C.str.contains("amr-unintelligible")]
+    df = df[~df.linearized_penman.str.contains("amr-unintelligible")]
 
     if dedupe:
         df_len_before = len(df.index)
@@ -210,7 +243,11 @@ def main():
         action="store_true",
         help="whether to remove sentences that start and end with a punctuation mark (such as `( End )`)",
     )
-
+    cparser.add_argument(
+        "--replace_entities",
+        action="store_true",
+        help="whether to replace URL, email, and phone number entities by <URL>, <EMAIL>, <TEL> respectively",
+    )
     cargs = cparser.parse_args()
     prepare_dataset(**vars(cargs))
 

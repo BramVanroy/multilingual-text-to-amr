@@ -66,10 +66,15 @@ def postprocess_str_after_linearization(linearized: str, verbose: bool = False) 
     # Remove duplicate spaces
     linearized = " ".join(linearized.split())
 
-    linearized = re.sub(r" <(\/?)(pointer|rel|lit|AMR|of)", r"<\1\2", linearized)
+    linearized = re.sub(r" <(\/?)(pointer|rel|lit|AMR|of|URL|TEL|EMAIL)", r"<\1\2", linearized)
+    if verbose:
+        print("after remove space before pointer etc", linearized)
+
     # Make sure that added tokens have no space in front of them because some tokenizers may
     # tokenize those spaces explicitly as `[Ġ, </rel>, Ġ, :op2]`
     linearized = re.sub(rf" ({'|'.join(get_added_vocabulary())})", r"\1", linearized)
+    if verbose:
+        print("after remove space before special tokens", linearized)
 
     return linearized
 
@@ -80,9 +85,11 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
         delinearized.replace(" -quantity", "-quantity")
         .replace(" -entity", "-entity")
         .replace(" </of>", "</of>")
+        .replace("<URL>", " <URL>")
+        .replace("<TEL>", " <TEL>")
+        .replace("<EMAIL>", " <EMAIL>")
     )
 
-    # AMR specific
     # Generic prepositions/conjunctions, e.g. `:prep-by` or `:conj-as-if`
     delinearized = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", delinearized)
     delinearized = delinearized.replace(":negation", " :polarity - ")
@@ -142,7 +149,7 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
         pointer = match.group(1).strip()
         content = re.sub(r"\s", "", match.group(2).strip())
 
-        return f'{pointer} {content} '
+        return f"{pointer} {content} "
 
     delinearized = re.sub(r"(<pointer:\d+>)\s*([-a-z\d\s]+)\s*(?=[<:])", fix_dashes, delinearized)
 
@@ -170,8 +177,8 @@ def tokenize_except_quotes_and_angles(input_str: str) -> list[str]:
 
     for char in input_str:
         is_quote = char == '"'
-        is_open_angled = char == '<'
-        is_close_angled = char == '>'
+        is_open_angled = char == "<"
+        is_close_angled = char == ">"
         if not tmp_str:
             tmp_str += char
             quoted_started = is_quote
