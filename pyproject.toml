@@ -45,7 +45,8 @@ dependencies = [
     "transformers==4.32.1",
     "smatchpp==1.1.3",
     "mip==1.15.0",
-    "unidecode==1.3.6"
+    "unidecode==1.3.6",
+    "pyyaml",
 ]
 
 [project.urls]
@@ -56,6 +57,7 @@ changelog = "https://github.com/BramVanroy/multilingual-text-to-amr/blob/master/
 
 [project.optional-dependencies]
 dev = ["flake8", "black", "isort"]
+analysis = ["jupyter", "seaborn"]
 wandb = ["wandb"]
 
 # TOOLS

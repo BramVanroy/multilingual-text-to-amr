@@ -74,7 +74,7 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
                     components = ["en_XX"]
                 elif tok_wrapper.tokenizer_type == TokenizerType.NLLB:
                     components = ["eng_Latn"]
-                elif tok_wrapper.tokenizer_type in (TokenizerType.T5, TokenizerType.BLOOM):
+                elif tok_wrapper.tokenizer_type in (TokenizerType.T5, TokenizerType.BLOOM, TokenizerType.BART):
                     components = ["English"]
                 else:
                     raise NotImplementedError(f"Tokenizer type {tok_wrapper.tokenizer_type} not implemented yet.")
@@ -89,7 +89,7 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
         components = [c for c in components if c]
         components_ids = [tok_wrapper.tokenizer.encode(f" {item}", add_special_tokens=False) for item in components]
 
-        if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB):
+        if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.BART, TokenizerType.NLLB):
             components_vector += torch.stack(
                 [
                     torch.stack([model.model.shared.weight.data[idx].clone() for idx in comp_ids]).mean(dim=0)
@@ -97,7 +97,7 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
                 ]
             ).mean(dim=0)
             model.model.shared.weight.data[token_id] = components_vector
-        elif tok_wrapper.tokenizer_type == TokenizerType.T5:
+        elif tok_wrapper.tokenizer_type in (TokenizerType.T5,):
             components_vector += torch.stack(
                 [
                     torch.stack([model.shared.weight.data[idx].clone() for idx in comp_ids]).mean(dim=0)

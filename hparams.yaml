@@ -1,0 +1,13 @@
+method: bayes
+metric:
+  name: "objective"
+  goal: maximize
+parameters:
+  learning_rate:
+    values: [1e-5, 5e-5, 1e-4, 5e-4]
+  weight_decay:
+    values: [0.001, 0.005, 0.01]
+  gradient_accumulation_steps:
+    values: [1, 2, 4, 6]
+run_cap:
+  1

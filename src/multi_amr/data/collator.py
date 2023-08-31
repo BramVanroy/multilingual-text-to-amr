@@ -62,7 +62,7 @@ def collate_amr(
         task_prefix = f"translate {src_lang} to {tok_wrapper.amr_token}: "
 
     has_labels = bool(len([s["linearized_penman"] for s in samples if s["linearized_penman"]]))
-    if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.T5):
+    if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.BART, TokenizerType.NLLB, TokenizerType.T5):
         # ENCODER-DECODERS
         batch = tok_wrapper(
             [task_prefix + s["sentence"] for s in samples],

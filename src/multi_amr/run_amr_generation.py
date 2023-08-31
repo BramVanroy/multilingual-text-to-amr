@@ -12,7 +12,8 @@ import evaluate as evaluate
 import numpy as np
 import penman
 import transformers
-from amr import AMR
+import yaml
+
 from datasets import Dataset, DatasetDict
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.collator import collate_amr
@@ -26,7 +27,7 @@ from multi_amr.utils.smart_initialization import freeze_encoder, smart_initializ
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from peft.utils import TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING
 from smatchpp import Smatchpp, preprocess, solvers
-from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, EarlyStoppingCallback, set_seed
+from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, EarlyStoppingCallback, set_seed, AutoConfig
 from transformers.trainer_utils import get_last_checkpoint
 
 
@@ -113,6 +114,19 @@ def main():
                     f" {', '.join(tok_wrapper.tokenizer.lang_code_to_id.keys())}"
                 )
 
+    max_length = tok_wrapper.tokenizer.model_max_length
+
+    if max_length > 2048:  # Some max lengths are set to LARGE INT
+        if tok_wrapper.tokenizer_type == TokenizerType.BLOOM:
+            # Taken from their paper
+            max_length = 2048
+        elif tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.BART):
+            # mbart-large-cc25 is set to 1024 but mbart-large-50-may-to-one-mmt is set to LARGE INT
+            max_length = 1024
+        elif tok_wrapper.tokenizer_type == TokenizerType.T5:
+            # 1024 according to the mT5 paper
+            max_length = 1024
+
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
         "revision": model_args.model_revision,
@@ -121,15 +135,25 @@ def main():
     if not model_args.config_name and model_args.model_name_or_path:
         model_args.config_name = model_args.model_name_or_path
 
-    with training_args.main_process_first(desc="(Down)loading model"):
-        if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.T5):
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_args.model_name_or_path, **config_kwargs)
-        else:
-            model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+    config = AutoConfig.from_pretrained(model_args.config_name, **config_kwargs)
 
-    embedding_size = model.get_input_embeddings().weight.shape[0]
-    if len(tok_wrapper.tokenizer) > embedding_size:
-        model.resize_token_embeddings(len(tok_wrapper.tokenizer))
+    if tok_wrapper.tokenizer_type in (TokenizerType.BART, TokenizerType.MBART, TokenizerType.NLLB):
+        config.dropout = model_args.dropout
+    elif tok_wrapper.tokenizer_type in (TokenizerType.T5,):
+        config.dropout_rate = model_args.dropout
+    elif tok_wrapper.tokenizer_type in (TokenizerType.BLOOM,):
+        config.hidden_dropout = model_args.dropout
+
+    with training_args.main_process_first(desc="(Down)loading model"):
+        if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.BART, TokenizerType.T5):
+            model = AutoModelForSeq2SeqLM.from_pretrained(model_args.model_name_or_path, config=config)
+        else:
+            model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, config=config)
+
+        embedding_size = model.get_input_embeddings().weight.shape[0]
+        if len(tok_wrapper.tokenizer) > embedding_size:
+            model.resize_token_embeddings(len(tok_wrapper.tokenizer))
+            config.vocab_size = len(tok_wrapper.tokenizer)
 
     if training_args.smart_initialization:
         if Path(model_args.model_name_or_path).exists() or (training_args.do_eval and not training_args.do_train):
@@ -173,15 +197,20 @@ def main():
         callbacks.append(PeftSavingCallback)
         logger.info("Peft with LoRA enabled!")
 
-    #######################
-    # CUSTOM METRICS #
-    #######################
-    graph_standardizer = preprocess.AMRStandardizer(syntactic_standardization="dereify")
-    ilp = solvers.ILP()
-    smatch_metric = Smatchpp(alignmentsolver=ilp, graph_standardizer=graph_standardizer)
+    ####################
+    # CALCULATE SMATCH #
+    ####################
+    graph_standardizer = preprocess.AMRStandardizer()
+    # Using hillclimber here. Not the best accuracy but ILP is causing some issues, which are very disrupting for
+    # training the models. https://github.com/flipz357/smatchpp/issues/4
+    # So during evaluation (separate script) we'll make use of ILP instead
+    # ilp = solvers.ILP()
+    solver = solvers.HillClimber()
+    smatch_metric = Smatchpp(alignmentsolver=solver, graph_standardizer=graph_standardizer)
 
     def calculate_smatch(references: List[str], predictions: List[str]):
         score, optimization_status = smatch_metric.score_corpus(references, predictions)
+
         score = score["main"]
         return {
             "smatch_precision": score["Precision"]["result"],
@@ -305,9 +334,26 @@ def main():
             " If none are given, early stopping will not be used."
         )
 
+    def model_init(trial):
+        # Sizes will be mismatched here because config already includes added tokens but the original checkpoint does not
+        if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.BART, TokenizerType.T5):
+            model = AutoModelForSeq2SeqLM.from_pretrained(model_args.model_name_or_path, config=config, ignore_mismatched_sizes=True)
+        else:
+            model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, config=config, ignore_mismatched_sizes=True)
+
+        embedding_size = model.get_input_embeddings().weight.shape[0]
+        if len(tok_wrapper.tokenizer) > embedding_size:
+            model.resize_token_embeddings(len(tok_wrapper.tokenizer))
+            config.vocab_size = len(tok_wrapper.tokenizer)
+
+        if training_args.smart_initialization:
+            model = smart_initialization(model, tok_wrapper, noise_range=training_args.noise_range)
+
+        return model
+
     # Initialize our Trainer
     trainer = AMRTrainer(
-        model=model,
+        model=None if training_args.sweep_config else model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=validation_dataset,
@@ -327,7 +373,33 @@ def main():
         if not training_args.predict_with_generate
         else None,
         callbacks=callbacks,
+        model_init=model_init if training_args.sweep_config else None,
     )
+
+    if training_args.sweep_config:
+        def wandb_hp_space(trial=None):
+            return yaml.safe_load(Path(training_args.sweep_config).read_text(encoding="utf-8"))
+        best_trial = trainer.hyperparameter_search(
+            backend="wandb",
+            metric="eval/smatch_fscore",
+            hp_space=wandb_hp_space,
+            n_trials=wandb_hp_space()["run_cap"] if "run_cap" in wandb_hp_space() else None,
+            direction="maximize",
+        )
+
+        logging.info(f"Best hyperparameter search run: {best_trial.run_id}")
+        with Path(training_args.output_dir).joinpath("wandb_best_hparams.json").open("w", encoding="utf-8") as hp_out:
+            best_trial.hyperparameters.pop("assignments", None)
+            best_trial.hyperparameters["metric"] = "eval/smatch_fscore"
+            hparams_dump = {
+                **best_trial.hyperparameters,
+                "best_run": best_trial.run_id,
+                "objective": best_trial.objective
+            }
+            dump(hparams_dump, hp_out, indent=4, sort_keys=True)
+
+        for hparam, v in best_trial.hyperparameters.items():
+            setattr(trainer.args, hparam, v)
 
     # Training
     if training_args.do_train:
@@ -352,63 +424,61 @@ def main():
             trainer.push_to_hub(**kwargs)
         else:
             trainer.create_model_card(**kwargs)
-
-    if trainer.is_world_process_zero():
-        for split in ("valid", "test"):
-            if split == "valid":
-                if not training_args.do_eval:
-                    continue
-                dataset = validation_dataset
-            else:
-                if not training_args.do_predict:
-                    continue
-                dataset = test_dataset
-
-            logger.info(f"*** {split.upper()} ***")
-            df = dataset.to_pandas()
-            df = df.drop(columns=["__index_level_0__"], errors="ignore")
-
-            for src_lang_idx, group_ds in df.groupby("src_lang_idx"):
-                src_lang = data_args.src_langs[src_lang_idx]
-                lang_dataset = Dataset.from_pandas(group_ds)
-                predict_results = trainer.predict(
-                    lang_dataset,
-                    max_length=training_args.generation_max_length,
-                    num_beams=training_args.num_beams,
-                    penalty_alpha=training_args.penalty_alpha,
-                    top_k=training_args.top_k,
-                    do_sample=training_args.do_sample,
-                    top_p=training_args.top_p,
-                    metric_key_prefix=f"{split}_{src_lang}",
-                )
-                metrics = predict_results.metrics
-                trainer.log_metrics(f"{split}_{src_lang}", metrics)
-                trainer.save_metrics(f"{split}_{src_lang}", metrics)
-                # TODO: just write custom `predict` script?
-                preds = predict_results.predictions
-                labels = predict_results.label_ids
-
-                num_samples = len(labels)
-
-                # CLM models need to reshift their labels
-                if tok_wrapper.tokenizer_type in (TokenizerType.BLOOM,):
-                    preds = preds[:, :-1]
-
-                # SMATCH
-                labels_for_smatch = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
-                preds_for_smatch = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
-                refs_penman = tok_wrapper.batch_decode_amr_ids(labels_for_smatch, reset_variables=True)["penman"]
-                preds_decoded = tok_wrapper.batch_decode_amr_ids(preds_for_smatch, reset_variables=True)
-                preds_penman, preds_status = preds_decoded["penman"], preds_decoded["status"]
-
-                pf_predictions = Path(training_args.output_dir).joinpath(f"{split}_predictions_{src_lang}.txt")
-                logger.info(f"Writing {split} predictions for {src_lang} to file {pf_predictions.stem}*")
-
-                with pf_predictions.open("w", encoding="utf-8") as fhout:
-                    for sent, ref, pred in zip(
-                        lang_dataset["sentence"], refs_penman, preds_penman
-                    ):
-                        fhout.write(f"{sent}\nREF: {ref}\nPRED: {pred}\n\n")
+    #
+    # if trainer.is_world_process_zero():
+    #     for split in ("valid", "test"):
+    #         if split == "valid":
+    #             if not training_args.do_eval:
+    #                 continue
+    #             dataset = validation_dataset
+    #         else:
+    #             if not training_args.do_predict:
+    #                 continue
+    #             dataset = test_dataset
+    #
+    #         logger.info(f"*** {split.upper()} ***")
+    #         df = dataset.to_pandas()
+    #         df = df.drop(columns=["__index_level_0__"], errors="ignore")
+    #
+    #         for src_lang_idx, group_ds in df.groupby("src_lang_idx"):
+    #             src_lang = data_args.src_langs[src_lang_idx]
+    #             lang_dataset = Dataset.from_pandas(group_ds)
+    #             predict_results = trainer.predict(
+    #                 lang_dataset,
+    #                 max_length=training_args.generation_max_length,
+    #                 num_beams=training_args.num_beams,
+    #                 penalty_alpha=training_args.penalty_alpha,
+    #                 top_k=training_args.top_k,
+    #                 do_sample=training_args.do_sample,
+    #                 top_p=training_args.top_p,
+    #                 metric_key_prefix=f"{split}_{src_lang}",
+    #             )
+    #             metrics = predict_results.metrics
+    #             trainer.log_metrics(f"{split}_{src_lang}", metrics)
+    #             trainer.save_metrics(f"{split}_{src_lang}", metrics)
+    #             # TODO: just write custom `predict` script?
+    #             preds = predict_results.predictions
+    #             labels = predict_results.label_ids
+    #
+    #             num_samples = len(labels)
+    #
+    #             # CLM models need to reshift their labels
+    #             if tok_wrapper.tokenizer_type in (TokenizerType.BLOOM,):
+    #                 preds = preds[:, :-1]
+    #
+    #             # SMATCH
+    #             labels_for_smatch = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
+    #             preds_for_smatch = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
+    #             refs_penman = tok_wrapper.batch_decode_amr_ids(labels_for_smatch, reset_variables=True)["penman"]
+    #             preds_decoded = tok_wrapper.batch_decode_amr_ids(preds_for_smatch, reset_variables=True)
+    #             preds_penman, preds_status = preds_decoded["penman"], preds_decoded["status"]
+    #
+    #             pf_predictions = Path(training_args.output_dir).joinpath(f"{split}_predictions_{src_lang}.txt")
+    #             logger.info(f"Writing {split} predictions for {src_lang} to file {pf_predictions.stem}*")
+    #
+    #             with pf_predictions.open("w", encoding="utf-8") as fhout:
+    #                 for sent, ref, pred in zip(lang_dataset["sentence"], refs_penman, preds_penman):
+    #                     fhout.write(f"{sent}\nREF: {ref}\nPRED: {pred}\n\n")
 
 
 def _mp_fn(index):
@@ -417,12 +487,18 @@ def _mp_fn(index):
 
 
 if __name__ == "__main__":
-    main()
+    import traceback
+    try:
+        main()
+    except Exception as e:
+        # exit gracefully, so wandb logs the problem
+        print(traceback.print_exc(), file=sys.stderr)
+        exit(1)
 
 
 # Train
-# OMP_NUM_THREADS=8 WANDB_PROJECT="amr-en-cleaned-flan-t5-large" torchrun --standalone --nproc_per_node 4 src/multi_amr/run_amr_generation.py train_config_ampere.json --model_name_or_path google/flan-t5-large --output_dir results/amr30/full_cleaned/flan-t5-large/2e-4lr+50ep+64tbs |& tee output.log
+# OMP_NUM_THREADS=8 WANDB_PROJECT="amr-en-cleaned-flan-t5-large" torchrun --standalone --nproc_per_node 4 src/multi_amr/run_amr_generation.py train_config_ampere.json --model_name_or_path google/flan-t5-large --output_dir results/amr30/full_cleaned/flan-t5-large/1e-5lr+50ep+64tbs --run_name 1e-5lr+50ep+64tbs --learning_rate 1e-5 |& tee output.log
 # Eval
 # CUDA_VISIBLE_DEVICES=0 python src/multi_amr/run_amr_generation.py predict_config_ampere.json |& tee output.log
 
-# TODO: predict script, hparam sweep
+# TODO: predict script, hparam sweep, check data lengths and filter data based on input_max_seq_length BEFORE sample/collating with dataset.filter

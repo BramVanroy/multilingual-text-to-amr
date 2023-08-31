@@ -4,7 +4,7 @@ from typing import List, Optional
 from transformers import Seq2SeqTrainingArguments
 
 
-@dataclass
+@dataclass(frozen=False)
 class ModelArguments:
     """
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune, or train from scratch.
@@ -110,9 +110,12 @@ class ModelArguments:
         metadata={"help": "Activate nested quantization for 4bit base models"},
     )
     use_peft: bool = field(default=False, metadata={"help": "Wether to use PEFT with LoRA or not to train adapters"})
+    dropout: float = field(
+        default=0.1,
+        metadata={"help": "The dropout probability for the model"},
+    )
 
-
-@dataclass
+@dataclass(frozen=False)
 class DataTrainingArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
@@ -196,7 +199,7 @@ class DataTrainingArguments:
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
     early_stopping_patience: Optional[int] = field(
         default=None,
@@ -294,4 +297,11 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
     num_beams: int = field(
         default=5,
         metadata={"help": "The number of beams to use for generation when getting predictions for dev or test sets."},
+    )
+    sweep_config: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "A YAML file containing a sweep configuration. If given, will do hyperparameter optimisation."
+                    " See https://docs.wandb.ai/guides/sweeps/define-sweep-configuration"
+        },
     )

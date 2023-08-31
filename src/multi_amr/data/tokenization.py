@@ -19,6 +19,8 @@ from transformers import (
     PreTrainedTokenizerBase,
     T5Tokenizer,
     T5TokenizerFast,
+BartTokenizer,
+BartTokenizerFast,
 )
 
 
@@ -28,6 +30,7 @@ logger = logging.getLogger(__name__)
 class TokenizerType(StrEnum):
     BLOOM = auto()
     MBART = auto()
+    BART = auto()
     NLLB = auto()
     T5 = auto()
 
@@ -41,6 +44,10 @@ class AMRTokenizerWrapper:
             self.tokenizer_type = TokenizerType.MBART
             self.tokenizer.tgt_lang = self.amr_token  # AMR is always target in our case
             self.lang_idxs = torch.LongTensor(list(self.tokenizer.lang_code_to_id.values()))
+            self.token_prefix = "\u2581"
+        elif isinstance(self.tokenizer, (BartTokenizer, BartTokenizerFast)):
+            self.tokenizer_type = TokenizerType.BART
+            self.lang_idxs = None
             self.token_prefix = "\u2581"
         elif isinstance(self.tokenizer, (NllbTokenizer, NllbTokenizerFast)):
             self.tokenizer_type = TokenizerType.NLLB
