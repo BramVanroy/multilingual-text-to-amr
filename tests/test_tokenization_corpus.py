@@ -19,6 +19,7 @@ USE_FAST = (True, False)
 TOKENIZER_NAMES = (
     "bigscience/bloomz-560m",
     "facebook/mbart-large-cc25",
+    "facebook/bart-large",
     "facebook/mbart-large-50-many-to-one-mmt",
     "google/mt5-base",
     "t5-base",
@@ -27,11 +28,11 @@ TOKENIZER_NAMES = (
 )
 REMOVE_WIKI = (True, False)
 REPLACE_ENTITIES = (True,)
-# USE_FAST = (True,)
-# TOKENIZER_NAMES = (
-#     "google/mt5-base",
-# )
-# REMOVE_WIKI = (True,)
+USE_FAST = (True,)
+TOKENIZER_NAMES = (
+    "facebook/bart-large",
+)
+REMOVE_WIKI = (True,)
 
 
 graph_standardizer = preprocess.AMRStandardizer(syntactic_standardization="dereify")

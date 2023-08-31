@@ -209,13 +209,29 @@ def main():
     smatch_metric = Smatchpp(alignmentsolver=solver, graph_standardizer=graph_standardizer)
 
     def calculate_smatch(references: List[str], predictions: List[str]):
-        score, optimization_status = smatch_metric.score_corpus(references, predictions)
+        # NOTE: it is possible that on a local install, I made changes to smatchpp so that it will
+        # ignore malformed pairs. This part here is therefore only applicable for training and you cannot
+        # be sure to use it for prediction because it will just ignore the invalid graphs
+        filtered_refs = []
+        filtered_preds = []
+        for ref, pred in zip(references, predictions):
+            try:
+                penman.decode(ref)
+                penman.decode(pred)
+            except:
+                continue
+            else:
+                filtered_refs.append(ref)
+                filtered_preds.append(pred)
+
+        score, optimization_status = smatch_metric.score_corpus(filtered_refs, filtered_preds)
 
         score = score["main"]
         return {
             "smatch_precision": score["Precision"]["result"],
             "smatch_recall": score["Recall"]["result"],
             "smatch_fscore": score["F1"]["result"],
+            "smatch_unparsable": len(references) - len(filtered_refs)
         }
 
     acc_metric = evaluate.load("accuracy")

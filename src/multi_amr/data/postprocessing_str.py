@@ -130,7 +130,11 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
 
         return f'{prev_item} :{rel} "{content}"'
 
-    delinearized = re.sub(r"(\S+)?\s*:([a-zA-Z][a-zA-Z0-9]+)\s*<lit>(.*?)</lit>", reverse_literal, delinearized)
+    delinearized = re.sub(r"(\S+)?\s*:([a-zA-Z][a-zA-Z0-9]+)\s*<lit>([^<]*?)</lit>", reverse_literal, delinearized)
+
+    # In case the regex above does not exactly matches, try to get rid of <lit> with simple replace
+    # Useful for invalid graphs
+    delinearized = delinearized.replace("<lit>", '"').replace("</lit>", '"')
 
     # Glue numbers back together, e.g. ':quant -54 7' -> ':quant -547'
     # but should not trigger for literal values, like ':value "34 61 09 91 12 135"'
