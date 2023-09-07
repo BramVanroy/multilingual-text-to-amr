@@ -85,7 +85,7 @@ if __name__ == "__main__":
     cparser.add_argument(
         "din",
         help="directory containing the processed dataset. Output statistics will be written to a JSON file"
-             " 'corpus_statistics.json' in this directory",
+        " 'corpus_statistics.json' in this directory",
     )
     cargs = cparser.parse_args()
     main(cargs.din)

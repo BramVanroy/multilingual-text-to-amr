@@ -9,6 +9,8 @@ from multi_amr.data.postprocessing_graph import ParsedStatus, tokens2graph
 from multi_amr.data.postprocessing_str import postprocess_str_after_delinearization, tokenize_except_quotes_and_angles
 from transformers import (
     AutoTokenizer,
+    BartTokenizer,
+    BartTokenizerFast,
     BloomTokenizerFast,
     MBart50Tokenizer,
     MBart50TokenizerFast,
@@ -19,8 +21,6 @@ from transformers import (
     PreTrainedTokenizerBase,
     T5Tokenizer,
     T5TokenizerFast,
-BartTokenizer,
-BartTokenizerFast,
 )
 
 
@@ -69,8 +69,7 @@ class AMRTokenizerWrapper:
         else:
             raise ValueError(f"Tokenizer type '{type(self.tokenizer)}' not supported.")
 
-        # tokens_to_add = get_added_vocabulary(prefix=self.token_prefix)
-        tokens_to_add = get_added_vocabulary()
+        tokens_to_add = get_added_vocabulary(prefix=self.token_prefix)
         tokens_to_add = set(tokens_to_add)
         voc = set(self.tokenizer.get_vocab().keys())
         new_tokens = list(sorted(tokens_to_add - voc))

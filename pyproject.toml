@@ -30,6 +30,7 @@ classifiers = [
 requires-python = ">=3.11"
 dependencies = [
     "accelerate==0.22.0",
+    "aenum=3.1.15",
     "evaluate==0.4.0",
     "ftfy==6.1.1",
     "networkx==3.0",

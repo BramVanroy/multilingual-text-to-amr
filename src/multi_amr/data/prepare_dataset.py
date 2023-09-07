@@ -13,6 +13,8 @@ from multi_amr.data.additional_tokens import SPECIAL_ENTITIES_MAP
 from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
 from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
 from penman import Triple
+from penman.model import Model
+from penman.models.noop import model as noop_model
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
 from tqdm import tqdm
 
@@ -36,6 +38,15 @@ class SplitType(StrEnum):
         )
 
 
+def get_penman_model(dereify: None | bool):
+    if dereify is None:
+        return Model()
+    elif dereify:
+        return Model()
+    else:
+        return noop_model
+
+
 def prepare_dataset(
     amr_dirs: List[Union[str, PathLike]],
     langs: List[str],
@@ -47,6 +58,7 @@ def prepare_dataset(
     detokenize: bool = False,
     remove_bracketed: bool = False,
     replace_entities: bool = False,
+    dereify: bool = False,
 ):
     """Given a directory of AMR files, deduplicate all files so that every file contains unique files. We also process
      the text for the sake of normalization. This is needed because the AMR3.0 corpus sometimes has unexpected
@@ -89,7 +101,7 @@ def prepare_dataset(
 
             for pfin in tqdm(list(psplit.glob("*.txt")), unit="file", desc=split_type):
                 with pfin.open(encoding="utf-8") as fhin:
-                    for graph in penman.iterdecode(fhin):
+                    for graph in penman.iterdecode(fhin, model=get_penman_model(dereify)):
                         if remove_wiki:
                             graph = remove_wiki_from_graph(graph)
 
@@ -162,7 +174,6 @@ def prepare_dataset(
     # Drop all rows where sentence begins and ends with open/close brackets
     # Such as `( End )` or `<p>Hello world</p>`
     if remove_bracketed:
-
         def starts_ends_with_punctuation(s):
             return s.startswith(tuple(string.punctuation)) and s.endswith(tuple(string.punctuation))
 

@@ -3,7 +3,10 @@ import dataclasses
 import logging
 import math
 import os
+import random
 import sys
+import tempfile
+from enum import StrEnum
 from functools import partial
 from pathlib import Path
 from typing import List
@@ -11,13 +14,13 @@ from typing import List
 import evaluate as evaluate
 import numpy as np
 import penman
+import smatch
 import transformers
 import yaml
-
 from datasets import Dataset, DatasetDict
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.collator import collate_amr
-from multi_amr.data.postprocessing_graph import ParsedStatus, tokens2graph
+from multi_amr.data.postprocessing_graph import BACKOFF, ParsedStatus, tokens2graph
 from multi_amr.data.postprocessing_str import postprocess_str_after_delinearization, tokenize_except_quotes_and_angles
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.parse_cli import parse_cli
@@ -27,18 +30,26 @@ from multi_amr.utils.smart_initialization import freeze_encoder, smart_initializ
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from peft.utils import TRANSFORMERS_MODELS_TO_LORA_TARGET_MODULES_MAPPING
 from smatchpp import Smatchpp, preprocess, solvers
-from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, EarlyStoppingCallback, set_seed, AutoConfig
+from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForSeq2SeqLM, EarlyStoppingCallback, set_seed
 from transformers.trainer_utils import get_last_checkpoint
+from transformers.training_args import OptimizerNames
 
 
 logger = logging.getLogger(__name__)
 
+from aenum import extend_enum
+
 
 def main():
+    extend_enum(OptimizerNames, "RADAM", "radam")
+
     model_args, data_args, training_args = parse_cli(
         ModelArguments, DataTrainingArguments, ExpandedSeq2SeqTrainingArguments
     )
     training_args = dataclasses.replace(training_args, remove_unused_columns=False)
+    if training_args.seed is None:
+        training_args = dataclasses.replace(training_args, seed=random.randint(1, 99999))
+        logger.info(f"Random seed set to {training_args.seed}")
 
     if (
         os.path.exists(training_args.output_dir)
@@ -139,13 +150,21 @@ def main():
 
     if tok_wrapper.tokenizer_type in (TokenizerType.BART, TokenizerType.MBART, TokenizerType.NLLB):
         config.dropout = model_args.dropout
+        config.attention_dropout = model_args.attention_dropout
     elif tok_wrapper.tokenizer_type in (TokenizerType.T5,):
         config.dropout_rate = model_args.dropout
+        # T5 does not explicitly use a separate attention dropout
     elif tok_wrapper.tokenizer_type in (TokenizerType.BLOOM,):
         config.hidden_dropout = model_args.dropout
+        config.attention_dropout = model_args.attention_dropout
 
     with training_args.main_process_first(desc="(Down)loading model"):
-        if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.BART, TokenizerType.T5):
+        if tok_wrapper.tokenizer_type in (
+            TokenizerType.MBART,
+            TokenizerType.NLLB,
+            TokenizerType.BART,
+            TokenizerType.T5,
+        ):
             model = AutoModelForSeq2SeqLM.from_pretrained(model_args.model_name_or_path, config=config)
         else:
             model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, config=config)
@@ -200,39 +219,78 @@ def main():
     ####################
     # CALCULATE SMATCH #
     ####################
-    graph_standardizer = preprocess.AMRStandardizer()
-    # Using hillclimber here. Not the best accuracy but ILP is causing some issues, which are very disrupting for
-    # training the models. https://github.com/flipz357/smatchpp/issues/4
-    # So during evaluation (separate script) we'll make use of ILP instead
-    # ilp = solvers.ILP()
-    solver = solvers.HillClimber()
-    smatch_metric = Smatchpp(alignmentsolver=solver, graph_standardizer=graph_standardizer)
-
+    # TODO re-enable, smatchpp isntead of smatch
+    # graph_standardizer = preprocess.AMRStandardizer()
+    # # Using hillclimber here. Not the best accuracy but ILP is causing some issues, which are very disrupting for
+    # # training the models. https://github.com/flipz357/smatchpp/issues/4
+    # # So during evaluation (separate script) we'll make use of ILP instead
+    # # ilp = solvers.ILP()
+    # solver = solvers.HillClimber()
+    # smatch_metric = Smatchpp(alignmentsolver=solver, graph_standardizer=graph_standardizer)
+    #
+    # def calculate_smatch(references: List[str], predictions: List[str]):
+    #     # NOTE: it is possible that on a local install, I made changes to smatchpp so that it will
+    #     # ignore malformed pairs. This part here is therefore only applicable for training and you cannot
+    #     # be sure to use it for prediction because it will just ignore the invalid graphs
+    #     filtered_refs = []
+    #     filtered_preds = []
+    #     for ref, pred in zip(references, predictions):
+    #         try:
+    #             penman.decode(ref)
+    #             penman.decode(pred)
+    #         except:
+    #             continue
+    #         else:
+    #             filtered_refs.append(ref)
+    #             filtered_preds.append(pred)
+    #
+    #     score, optimization_status = smatch_metric.score_corpus(filtered_refs, filtered_preds)
+    #
+    #     score = score["main"]
+    #     return {
+    #         "smatch_precision": score["Precision"]["result"],
+    #         "smatch_recall": score["Recall"]["result"],
+    #         "smatch_fscore": score["F1"]["result"],
+    #         "smatch_unparsable": len(references) - len(filtered_refs),
+    #     }
+    # TODO: remove (this is the old smatch impl, not smatchpp
     def calculate_smatch(references: List[str], predictions: List[str]):
-        # NOTE: it is possible that on a local install, I made changes to smatchpp so that it will
-        # ignore malformed pairs. This part here is therefore only applicable for training and you cannot
-        # be sure to use it for prediction because it will just ignore the invalid graphs
         filtered_refs = []
         filtered_preds = []
+        num_not_parseable = 0
         for ref, pred in zip(references, predictions):
             try:
-                penman.decode(ref)
-                penman.decode(pred)
+                gref = penman.decode(ref)
+                gpred = penman.decode(pred)
+                if gpred.triples == [(None, ':instance', None)]: # Empty prediction
+                    num_not_parseable += 1
+                    raise ValueError("Cannot use empty graphs as predictions. Using BACKOFF instead")
             except:
-                continue
+                filtered_preds.append(penman.encode(BACKOFF))
+                filtered_refs.append(ref)
             else:
                 filtered_refs.append(ref)
                 filtered_preds.append(pred)
 
-        score, optimization_status = smatch_metric.score_corpus(filtered_refs, filtered_preds)
+        # with tempfile.TemporaryFile("r+", encoding="utf-8") as fhref, tempfile.TemporaryFile("r+", encoding="utf-8") as fhpred:
+        with Path("references.txt").open("w", encoding="utf-8") as fhref, Path("predictions.txt").open(
+            "w", encoding="utf-8"
+        ) as fhpred:
+            fhref.write("\n\n".join(filtered_refs) + "\n")
+            fhpred.write("\n\n".join(filtered_preds) + "\n")
 
-        score = score["main"]
+        with Path("references.txt").open("r", encoding="utf-8") as fhref, Path("predictions.txt").open(
+            "r", encoding="utf-8"
+        ) as fhpred:
+            score = next(smatch.score_amr_pairs(fhpred, fhref))
+
         return {
-            "smatch_precision": score["Precision"]["result"],
-            "smatch_recall": score["Recall"]["result"],
-            "smatch_fscore": score["F1"]["result"],
-            "smatch_unparsable": len(references) - len(filtered_refs)
+            "smatch_precision": score[0],
+            "smatch_recall": score[1],
+            "smatch_fscore": score[2],
+            "smatch_unparsable": num_not_parseable,
         }
+
 
     acc_metric = evaluate.load("accuracy")
 
@@ -254,8 +312,9 @@ def main():
         # SMATCH
         labels_for_smatch = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
         preds_for_smatch = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
-        refs_penman = tok_wrapper.batch_decode_amr_ids(labels_for_smatch, reset_variables=True)["penman"]
-        preds_decoded = tok_wrapper.batch_decode_amr_ids(preds_for_smatch, reset_variables=True)
+        # TODO: reset variables?
+        refs_penman = tok_wrapper.batch_decode_amr_ids(labels_for_smatch, reset_variables=False)["penman"]
+        preds_decoded = tok_wrapper.batch_decode_amr_ids(preds_for_smatch, reset_variables=False)
         preds_penman, preds_status = preds_decoded["penman"], preds_decoded["status"]
 
         num_not_recoverable = sum([1 for status in preds_status if status == ParsedStatus.BACKOFF])
@@ -352,10 +411,19 @@ def main():
 
     def model_init(trial):
         # Sizes will be mismatched here because config already includes added tokens but the original checkpoint does not
-        if tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB, TokenizerType.BART, TokenizerType.T5):
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_args.model_name_or_path, config=config, ignore_mismatched_sizes=True)
+        if tok_wrapper.tokenizer_type in (
+            TokenizerType.MBART,
+            TokenizerType.NLLB,
+            TokenizerType.BART,
+            TokenizerType.T5,
+        ):
+            model = AutoModelForSeq2SeqLM.from_pretrained(
+                model_args.model_name_or_path, config=config, ignore_mismatched_sizes=True
+            )
         else:
-            model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, config=config, ignore_mismatched_sizes=True)
+            model = AutoModelForCausalLM.from_pretrained(
+                model_args.model_name_or_path, config=config, ignore_mismatched_sizes=True
+            )
 
         embedding_size = model.get_input_embeddings().weight.shape[0]
         if len(tok_wrapper.tokenizer) > embedding_size:
@@ -393,8 +461,10 @@ def main():
     )
 
     if training_args.sweep_config:
+
         def wandb_hp_space(trial=None):
             return yaml.safe_load(Path(training_args.sweep_config).read_text(encoding="utf-8"))
+
         best_trial = trainer.hyperparameter_search(
             backend="wandb",
             metric="eval/smatch_fscore",
@@ -410,7 +480,7 @@ def main():
             hparams_dump = {
                 **best_trial.hyperparameters,
                 "best_run": best_trial.run_id,
-                "objective": best_trial.objective
+                "objective": best_trial.objective,
             }
             dump(hparams_dump, hp_out, indent=4, sort_keys=True)
 
@@ -503,13 +573,7 @@ def _mp_fn(index):
 
 
 if __name__ == "__main__":
-    import traceback
-    try:
-        main()
-    except Exception as e:
-        # exit gracefully, so wandb logs the problem
-        print(traceback.print_exc(), file=sys.stderr)
-        exit(1)
+    main()
 
 
 # Train

@@ -114,6 +114,11 @@ class ModelArguments:
         default=0.1,
         metadata={"help": "The dropout probability for the model"},
     )
+    attention_dropout: float = field(
+        default=0.1,
+        metadata={"help": "The dropout probability specifically for attention in the model. (Not used by T5 models.)"},
+    )
+
 
 @dataclass(frozen=False)
 class DataTrainingArguments:
@@ -291,17 +296,17 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
         },
     )
     generation_max_length: int = field(
-        default=180,
+        default=None,
         metadata={"help": "The max. generation length when getting predictions for dev or test sets."},
     )
     num_beams: int = field(
-        default=5,
+        default=1,
         metadata={"help": "The number of beams to use for generation when getting predictions for dev or test sets."},
     )
     sweep_config: Optional[str] = field(
         default=None,
         metadata={
             "help": "A YAML file containing a sweep configuration. If given, will do hyperparameter optimisation."
-                    " See https://docs.wandb.ai/guides/sweeps/define-sweep-configuration"
+            " See https://docs.wandb.ai/guides/sweeps/define-sweep-configuration"
         },
     )
