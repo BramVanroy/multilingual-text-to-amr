@@ -39,9 +39,6 @@ def _is_filename(text: str) -> bool:
 
 
 def postprocess_str_after_linearization(linearized: str, verbose: bool = False) -> str:
-    linearized = linearized.replace(":polarity -", ":negation")
-    linearized = re.sub(r"-of(?=\s|$)", "</of>", linearized)
-
     # Re-implementation of SPRING, which also replaces "_" with " "
     # https://github.com/SapienzaNLP/spring/blob/39079940d028ba0dde4c1af60432be49f67d76f8/spring_amr/tokenization_bart.py#L143-L144
     # But do not replace _ inside of URLs
@@ -66,13 +63,16 @@ def postprocess_str_after_linearization(linearized: str, verbose: bool = False) 
     # Remove duplicate spaces
     linearized = " ".join(linearized.split())
 
-    linearized = re.sub(r" <(\/?)(pointer|rel|lit|AMR|of|URL|TEL|EMAIL)", r"<\1\2", linearized)
+    linearized = re.sub(r" <(\/?)(pointer|rel|lit|AMR)", r"<\1\2", linearized)
     if verbose:
         print("after remove space before pointer etc", linearized)
 
     # Make sure that added tokens have no space in front of them because some tokenizers may
     # tokenize those spaces explicitly as `[Ġ, </rel>, Ġ, :op2]`
-    linearized = re.sub(rf" ({'|'.join(get_added_vocabulary())})", r"\1", linearized)
+    # Do not do it when the previous token is quant, because that may lead to issues where `:quant -70` -> `:quant-70`
+    # because -70 is a special token too. Probably other classes like `:op` should be included in the
+    # negative lookbehind  too (but not easy because neg lookbehind must be fixed width)
+    linearized = re.sub(rf"\s+(?<!:quant )({'|'.join(get_added_vocabulary())})", r"\1", linearized)
     if verbose:
         print("after remove space before special tokens", linearized)
 
@@ -82,18 +82,11 @@ def postprocess_str_after_linearization(linearized: str, verbose: bool = False) 
 def postprocess_str_after_delinearization(delinearized: str) -> str:
     delinearized = (
         # AMR specific
-        delinearized.replace(" -quantity", "-quantity")
-        .replace(" -entity", "-entity")
-        .replace(" </of>", "</of>")
-        .replace("<URL>", " <URL>")
-        .replace("<TEL>", " <TEL>")
-        .replace("<EMAIL>", " <EMAIL>")
+        delinearized.replace(" -quantity", "-quantity").replace(" -entity", "-entity")
     )
 
     # Generic prepositions/conjunctions, e.g. `:prep-by` or `:conj-as-if`
     delinearized = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", delinearized)
-    delinearized = delinearized.replace(":negation", " :polarity - ")
-    delinearized = delinearized.replace("</of>", "-of ")
 
     # Add spaces around :-roles like :op1
     # Include `-` for e.g. :prep-with
@@ -108,6 +101,7 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
         prev_item = match.group(1).strip() if match.group(1) else ""
         rel = match.group(2).strip()
         content = match.group(3).strip()
+
         if rel.startswith(("wiki", "op", "value")):
             # E.g. `<lit> Russian submarine Yury Dolgorukiy (K-53 5) </lit>` -> (K-535)
             # But will probably lead to quite some false positives
@@ -119,6 +113,10 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
                 content = re.sub(r"\s+-\s*(\d+)", r"-\1", content)
 
             if rel.startswith(("wiki", "op")):
+                # `F-15 K` -> `F-15K`
+                content = re.sub(r"(\d+)\s+([a-zA-Z]+)", r"\1\2", content)
+                # `(LPD-14 )` -> `(LPD-14)`
+                content = re.sub(r"(\d)\s+\)", r"\1)", content)
                 content = content.replace(" ", "_")
             elif rel.startswith("value"):
                 # In some cases, like url-entities, we may need to brute-force test whether removing all spaces of the
@@ -128,18 +126,18 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
                 if _is_url(merged_content) or _is_filename(merged_content) or _is_email(merged_content):
                     content = merged_content
 
-        return f'{prev_item} :{rel} "{content}"'
+        return f' {prev_item} :{rel} "{content}" '
 
     delinearized = re.sub(r"(\S+)?\s*:([a-zA-Z][a-zA-Z0-9]+)\s*<lit>([^<]*?)</lit>", reverse_literal, delinearized)
 
     # In case the regex above does not exactly matches, try to get rid of <lit> with simple replace
     # Useful for invalid graphs
-    delinearized = delinearized.replace("<lit>", '"').replace("</lit>", '"')
+    delinearized = delinearized.replace("<lit>", ' "').replace("</lit>", '" ')
 
     # Glue numbers back together, e.g. ':quant -54 7' -> ':quant -547'
     # but should not trigger for literal values, like ':value "34 61 09 91 12 135"'
     # Should not consider glueing things back to roles (like `:op1 12 "hello"` -> `:op112`); that is dealt with earlier
-    delinearized = re.sub(r"(?<![\"\D])(-?\d+\.?\d*)\s+(\d+)(?!\s*[\d\"<:])", r"\1\2", delinearized)
+    delinearized = re.sub(r"(?<![\"\D])(-?\d+\.?\d*)\s+(\d+)(?!\s*[\d\"<])", r"\1\2", delinearized)
 
     # Add -of back to utterances for regular words (NOT for -of roles)
     # E.g., `:mod <rel> <pointer:4> first-of -all </rel>` -> `first-of-all </rel>`
@@ -156,6 +154,9 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
         return f"{pointer} {content} "
 
     delinearized = re.sub(r"(<pointer:\d+>)\s*([-a-z\d\s]+)\s*(?=[<:])", fix_dashes, delinearized)
+
+    ## Ensure spaces around pointers
+    delinearized = re.sub(r"\s*(<pointer:\d+>)\s*", r" \1 ", delinearized)
 
     delinearized = delinearized.replace("<rel>", " ( ")
     delinearized = delinearized.replace("</rel>", " ) ")

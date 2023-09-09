@@ -6,7 +6,8 @@ from typing import List, Tuple
 
 import networkx as nx
 import penman
-from penman import Graph
+from penman import Graph, Triple
+from penman.models.noop import model as noop_model
 from penman.tree import _default_variable_prefix
 
 
@@ -19,15 +20,26 @@ BACKOFF = penman.Graph(
 )
 
 
+def get_penman_model(dereify: None | bool):
+    if dereify is None:
+        return DEFAULT
+
+    elif dereify:
+        return op_model
+
+    else:
+        return noop_model
+
+
 class ParsedStatus(enum.Enum):
     OK = 0
     FIXED = 1
     BACKOFF = 2
 
 
-def connect_graph_if_not_connected(graph):
+def connect_graph_if_not_connected(graph: penman.Graph):
     try:
-        encoded = penman.encode(graph)
+        _ = penman.encode(graph)
         return graph, ParsedStatus.OK
     except:
         pass
@@ -54,7 +66,7 @@ def connect_graph_if_not_connected(graph):
     metadata = graph.metadata
     graph = penman.Graph(triples)
     graph.metadata.update(metadata)
-    penman.encode(graph)
+    penman.encode(graph, model=noop_model)
     return graph, ParsedStatus.FIXED
 
 
@@ -62,11 +74,7 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
     nodes_ = []
     for n in nodes:
         if isinstance(n, str):
-            if (
-                n.startswith("<")
-                and n.endswith(">")
-                and (not n.startswith(("<pointer:", "<TEL>", "<URL>", "<EMAIL>")))
-            ):
+            if n.startswith("<") and n.endswith(">") and (not n.startswith(("<pointer:"))):
                 pass
             else:
                 nodes_.append(n)
@@ -95,12 +103,13 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
     if verbose:
         print("After loop 2", nodes)
 
+    nodes = list(map(str, nodes))
     # Build pointer maps so we can create better varnames
-    i = 0
+    i = -1
     pointer_map = {}
     varname_counter = Counter()
     while i < len(nodes) - 2:
-        open_rel_token = nodes[i]
+        open_rel_token = nodes[i] if i > -1 else "("  # So we can match if the pointer token is the FIRST token
         pointer_token = nodes[i + 1]
         token = nodes[i + 2]
 
@@ -114,7 +123,7 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
     if verbose:
         print("Pointer map", pointer_map)
 
-    i = 1
+    i = 0
     nodes_ = [nodes[0]]
     while i < len(nodes):
         nxt = nodes[i]
@@ -298,8 +307,9 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
         print("After loop 9", pieces)
 
     linearized = re.sub(r"\s+", " ", " ".join(pieces)).strip()
-
-    graph = penman.decode(linearized + " ")
+    if verbose:
+        print("linearized before first penmanparse", linearized)
+    graph = penman.decode(linearized + " ", model=noop_model)
     triples = []
     newvars = 2000
     for triple in graph.triples:
@@ -316,7 +326,7 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
         else:
             triples.append(triple)
     graph = penman.Graph(triples)
-    linearized = penman.encode(graph)
+    linearized = penman.encode(graph, model=noop_model)
     if verbose:
         print("After loop 10", linearized)
 
@@ -370,42 +380,9 @@ def fix_and_make_graph(nodes, verbose: bool = False) -> Graph:
     linearized = fix_text(linearized)
     if verbose:
         print("After fix text", linearized)
-    g = penman.decode(linearized)
-    g = reorder_graph_triples(g)
+    g = penman.decode(linearized, model=noop_model)
 
     return g
-
-
-def reorder_graph_triples(g: Graph):
-    """We order the triples in the graph so that we keep the first triple in order, and
-    then we recursively follow so that the order is depth-first and that the :instance
-    always comes first in its subtree"""
-    triples = g.triples
-    curr_var = triples[0][0]
-    sorted_triples = []
-    vars_done = set()
-
-    def collect_triples_with_var(var):
-        if var in vars_done:
-            return
-        vars_done.add(var)
-
-        # Instance always comes first
-        for t in triples:
-            if t[0] == var:
-                if t[1] == ":instance":
-                    sorted_triples.append(t)
-        # Non-instance
-        for t in triples:
-            if t[0] == var:
-                if t[1] != ":instance":
-                    sorted_triples.append(t)
-                    if re.match(r"[a-z]\d*", t[2]):
-                        # depth-first
-                        collect_triples_with_var(t[2])
-
-    collect_triples_with_var(curr_var)
-    return Graph(sorted_triples)
 
 
 def _classify(node):
@@ -461,3 +438,32 @@ def tokens2graph(tokens: List[str], verbose: bool = False) -> Tuple[Graph, Parse
                 print(tokens, file=sys.stderr)
                 print(graph_, file=sys.stderr)
             return BACKOFF, ParsedStatus.BACKOFF
+
+
+def token_processing(tok):
+    if tok is None:
+        return None
+    elif tok.isdigit():
+        try:
+            return eval(tok)
+        except:
+            return tok
+    elif tok.startswith('"') and (not tok.endswith('"')):
+        return tok + '"'
+    elif tok.endswith('"') and (not tok.startswith('"')):
+        return '"' + tok
+    else:
+        return tok
+
+
+def remove_wiki(graph: penman.Graph):
+    metadata = graph.metadata
+    triples = []
+    for t in graph.triples:
+        v1, rel, v2 = t
+        if rel == ":wiki":
+            t = Triple(v1, rel, "+")
+        triples.append(t)
+    graph = Graph(triples)
+    graph.metadata = metadata
+    return graph

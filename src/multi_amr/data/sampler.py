@@ -37,7 +37,7 @@ def get_src_lang_grouped_indices(
     the potential exception of the last batch(es))
     """
     src_langs = [sample["src_lang_idx"] for sample in dataset]
-    is_predict = len([d["linearized_penman"] for d in dataset if d["linearized_penman"]]) == 0
+    is_predict = len([d["penmanstr"] for d in dataset if d["penmanstr"]]) == 0
 
     if is_predict:
         logger.warning(
@@ -73,7 +73,7 @@ def get_src_lang_grouped_indices(
             lengthed = []
 
             def find_lengths(sample, idx):
-                lengthed.append((idx, len(sample["sentence"]), len(sample["linearized_penman"])))
+                lengthed.append((idx, len(sample["sentence"]), len(sample["penmanstr"])))
                 return None
 
             dataset.map(find_lengths, with_indices=True)

@@ -2,12 +2,6 @@ from functools import lru_cache
 from typing import Optional
 
 
-SPECIAL_ENTITIES_MAP = {
-    "phone-number-entity": "<TEL>",
-    "url-entity": "<URL>",
-    "email-address-entity": "<EMAIL>",
-}
-
 ADDITIONS = """date-entity
 government-organization
 temporal-quantity
@@ -22,6 +16,8 @@ percentage-entity
 world-region
 :consist
 url-entity
+email-address-entity
+phone-number-entity
 political-movement
 et-cetera
 at-least
@@ -5498,28 +5494,22 @@ go-07	1
 flout-01	1
 step-aside-05	1"""
 
-SPECIAL_ADDITIONS = ["<rel>", "</rel>", "</of>", "<AMR>"]
+SPECIAL_ADDITIONS = ["<rel>", "</rel>", "<AMR>", "<lit>", "</lit>"]
 
 
 @lru_cache
-def get_added_vocabulary(prefix: Optional[str] = "", min_freq: int = 5):
+def get_added_vocabulary(prefix: Optional[str] = "", min_predicate_freq: int = 5):
     predicates = []
     for line in PREDICATES.splitlines():
         pred, freq = line.rsplit(maxsplit=1)
 
-        if int(freq) >= min_freq:
+        if int(freq) >= min_predicate_freq:
             predicates.append(pred)
 
-    tokens_to_add = (
-        ADDITIONS
-        + predicates
-        + list(SPECIAL_ENTITIES_MAP.values())
-        + [f"<pointer:{idx}>" for idx in range(512)]
-        + SPECIAL_ADDITIONS
-    )
+    tokens_to_add = ADDITIONS + predicates + [f"<pointer:{idx}>" for idx in range(512)] + SPECIAL_ADDITIONS
 
     if prefix:
         # 'if not' is taken from SPRING. This should make sure that '-01' does not require prefix spaces
-        return [f"{prefix}{t}" if t[0] not in ("_", "-") and t != "<AMR>" else t for t in tokens_to_add]
+        return [f"{prefix}{t}" if not t.startswith(("_", "-")) else t for t in tokens_to_add]
     else:
         return tokens_to_add

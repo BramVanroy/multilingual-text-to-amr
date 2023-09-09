@@ -3,11 +3,18 @@
 - They use dropout=0.25 and attention_dropout=0.0 (in BART)
 - Looking at the code, it seems that they train for 30 epoch (not 250k steps). Steps are only used for the lr scheduler
 
-# TODO to reset to Spring
-- check whether input and labels passed to model are indeed the same (start/end token)
-- patch default transformers BART to the spring variant and see if we get similar results? (not sure if worth it)
-- implement wandb sweep for hyperparameter testing
-- check if smatch calculation is the same
+# TODO
+- 
+- check todos in code
+- probably use dataset instead of preprocess? (but caching...)
+- OPTIONALLY make it possible to choose whether to include all pointers, or only when a pointer is referred to. That would greatly reduce the sequence length
+- 
 
-# NEXT
-- looks like something might be going wrong in the delinearization or in 
+# Difficulties/changes
+- Tokenizers not correctly tokenizing a token: not adding a space to a token that is after a special token. So "<pointer:1> hello" will still be tokenized without prefix space --> THIS MAKES M\OUR APPROACH IMPOSSIBLE...
+- "–" != "-" (en-dash): some tokenizers do not support it, but if you swap it out on the prediction side (and not on the source), then this will impact score (like 96% match instead of 100)
+
+# Results
+## SPRING results
+- Original (reproduced) 0.830 with regular smatch (same as in paper, table 5)
+- With smatchpp: {'F1': {'result': 82.86}, 'Precision': {'result': 82.03}, 'Recall': {'result': 83.7}}}

@@ -21,7 +21,6 @@ from datasets import Dataset, DatasetDict
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.collator import collate_amr
 from multi_amr.data.postprocessing_graph import BACKOFF, ParsedStatus, tokens2graph
-from multi_amr.data.postprocessing_str import postprocess_str_after_delinearization, tokenize_except_quotes_and_angles
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.parse_cli import parse_cli
 from multi_amr.peft_callback import PeftSavingCallback
@@ -138,6 +137,8 @@ def main():
             # 1024 according to the mT5 paper
             max_length = 1024
 
+    tok_wrapper.tokenizer.model_max_length = max_length
+
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
         "revision": model_args.model_revision,
@@ -219,78 +220,76 @@ def main():
     ####################
     # CALCULATE SMATCH #
     ####################
-    # TODO re-enable, smatchpp isntead of smatch
-    # graph_standardizer = preprocess.AMRStandardizer()
-    # # Using hillclimber here. Not the best accuracy but ILP is causing some issues, which are very disrupting for
-    # # training the models. https://github.com/flipz357/smatchpp/issues/4
-    # # So during evaluation (separate script) we'll make use of ILP instead
-    # # ilp = solvers.ILP()
-    # solver = solvers.HillClimber()
-    # smatch_metric = Smatchpp(alignmentsolver=solver, graph_standardizer=graph_standardizer)
-    #
-    # def calculate_smatch(references: List[str], predictions: List[str]):
-    #     # NOTE: it is possible that on a local install, I made changes to smatchpp so that it will
-    #     # ignore malformed pairs. This part here is therefore only applicable for training and you cannot
-    #     # be sure to use it for prediction because it will just ignore the invalid graphs
-    #     filtered_refs = []
-    #     filtered_preds = []
-    #     for ref, pred in zip(references, predictions):
-    #         try:
-    #             penman.decode(ref)
-    #             penman.decode(pred)
-    #         except:
-    #             continue
-    #         else:
-    #             filtered_refs.append(ref)
-    #             filtered_preds.append(pred)
-    #
-    #     score, optimization_status = smatch_metric.score_corpus(filtered_refs, filtered_preds)
-    #
-    #     score = score["main"]
-    #     return {
-    #         "smatch_precision": score["Precision"]["result"],
-    #         "smatch_recall": score["Recall"]["result"],
-    #         "smatch_fscore": score["F1"]["result"],
-    #         "smatch_unparsable": len(references) - len(filtered_refs),
-    #     }
-    # TODO: remove (this is the old smatch impl, not smatchpp
-    def calculate_smatch(references: List[str], predictions: List[str]):
+    graph_standardizer = preprocess.AMRStandardizer()
+    # Using hillclimber here. Not the best accuracy but ILP is causing some issues, which are very disrupting for
+    # training the models. https://github.com/flipz357/smatchpp/issues/4
+    # So during evaluation (separate script) we'll make use of ILP instead
+    # ilp = solvers.ILP()
+    solver = solvers.HillClimber()
+    smatch_metric = Smatchpp(alignmentsolver=solver, graph_standardizer=graph_standardizer)
+
+    def calculate_smatch(ref_graphs: List[penman.Graph], pred_graphs: List[penman.Graph]):
+        # NOTE: it is possible that on a local install, I made changes to smatchpp so that it will
+        # ignore malformed pairs. This part here is therefore only applicable for training and you cannot
+        # be sure to use it for prediction because it will just ignore the invalid graphs
         filtered_refs = []
         filtered_preds = []
-        num_not_parseable = 0
-        for ref, pred in zip(references, predictions):
+        for ref_graph, pred_graph in zip(ref_graphs, pred_graphs):
             try:
-                gref = penman.decode(ref)
-                gpred = penman.decode(pred)
-                if gpred.triples == [(None, ':instance', None)]: # Empty prediction
-                    num_not_parseable += 1
-                    raise ValueError("Cannot use empty graphs as predictions. Using BACKOFF instead")
-            except:
-                filtered_preds.append(penman.encode(BACKOFF))
-                filtered_refs.append(ref)
-            else:
-                filtered_refs.append(ref)
-                filtered_preds.append(pred)
+                if pred_graph.triples == [(None, ":instance", None)]:
+                    raise ValueError("Graph cannot be empty when computing smatch")
+                ref = penman.encode(ref_graph)
+                pred = penman.encode(pred_graph)
 
-        # with tempfile.TemporaryFile("r+", encoding="utf-8") as fhref, tempfile.TemporaryFile("r+", encoding="utf-8") as fhpred:
+            except Exception as exc:
+                print(exc)
+                print()
+                continue
+            else:
+                try:
+                    # To test that we can parse them with smatchpp (not necessarily compatible with penman!)
+                    _ = smatch_metric.score_pair(ref, pred)
+                except Exception as exc:
+                    print(ref)
+                    print(pred)
+                    print(exc)
+                    print()
+                    continue
+                else:
+                    filtered_refs.append(ref)
+                    filtered_preds.append(pred)
+
+        if not filtered_refs or not filtered_preds:
+            return {
+                "smatch_precision": 0.0,
+                "smatch_recall": 0.0,
+                "smatch_fscore": 0.0,
+                "smatch_unparsable": len(ref_graphs),
+            }
+
+        # Write to file for intermediate inspection. Will overwrite at every evaluation!
         with Path("references.txt").open("w", encoding="utf-8") as fhref, Path("predictions.txt").open(
             "w", encoding="utf-8"
-        ) as fhpred:
+        ) as fhpred, Path("refs-preds.txt").open("w", encoding="utf-8") as fhrefpred:
             fhref.write("\n\n".join(filtered_refs) + "\n")
             fhpred.write("\n\n".join(filtered_preds) + "\n")
+            for idx, (ref, pred) in enumerate(zip(filtered_refs, filtered_preds)):
+                counterstr = f"{idx:,}"
+                fhrefpred.write(f"REF {counterstr}\n{'=' * (4 + len(counterstr))}\n{ref}\n\n")
+                fhrefpred.write(f"PRED {counterstr}\n{'=' * (5 + len(counterstr))}\n{pred}\n\n")
 
-        with Path("references.txt").open("r", encoding="utf-8") as fhref, Path("predictions.txt").open(
-            "r", encoding="utf-8"
-        ) as fhpred:
-            score = next(smatch.score_amr_pairs(fhpred, fhref))
+        score, optimization_status = smatch_metric.score_corpus(filtered_refs, filtered_preds)
+        try:
+            score = score["main"]
+        except KeyError:
+            pass
 
         return {
-            "smatch_precision": score[0],
-            "smatch_recall": score[1],
-            "smatch_fscore": score[2],
-            "smatch_unparsable": num_not_parseable,
+            "smatch_precision": score["Precision"]["result"],
+            "smatch_recall": score["Recall"]["result"],
+            "smatch_fscore": score["F1"]["result"],
+            "smatch_unparsable": len(ref_graphs) - len(filtered_refs),
         }
-
 
     acc_metric = evaluate.load("accuracy")
 
@@ -312,14 +311,14 @@ def main():
         # SMATCH
         labels_for_smatch = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
         preds_for_smatch = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
-        # TODO: reset variables?
-        refs_penman = tok_wrapper.batch_decode_amr_ids(labels_for_smatch, reset_variables=False)["penman"]
-        preds_decoded = tok_wrapper.batch_decode_amr_ids(preds_for_smatch, reset_variables=False)
-        preds_penman, preds_status = preds_decoded["penman"], preds_decoded["status"]
+
+        ref_graphs = tok_wrapper.batch_decode_amr_ids(labels_for_smatch)["graph"]
+        preds_decoded = tok_wrapper.batch_decode_amr_ids(preds_for_smatch)
+        pred_graphs, preds_status = preds_decoded["graph"], preds_decoded["status"]
 
         num_not_recoverable = sum([1 for status in preds_status if status == ParsedStatus.BACKOFF])
         percent_not_recoverable = {"percent_not_recoverable": num_not_recoverable * 100 / num_samples}
-        smatch_score = calculate_smatch(refs_penman, preds_penman)
+        smatch_score = calculate_smatch(ref_graphs, pred_graphs)
 
         # We can only calculate accuracy when we have the same number of predicted tokens and reference tokens
         # which is only the case when predict_with_generate is false

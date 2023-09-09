@@ -9,12 +9,8 @@ import pandas as pd
 import penman
 from datasets import Dataset, DatasetDict
 from ftfy import fix_text
-from multi_amr.data.additional_tokens import SPECIAL_ENTITIES_MAP
-from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
-from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
-from penman import Triple
-from penman.model import Model
-from penman.models.noop import model as noop_model
+from multi_amr.data.postprocessing_graph import get_penman_model
+from multi_amr.data.postprocessing_graph import remove_wiki as remove_wiki_from_graph
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
 from tqdm import tqdm
 
@@ -38,15 +34,6 @@ class SplitType(StrEnum):
         )
 
 
-def get_penman_model(dereify: None | bool):
-    if dereify is None:
-        return Model()
-    elif dereify:
-        return Model()
-    else:
-        return noop_model
-
-
 def prepare_dataset(
     amr_dirs: List[Union[str, PathLike]],
     langs: List[str],
@@ -57,7 +44,6 @@ def prepare_dataset(
     normalize_punct: bool = False,
     detokenize: bool = False,
     remove_bracketed: bool = False,
-    replace_entities: bool = False,
     dereify: bool = False,
 ):
     """Given a directory of AMR files, deduplicate all files so that every file contains unique files. We also process
@@ -75,17 +61,16 @@ def prepare_dataset(
     :param dedupe: whether to deduplicate the data. This will ensure that there will be no duplicates within and
      between splits
     :param remove_wiki: whether to remove wiki from the AMR entries
-    :param fix_ftfy: whether to fix text issues with ftfy in both the sentence and the linearized AMR
-    :param normalize_punct: whether to normalize punctuation in both the sentence and the linearized AMR
+    :param fix_ftfy: whether to fix text issues with ftfy in the sentence
+    :param normalize_punct: whether to normalize punctuation in the sentence
     :param detokenize: whether to detokenize to sentence (not the linearized AMR)
     :param remove_bracketed: whether to remove sentences that begin and end with open/close brackets, such as `( End )`
      or `<p>Hello world</p>`
-    :param replace_entities: whether to replace URL, email, and phone number entities by <URL>, <EMAIL>, <TEL>
-     respectively
     """
     pdout = Path(output_dir).resolve()
     pdout.mkdir(exist_ok=True, parents=True)
-    data = {"metadata": [], "sentence": [], "linearized_penman": [], "split_type": [], "src_lang_idx": []}
+    data = {"metadata": [], "sentence": [], "penmanstr": [], "split_type": [], "src_lang_idx": []}
+    penman_model = get_penman_model(dereify=dereify)
 
     for src_lang_idx, (src_lang, amr_dir) in enumerate(zip(langs, amr_dirs)):
         punct_norm_text = MosesPunctNormalizer(lang=src_lang)
@@ -101,43 +86,14 @@ def prepare_dataset(
 
             for pfin in tqdm(list(psplit.glob("*.txt")), unit="file", desc=split_type):
                 with pfin.open(encoding="utf-8") as fhin:
-                    for graph in penman.iterdecode(fhin, model=get_penman_model(dereify)):
+                    for graph in penman.iterdecode(fhin, model=penman_model):
                         if remove_wiki:
                             graph = remove_wiki_from_graph(graph)
 
-                        if replace_entities:
-                            varmap = {}
-
-                            # Find vars that are a url, email or tel
-                            for source, role, target in graph.triples:
-                                if role == ":instance":
-                                    if target in SPECIAL_ENTITIES_MAP:
-                                        varmap[source] = target
-
-                            new_triples = []
-                            # Find values that refer to url, email or tel vars and replace with special token
-                            for source, role, target in graph.triples:
-                                # In exceptional cases, the actual URL may be hidden under an op instead of value
-                                if (
-                                    source in varmap
-                                    and role.startswith((":value", ":op"))
-                                    and target.startswith('"')
-                                    and target.endswith('"')
-                                ):
-                                    ent_type = varmap[source]
-                                    repl = SPECIAL_ENTITIES_MAP[ent_type]
-                                    new_triples.append(Triple(source, role, repl))
-                                else:
-                                    new_triples.append(Triple(source, role, target))
-
-                            graph = penman.Graph(new_triples, metadata=graph.metadata)
-
-                        linearized = postprocess_str_after_linearization(" ".join(dfs_linearize(graph)))
                         sentence = graph.metadata["snt"]
 
                         if fix_ftfy:
                             sentence = fix_text(sentence)
-                            linearized = fix_text(linearized)
 
                         if normalize_punct:
                             sentence = punct_norm_text.normalize(sentence)
@@ -147,7 +103,7 @@ def prepare_dataset(
 
                         data["metadata"].append(graph.metadata)
                         data["sentence"].append(sentence)
-                        data["linearized_penman"].append(linearized)
+                        data["penmanstr"].append(penman.encode(graph, model=penman_model).replace("–", "-"))
                         data["split_type"].append(split_type)
                         # We just use an index, so that during training we can re-use the same dataset with different
                         # src_langs even though the data is the same. Sometimes we may need 'en_XX', other times
@@ -174,13 +130,11 @@ def prepare_dataset(
     # Drop all rows where sentence begins and ends with open/close brackets
     # Such as `( End )` or `<p>Hello world</p>`
     if remove_bracketed:
+
         def starts_ends_with_punctuation(s):
             return s.startswith(tuple(string.punctuation)) and s.endswith(tuple(string.punctuation))
 
         df = df[~df["sentence"].apply(starts_ends_with_punctuation)]
-
-    # Remove rows with "amr-unintelligible"
-    df = df[~df.linearized_penman.str.contains("amr-unintelligible")]
 
     if dedupe:
         df_len_before = len(df.index)
@@ -237,7 +191,7 @@ def main():
     cparser.add_argument(
         "--fix_ftfy",
         action="store_true",
-        help="whether to fix text issues with ftfy in both the sentence and the linearized AMR",
+        help="whether to fix text issues with ftfy in both the sentence",
     )
     cparser.add_argument(
         "--normalize_punct",
@@ -253,11 +207,6 @@ def main():
         "--remove_bracketed",
         action="store_true",
         help="whether to remove sentences that start and end with a punctuation mark (such as `( End )`)",
-    )
-    cparser.add_argument(
-        "--replace_entities",
-        action="store_true",
-        help="whether to replace URL, email, and phone number entities by <URL>, <EMAIL>, <TEL> respectively",
     )
     cargs = cparser.parse_args()
     prepare_dataset(**vars(cargs))

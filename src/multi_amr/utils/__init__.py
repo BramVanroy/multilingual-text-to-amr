@@ -1,7 +1,10 @@
 from collections import defaultdict
+from functools import lru_cache
 from typing import Dict
 
 import torch
+from penman.model import Model
+from penman.models.noop import model as noop_model
 from transformers import LogitsProcessor, MBartTokenizer
 
 
@@ -60,3 +63,13 @@ def input_ids_counts(inputs: torch.LongTensor) -> Dict[int, int]:
     uniq_counts.update(dict(zip(*map(torch.Tensor.tolist, inputs.unique(return_counts=True)))))
 
     return uniq_counts
+
+
+@lru_cache(maxsize=3)
+def get_penman_model(dereify: None | bool):
+    if dereify is None:
+        return Model()
+    elif dereify:
+        return Model()
+    else:
+        return noop_model
