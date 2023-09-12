@@ -3,6 +3,7 @@ from functools import lru_cache
 from typing import Dict
 
 import torch
+from penman import Graph, Triple
 from penman.model import Model
 from penman.models.noop import model as noop_model
 from transformers import LogitsProcessor, MBartTokenizer
@@ -73,3 +74,15 @@ def get_penman_model(dereify: None | bool):
         return Model()
     else:
         return noop_model
+
+
+def remove_wiki_from_graph(graph: Graph) -> Graph:
+    # modified from SPRING
+    triples = []
+    for t in graph.triples:
+        v1, rel, v2 = t
+        if rel == ":wiki":
+            t = Triple(v1, rel, "+")
+        triples.append(t)
+
+    return Graph(triples, metadata=graph.metadata)

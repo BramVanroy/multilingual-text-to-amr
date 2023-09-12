@@ -1,5 +1,5 @@
 style:
-	black --line-length 119 --target-version py311 src/multi_amr
+	black --line-length 119 --target-version py311 src/multi_amr tests/
 	isort src/multi_amr
 
 quality:

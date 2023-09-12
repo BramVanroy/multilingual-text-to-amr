@@ -1,9 +1,5 @@
 
-
-
-
-t-to-amr
-
+cd mu   
 **THIS REPOSITORY AND README IS STILL UNDER DEVELOPMENT. NOT READY FOR PRODUCTION**
  
 An adaptation of MBART to parse text into AMR for multiple languages.

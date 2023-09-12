@@ -9,10 +9,10 @@ import pandas as pd
 import penman
 from datasets import Dataset, DatasetDict
 from ftfy import fix_text
-from multi_amr.data.postprocessing_graph import get_penman_model
-from multi_amr.data.postprocessing_graph import remove_wiki as remove_wiki_from_graph
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
 from tqdm import tqdm
+
+from multi_amr.utils import get_penman_model, remove_wiki_from_graph
 
 
 class SplitType(StrEnum):

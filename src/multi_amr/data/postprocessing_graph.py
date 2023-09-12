@@ -1,12 +1,10 @@
 import enum
 import re
-import sys
 from collections import Counter
-from typing import List, Tuple
 
 import networkx as nx
 import penman
-from penman import Graph, Triple
+from penman import Graph
 from penman.models.noop import model as noop_model
 from penman.tree import _default_variable_prefix
 
@@ -18,17 +16,6 @@ BACKOFF = penman.Graph(
         penman.Triple("b1", ":ARG0", "d2"),
     ]
 )
-
-
-def get_penman_model(dereify: None | bool):
-    if dereify is None:
-        return DEFAULT
-
-    elif dereify:
-        return op_model
-
-    else:
-        return noop_model
 
 
 class ParsedStatus(enum.Enum):
@@ -413,33 +400,6 @@ def _classify(node):
         return "CONST"
 
 
-def tokens2graph(tokens: List[str], verbose: bool = False) -> Tuple[Graph, ParsedStatus]:
-    try:
-        graph_ = graph = fix_and_make_graph(tokens, verbose=verbose)
-    except Exception as e:
-        if verbose:
-            print("Building failure:", file=sys.stderr)
-            print(tokens, file=sys.stderr)
-            print(e, file=sys.stderr)
-        return BACKOFF, ParsedStatus.BACKOFF
-    else:
-        try:
-            graph, status = connect_graph_if_not_connected(graph)
-            if status == ParsedStatus.BACKOFF:
-                if verbose:
-                    print("Reconnection 1 failure:")
-                    print(tokens, file=sys.stderr)
-                    print(graph_, file=sys.stderr)
-            return graph, status
-        except Exception as e:
-            print("Reconnction 2 failure:", file=sys.stderr)
-            if verbose:
-                print(e, file=sys.stderr)
-                print(tokens, file=sys.stderr)
-                print(graph_, file=sys.stderr)
-            return BACKOFF, ParsedStatus.BACKOFF
-
-
 def token_processing(tok):
     if tok is None:
         return None
@@ -454,16 +414,3 @@ def token_processing(tok):
         return '"' + tok
     else:
         return tok
-
-
-def remove_wiki(graph: penman.Graph):
-    metadata = graph.metadata
-    triples = []
-    for t in graph.triples:
-        v1, rel, v2 = t
-        if rel == ":wiki":
-            t = Triple(v1, rel, "+")
-        triples.append(t)
-    graph = Graph(triples)
-    graph.metadata = metadata
-    return graph

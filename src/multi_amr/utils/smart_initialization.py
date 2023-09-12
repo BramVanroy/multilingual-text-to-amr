@@ -1,4 +1,6 @@
 import torch
+
+from multi_amr.data.additional_tokens import AMR_TOKEN
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from transformers import PreTrainedModel
 
@@ -20,7 +22,7 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
         # ')', FOR INSTANCE DOES NOT NEED A STARTING SPACE BECAUSE WE DO NOT TYPICALLY ENCOUNTER THAT IN FLOWING TEXT
         token = token.lstrip(tok_wrapper.token_prefix)
         if token == "</rel>":
-            components = [")"]  # No space
+            components = [" )"]  # No space
         elif token == "<rel>":
             components = [" ("]  # Space
         elif token.startswith("<pointer:") and token.endswith(">"):
@@ -35,13 +37,17 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
             components = ["?", " who", " what", " why", " where", " when"]
         elif token == "amr-choice":
             components = [" or"]
-        elif token == "<AMR>":  # AMR is most similar to English
+        elif token == AMR_TOKEN:  # AMR is most similar to English
             if tok_wrapper.tokenizer_type == TokenizerType.MBART:
                 components = ["en_XX"]
             elif tok_wrapper.tokenizer_type == TokenizerType.NLLB:
                 components = ["eng_Latn"]
-            elif tok_wrapper.tokenizer_type in (TokenizerType.T5, TokenizerType.BLOOM, TokenizerType.BART):
+            elif tok_wrapper.tokenizer_type in (TokenizerType.T5, TokenizerType.BLOOM):
                 components = [" English"]  # Not a special lang token, so add space
+            elif tok_wrapper.tokenizer_type == TokenizerType.BART:
+                # TODO: maybe also BOS/special token for T5?
+                components = tok_wrapper.tokenizer.bos_token
+
             else:
                 raise NotImplementedError(f"Tokenizer type {tok_wrapper.tokenizer_type} not implemented yet.")
         elif token.startswith(":"):
@@ -63,6 +69,8 @@ def smart_initialization(model: PreTrainedModel, tok_wrapper: AMRTokenizerWrappe
                 components = [" by", " in", " near", " on", " at", " with"]  # random prepositions
             elif token == ":conj-as-if":
                 components = [" as-if", " as if"]
+            elif token == ":negation":
+                components = [" no", " not"]
             else:
                 components = [" relation"] + [
                     f" {splittoken}" for splittoken in token.lstrip(":").split("-") if splittoken.strip()

@@ -1,13 +1,13 @@
 import logging
+import random
 from collections import defaultdict
-from pprint import pprint
 from typing import Iterator, List
 
 import torch
 from datasets import Dataset
-from torch.utils.data import Sampler
-from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data import Sampler, BatchSampler
 
+from multi_amr.data.tokenization import AMRTokenizerWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -150,47 +150,58 @@ class SrcLangGroupedSampler(Sampler):
         return iter(indices)
 
 
-class DistributedSrcLangGroupedSampler(DistributedSampler):
-    """Sampler that samples indices in a way that groups together source languages while also having some randomness"""
-
-    def __init__(
-        self,
-        dataset: Dataset,
-        batch_size: int,
-        *args,
-        keep_incomplete_batches: bool = True,
-        group_by_length: bool = True,
-        **kwargs,
-    ):
-        super().__init__(dataset, *args, **kwargs)
-        self.batch_size = batch_size
+class SpringSampler:
+    def __init__(self, dataset, tok_wrapper: AMRTokenizerWrapper, batch_size_tokens: int = 500, shuffle: bool = False):
         self.dataset = dataset
-        self.keep_incomplete_batches = keep_incomplete_batches
-        self.group_by_length = group_by_length
+        # TODO change back to shuffle
+        self.shuffle = False
+        self.tok_wrapper = tok_wrapper
+        self.batch_size_tokens = batch_size_tokens
+        # Listify so that we can get __len__ when needed
+        self.batches = list(self._prepare_batches())
 
-    def __iter__(self) -> Iterator:
-        # Deterministically shuffle based on epoch and seed
-        g = torch.Generator()
-        g.manual_seed(self.seed + self.epoch)
-        indices = get_src_lang_grouped_indices(
-            self.dataset,
-            self.batch_size,
-            keep_incomplete_batches=self.keep_incomplete_batches,
-            shuffle=self.shuffle,
-            group_by_length=self.group_by_length,
-            generator=g,
-        )
+    def __len__(self) -> int:
+        return len(self.batches)
 
-        if not self.drop_last:
-            # add extra samples to make it evenly divisible
-            indices += indices[: (self.total_size - len(indices))]
-        else:
-            # remove tail of data to make it evenly divisible.
-            indices = indices[: self.total_size]
-        assert len(indices) == self.total_size
+    def __iter__(self):
+        return iter(self.batches)
 
-        # subsample
-        indices = indices[self.rank : self.total_size : self.num_replicas]
-        assert len(indices) == self.num_samples
+    def _prepare_batches(self):
+        # Modified from SPRING
+        ids = list(range(len(self.dataset)))[::-1]
 
-        return iter(indices)
+        if self.shuffle:
+            random.shuffle(ids)
+
+        batch_longest = 0
+        batch_nexamps = 0
+        batch_ntokens = 0
+        batch_ids = []
+
+        def discharge():
+            nonlocal batch_longest
+            nonlocal batch_nexamps
+            nonlocal batch_ntokens
+            ret = batch_ids.copy()
+            batch_longest *= 0
+            batch_nexamps *= 0
+            batch_ntokens *= 0
+            batch_ids[:] = []
+            return ret
+
+        while ids:
+            idx = ids.pop()
+            seq_length = self.tok_wrapper.batch_encode_amr([self.dataset[idx]["penmanstr"]]).input_ids.size(1)
+            cand_batch_ntokens = max(seq_length, batch_longest) * (batch_nexamps + 1)
+            if cand_batch_ntokens > self.batch_size_tokens and batch_ids:
+                yield discharge()
+            batch_longest = max(batch_longest, seq_length)
+            batch_nexamps += 1
+            batch_ntokens = batch_longest * batch_nexamps
+            batch_ids.append(idx)
+
+            if len(batch_ids) == 1 and batch_ntokens > self.batch_size_tokens:
+                yield discharge()
+
+        if batch_ids:
+            yield discharge()

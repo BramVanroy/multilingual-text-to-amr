@@ -1,7 +1,7 @@
 import re
 from typing import List
 
-from multi_amr.data.additional_tokens import get_added_vocabulary
+from multi_amr.data.additional_tokens import get_added_vocabulary, SPECIAL_ADDITIONS
 
 
 def _is_url(text: str) -> bool:
@@ -73,6 +73,7 @@ def postprocess_str_after_linearization(linearized: str, verbose: bool = False) 
     # because -70 is a special token too. Probably other classes like `:op` should be included in the
     # negative lookbehind  too (but not easy because neg lookbehind must be fixed width)
     linearized = re.sub(rf"\s+(?<!:quant )({'|'.join(get_added_vocabulary())})", r"\1", linearized)
+
     if verbose:
         print("after remove space before special tokens", linearized)
 
@@ -80,10 +81,7 @@ def postprocess_str_after_linearization(linearized: str, verbose: bool = False) 
 
 
 def postprocess_str_after_delinearization(delinearized: str) -> str:
-    delinearized = (
-        # AMR specific
-        delinearized.replace(" -quantity", "-quantity").replace(" -entity", "-entity")
-    )
+    delinearized = delinearized.replace(" -quantity", "-quantity").replace(" -entity", "-entity").replace(":negation", ":polarity - ")
 
     # Generic prepositions/conjunctions, e.g. `:prep-by` or `:conj-as-if`
     delinearized = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", delinearized)
@@ -96,6 +94,9 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
 
     # Glue role digits together, e.g. ':op1 0 <rel>' -> :op10 <rel>
     delinearized = re.sub(r"(:[a-zA-Z][a-zA-Z0-9]+)\s+(\d+)\s*<(rel|lit)>", r"\1\2 <\3>", delinearized)
+
+    # Glue -of back to a role
+    delinearized = re.sub(r"\s+-of\s*<rel>", r"-of <rel>", delinearized)
 
     def reverse_literal(match):
         prev_item = match.group(1).strip() if match.group(1) else ""
@@ -114,7 +115,7 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
 
             if rel.startswith(("wiki", "op")):
                 # `F-15 K` -> `F-15K`
-                content = re.sub(r"(\d+)\s+([a-zA-Z]+)", r"\1\2", content)
+                content = re.sub(r"(\d+)\s+([A-Z]+)(?![a-z])", r"\1\2", content)
                 # `(LPD-14 )` -> `(LPD-14)`
                 content = re.sub(r"(\d)\s+\)", r"\1)", content)
                 content = content.replace(" ", "_")
@@ -155,11 +156,16 @@ def postprocess_str_after_delinearization(delinearized: str) -> str:
 
     delinearized = re.sub(r"(<pointer:\d+>)\s*([-a-z\d\s]+)\s*(?=[<:])", fix_dashes, delinearized)
 
-    ## Ensure spaces around pointers
+    # Ensure spaces around pointers
     delinearized = re.sub(r"\s*(<pointer:\d+>)\s*", r" \1 ", delinearized)
 
     delinearized = delinearized.replace("<rel>", " ( ")
     delinearized = delinearized.replace("</rel>", " ) ")
+
+    non_dash_number_added = [t for t in get_added_vocabulary() if t.startswith(":") or t in SPECIAL_ADDITIONS]
+    delinearized = re.sub(rf"({'|'.join(non_dash_number_added)})\s*(-?\d*.?\d+)", r"\1 \2 ", delinearized)
+    delinearized = re.sub(rf"({'|'.join(non_dash_number_added)})\s*(-?\d*.?\d+)", r"\1 \2 ", delinearized)
+
     # Remove duplicate spaces
     delinearized = " ".join(delinearized.split())
 

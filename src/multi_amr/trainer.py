@@ -5,7 +5,7 @@ from typing import Any, Optional, Tuple
 import torch
 import transformers
 from datasets import Dataset
-from multi_amr.data.sampler import SrcLangGroupedSampler
+from multi_amr.data.sampler import SrcLangGroupedSampler, SpringSampler
 from packaging import version
 from torch import nn
 from torch.utils.data import RandomSampler, SequentialSampler
@@ -19,6 +19,14 @@ from transformers.trainer_utils import ShardedDDPOption, has_length
 from transformers.training_args import OptimizerNames, TrainingArguments
 from transformers.utils import is_bitsandbytes_available, is_sagemaker_mp_enabled, strtobool
 
+from torch.optim import RAdam
+
+from multi_amr.data.tokenization import AMRTokenizerWrapper
+import datasets
+
+from transformers import is_datasets_available
+from transformers.trainer_utils import seed_worker
+from torch.utils.data import DataLoader
 
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
@@ -31,6 +39,62 @@ logger = logging.getLogger(__name__)
 
 
 class AMRTrainer(Seq2SeqTrainer):
+    def __init__(self, tok_wrapper: AMRTokenizerWrapper, *trainer_args, **kwargs):
+        self.tok_wrapper = tok_wrapper
+        super().__init__(*trainer_args, **kwargs)
+
+    def get_train_dataloader(self):
+        if self.args.use_spring_sampler:
+            if self.train_dataset is None:
+                raise ValueError("Trainer: training requires a train_dataset.")
+
+            train_dataset = self.train_dataset
+            data_collator = self.data_collator
+            if is_datasets_available() and isinstance(train_dataset, datasets.Dataset):
+                train_dataset = self._remove_unused_columns(train_dataset, description="training")
+            else:
+                data_collator = self._get_collator_with_removed_columns(data_collator, description="training")
+
+            # SPRING always shuffles when training (not when evaluating)
+            batch_sampler = SpringSampler(train_dataset, self.tok_wrapper, self.args.batch_size_tokens, shuffle=True)
+            dataloader_params = {
+                "collate_fn": data_collator,
+                "num_workers": self.args.dataloader_num_workers,
+                "pin_memory": self.args.dataloader_pin_memory,
+                "batch_sampler": batch_sampler
+            }
+
+            if not isinstance(train_dataset, torch.utils.data.IterableDataset):
+                dataloader_params["worker_init_fn"] = seed_worker
+
+            return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
+        else:
+            return super().get_train_dataloader()
+
+    def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None) -> DataLoader:
+        if self.args.use_spring_sampler:
+            if eval_dataset is None and self.eval_dataset is None:
+                raise ValueError("Trainer: evaluation requires an eval_dataset.")
+            eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
+            data_collator = self.data_collator
+
+            if is_datasets_available() and isinstance(eval_dataset, datasets.Dataset):
+                eval_dataset = self._remove_unused_columns(eval_dataset, description="evaluation")
+            else:
+                data_collator = self._get_collator_with_removed_columns(data_collator, description="evaluation")
+
+            batch_sampler = SpringSampler(eval_dataset, self.tok_wrapper, self.args.batch_size_tokens, shuffle=False)
+            dataloader_params = {
+                "collate_fn": data_collator,
+                "num_workers": self.args.dataloader_num_workers,
+                "pin_memory": self.args.dataloader_pin_memory,
+                "batch_sampler": batch_sampler
+            }
+
+            return self.accelerator.prepare(DataLoader(eval_dataset, **dataloader_params))
+        else:
+            return super().get_eval_dataloader()
+
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if self.train_dataset is None or not has_length(self.train_dataset):
             return None
@@ -51,8 +115,6 @@ class AMRTrainer(Seq2SeqTrainer):
 
     def _get_eval_sampler(self, eval_dataset: Dataset) -> Optional[torch.utils.data.Sampler]:
         if self.args.group_by_lang:
-            # We use batch_size * gradient_accumulation_steps as a single batch size
-            # so that every optimization step, we are optimizing for a single language
             return SrcLangGroupedSampler(
                 batch_size=self.args.per_device_eval_batch_size,
                 keep_incomplete_batches=True,
@@ -99,7 +161,12 @@ class AMRTrainer(Seq2SeqTrainer):
                     **optimizer_kwargs,
                 )
             else:
-                self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+                if optimizer_cls == RAdam:
+                    # To mimick SPRING, which does not make a distinction for wd between parameters
+                    self.optimizer = RAdam(opt_model.parameters(), **optimizer_kwargs, weight_decay=self.args.weight_decay)
+                else:
+                    self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+
                 if optimizer_cls.__name__ == "Adam8bit":
                     import bitsandbytes
 
@@ -159,8 +226,6 @@ class AMRTrainer(Seq2SeqTrainer):
             if args.optim == OptimizerNames.ADAMW_TORCH_FUSED:
                 optimizer_kwargs.update({"fused": True})
         elif args.optim == "radam":  # Added RAdam dynamically in main run script
-            from torch.optim import RAdam
-
             optimizer_cls = RAdam
             optimizer_kwargs.update(adam_kwargs)
         elif args.optim == OptimizerNames.ADAMW_TORCH_XLA:

@@ -36,10 +36,13 @@ def main(indir: str, max_length: int = 1024, debug: bool = False):
 if __name__ == "__main__":
     import argparse
 
-    cparser = argparse.ArgumentParser(description="Brute-force testing of AMR generation. We test whether the"
-                                                  " constraints allow the generation of the whole test set. All .txt"
-                                                  " files in a given directory will be (recursively) tested.")
-    cparser.add_argument("indir", help="Input directory with AMR data. Will be recursively traversed. All .txt files"
-                                       " will be tested.")
+    cparser = argparse.ArgumentParser(
+        description="Brute-force testing of AMR generation. We test whether the"
+        " constraints allow the generation of the whole test set. All .txt"
+        " files in a given directory will be (recursively) tested."
+    )
+    cparser.add_argument(
+        "indir", help="Input directory with AMR data. Will be recursively traversed. All .txt files" " will be tested."
+    )
     cargs = cparser.parse_args()
     main(cargs.indir)

@@ -6,9 +6,8 @@ from smatchpp import Smatchpp, preprocess, solvers
 from tqdm import tqdm
 import penman
 
-from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
-from multi_amr.data.postprocessing_str import postprocess_str_after_linearization
 from multi_amr.data.tokenization import AMRTokenizerWrapper
+from multi_amr.utils import remove_wiki_from_graph
 
 USE_FAST = (True, False)
 TOKENIZER_NAMES = (
@@ -23,12 +22,9 @@ TOKENIZER_NAMES = (
 )
 REMOVE_WIKI = (True, False)
 
-# USE_FAST = (True,)
-# TOKENIZER_NAMES = (
-#     "facebook/bart-large",
-# )
-# REMOVE_WIKI = (True,)
-
+USE_FAST = (True,)
+TOKENIZER_NAMES = ("facebook/bart-large",)
+REMOVE_WIKI = (False,)
 
 graph_standardizer = preprocess.AMRStandardizer(syntactic_standardization="dereify")
 ilp = solvers.ILP()
@@ -55,18 +51,18 @@ def calculate_pair_smatch(reference: str, prediction: str):
     }
 
 
-PENMAN_TEST_EXAMPLE = """(b / buy-01
-   :ARG0 (c / country
-            :wiki +
-            :name (n / name
-                     :op1 "India"))
-   :ARG1 (s / ship
-            :wiki +
-            :name (n2 / name
-                      :op1 "Trenton"
-                      :op2 "(LPD-14)")))
+PENMAN_TEST_EXAMPLE = """(c / cut-out-06
+   :ARG0 (p / person
+            :mod (o / other))
+   :ARG1 (i / i)
+   :ARG1-of (c2 / cause-01
+                :mode expressive
+                :prep-with (h / he
+                              :polarity -
+                              :domain i
+                              :mod (e / either)
+                              :mod (a / anymore))))
 """
-
 
 
 def main_sp(indir: str, single: bool = False):
@@ -82,11 +78,13 @@ def main_sp(indir: str, single: bool = False):
 
         num_not_perfect_smatch = 0
         all_refs_penman = []
-        all_linearizeds = []
+        all_encoded_ids = []
         status_counter = Counter()
-        for pfin in tqdm(list(pdin.rglob("*.txt")),
-                         unit="file",
-                         desc=f"(read) Remove wiki? {rm_wiki} Tok? {tok_name} Fast? {use_fast}"):
+        for pfin in tqdm(
+            list(pdin.rglob("*.txt")),
+            unit="file",
+            desc=f"(read) Remove wiki? {rm_wiki} Tok? {tok_name} Fast? {use_fast}",
+        ):
             with pfin.open(encoding="utf-8") as fhin:
                 for graph in penman.iterdecode(fhin):
                     if TEST_SINGLE_EXAMPLE:
@@ -97,11 +95,10 @@ def main_sp(indir: str, single: bool = False):
                         graph = remove_wiki_from_graph(graph)
 
                     all_refs_penman.append(penman.encode(graph).replace("–", "-"))
-                    linearized_nodes = dfs_linearize(graph)
-                    linearized = " ".join(linearized_nodes)
-                    linearized = postprocess_str_after_linearization(linearized, verbose=TEST_SINGLE_EXAMPLE)
-                    all_linearizeds.append(linearized)
+                    encoded_ids = tok_wrapper.batch_encode_amr([graph], verbose=TEST_SINGLE_EXAMPLE).input_ids[0]
+                    all_encoded_ids.append(encoded_ids)
                     if TEST_SINGLE_EXAMPLE:
+                        print("TOKENIZATION DONE")
                         break
             if TEST_SINGLE_EXAMPLE:
                 break
@@ -110,18 +107,18 @@ def main_sp(indir: str, single: bool = False):
             continue
 
         all_preds_penman = []
-        for linearized, ref_penman in tqdm(zip(all_linearizeds, all_refs_penman),
-                                           total=len(all_linearizeds),
-                                           desc=f"(compare) Remove wiki? {rm_wiki} Tok? {tok_name} Fast? {use_fast}"):
-            encoded = tok_wrapper(linearized)
+        for encoded_ids, ref_penman in tqdm(
+            zip(all_encoded_ids, all_refs_penman),
+            total=len(all_encoded_ids),
+            desc=f"(compare) Remove wiki? {rm_wiki} Tok? {tok_name} Fast? {use_fast}",
+        ):
             try:
-                pred_graph, status, _ = tok_wrapper.decode_amr_ids(encoded.input_ids, verbose=TEST_SINGLE_EXAMPLE)
+                pred_graph, status, _ = tok_wrapper.decode_amr_ids(encoded_ids, verbose=TEST_SINGLE_EXAMPLE)
                 pred_penman = penman.encode(pred_graph)
             except Exception as exc:
                 print(f"Error decoding")
-                print("linearized input:", linearized)
-                print("input ids:", encoded.input_ids)
-                print("converted input ids:", tok_wrapper.tokenizer.convert_ids_to_tokens(encoded.input_ids))
+                print("input ids:", encoded_ids)
+                print("converted input ids:", tok_wrapper.tokenizer.convert_ids_to_tokens(encoded_ids))
                 print("ref:", ref_penman)
                 print()
                 raise exc
@@ -131,25 +128,27 @@ def main_sp(indir: str, single: bool = False):
 
             # This is slow, but sometimes graphs can be an exact match even if they look slightly different
             pair_score = calculate_pair_smatch(ref_penman, pred_penman)
-            if pair_score["smatch_fscore"] < 100.:
+            if pair_score["smatch_fscore"] < 100.0:
                 print(f"Not an exact graph match")
-                print("linearized input:", linearized)
                 print("ref:", ref_penman)
                 print("pred:", pred_penman)
                 print()
                 num_not_perfect_smatch += 1
 
-        assert len(all_preds_penman) == len(all_refs_penman) == len(all_linearizeds)
+        assert len(all_preds_penman) == len(all_refs_penman) == len(all_encoded_ids)
 
         # Calculate corpus-level smatch
         score = calculate_corpus_smatch(all_refs_penman, all_preds_penman)
         print("SCORE", score)
+        if TEST_SINGLE_EXAMPLE:
+            break
+
         status_stats = "; ".join([f"{status}: {num:,}" for status, num in status_counter.items()])
         runs_stats[(rm_wiki, tok_name, use_fast)] = {
             "status_stats": status_stats,
             "num_not_perfect_match": num_not_perfect_smatch,
-            "percent_not_perfect_match": f"{(100*num_not_perfect_smatch / status_counter.total()):.2f}%",
-            "smatch": {k: f"{v:.4f}" for k, v in score.items()}
+            "percent_not_perfect_match": f"{(100 * num_not_perfect_smatch / status_counter.total()):.2f}%",
+            "smatch": {k: f"{v:.4f}" for k, v in score.items()},
         }
 
     for params, stats in runs_stats.items():
@@ -159,18 +158,24 @@ def main_sp(indir: str, single: bool = False):
         print()
 
 
-
 if __name__ == "__main__":
     import argparse
 
-    cparser = argparse.ArgumentParser(description="Brute-force testing of AMR tokenization by tokenizing a linearized "
-                                                  "tree, tokenizing it, decoding it, and reconstructing the tree."
-                                                  " Then checking if the original and reconstructed trees are equal."
-                                                  " This script is a naive, brute-force way of testing this. All .txt"
-                                                  " files in a given directory will be (recursively) tested.")
-    cparser.add_argument("indir", help="Input directory with AMR data. Will be recursively traversed. Will try to read"
-                                       " this as a HF dataset. If not possible, all .txt files will be tested.")
-    cparser.add_argument("--single", action="store_true", help="Only process the single graph at the top of code (for debugging).")
+    cparser = argparse.ArgumentParser(
+        description="Brute-force testing of AMR tokenization by tokenizing a linearized "
+        "tree, tokenizing it, decoding it, and reconstructing the tree."
+        " Then checking if the original and reconstructed trees are equal."
+        " This script is a naive, brute-force way of testing this. All .txt"
+        " files in a given directory will be (recursively) tested."
+    )
+    cparser.add_argument(
+        "indir",
+        help="Input directory with AMR data. Will be recursively traversed. Will try to read"
+        " this as a HF dataset. If not possible, all .txt files will be tested.",
+    )
+    cparser.add_argument(
+        "--single", action="store_true", help="Only process the single graph at the top of code (for debugging)."
+    )
 
     cargs = cparser.parse_args()
     main_sp(cargs.indir, cargs.single)

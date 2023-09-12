@@ -20,7 +20,7 @@ import yaml
 from datasets import Dataset, DatasetDict
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.collator import collate_amr
-from multi_amr.data.postprocessing_graph import BACKOFF, ParsedStatus, tokens2graph
+from multi_amr.data.postprocessing_graph import BACKOFF, ParsedStatus
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.parse_cli import parse_cli
 from multi_amr.peft_callback import PeftSavingCallback
@@ -46,6 +46,14 @@ def main():
         ModelArguments, DataTrainingArguments, ExpandedSeq2SeqTrainingArguments
     )
     training_args = dataclasses.replace(training_args, remove_unused_columns=False)
+
+    # SPRING sampler not compatible with max steps
+    if training_args.max_steps > 0 and training_args.use_spring_sampler:
+        raise ValueError("The SPRING sampler is not compatible with max steps.")
+    if training_args.use_spring_sampler:
+        # The TQDM progressbar will have the wrong "total" estimate of steps, so just disable it
+        training_args = dataclasses.replace(training_args, disable_tqdm=True)
+
     if training_args.seed is None:
         training_args = dataclasses.replace(training_args, seed=random.randint(1, 99999))
         logger.info(f"Random seed set to {training_args.seed}")
@@ -124,20 +132,20 @@ def main():
                     f" {', '.join(tok_wrapper.tokenizer.lang_code_to_id.keys())}"
                 )
 
-    max_length = tok_wrapper.tokenizer.model_max_length
+    tokenizer_max_length = tok_wrapper.tokenizer.model_max_length
 
-    if max_length > 2048:  # Some max lengths are set to LARGE INT
+    if tokenizer_max_length > 2048 or tokenizer_max_length is None:  # Some max lengths are set to LARGE INT
         if tok_wrapper.tokenizer_type == TokenizerType.BLOOM:
             # Taken from their paper
-            max_length = 2048
+            tokenizer_max_length = 2048
         elif tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.BART):
             # mbart-large-cc25 is set to 1024 but mbart-large-50-may-to-one-mmt is set to LARGE INT
-            max_length = 1024
+            tokenizer_max_length = 1024
         elif tok_wrapper.tokenizer_type == TokenizerType.T5:
             # 1024 according to the mT5 paper
-            max_length = 1024
+            tokenizer_max_length = 1024
 
-    tok_wrapper.tokenizer.model_max_length = max_length
+        tok_wrapper.tokenizer.model_max_length = tokenizer_max_length
 
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
@@ -150,14 +158,26 @@ def main():
     config = AutoConfig.from_pretrained(model_args.config_name, **config_kwargs)
 
     if tok_wrapper.tokenizer_type in (TokenizerType.BART, TokenizerType.MBART, TokenizerType.NLLB):
-        config.dropout = model_args.dropout
-        config.attention_dropout = model_args.attention_dropout
+        config.dropout = model_args.dropout if model_args.dropout is not None else config.dropout
+        config.attention_dropout = model_args.attention_dropout if model_args.attention_dropout is not None else config.attention_dropout
+        config.classif_dropout = model_args.classif_dropout if model_args.classif_dropout is not None else config.classif_dropout
     elif tok_wrapper.tokenizer_type in (TokenizerType.T5,):
-        config.dropout_rate = model_args.dropout
+        config.dropout_rate = model_args.dropout if model_args.dropout is not None else config.dropout_rate
         # T5 does not explicitly use a separate attention dropout
     elif tok_wrapper.tokenizer_type in (TokenizerType.BLOOM,):
-        config.hidden_dropout = model_args.dropout
-        config.attention_dropout = model_args.attention_dropout
+        config.hidden_dropout = model_args.dropout if model_args.dropout is not None else config.hidden_dropout
+        config.attention_dropout = model_args.attention_dropout if model_args.attention_dropout is not None else config.attention_dropout
+
+    if data_args.use_spring_label_formatting and tok_wrapper.tokenizer_type == TokenizerType.BART:
+        config.decoder_start_token_id = 0
+    else:
+        config.decoder_start_token_id = tok_wrapper.amr_token_id
+
+    # we are not using beam search so early stopping must be false
+    if training_args.generation_num_beams and training_args.generation_num_beams > 1:
+        config.early_stopping = False
+    # Taken from SPRING
+    config.no_repeat_ngram_size = 0
 
     with training_args.main_process_first(desc="(Down)loading model"):
         if tok_wrapper.tokenizer_type in (
@@ -436,6 +456,7 @@ def main():
 
     # Initialize our Trainer
     trainer = AMRTrainer(
+        tok_wrapper=tok_wrapper,
         model=None if training_args.sweep_config else model,
         args=training_args,
         train_dataset=train_dataset,
@@ -443,6 +464,7 @@ def main():
         tokenizer=tok_wrapper.tokenizer,
         data_collator=partial(
             collate_amr,
+            use_spring_label_formatting=data_args.use_spring_label_formatting,
             src_langs=data_args.src_langs,
             tok_wrapper=tok_wrapper,
             input_max_seq_length=data_args.input_max_seq_length,
@@ -460,7 +482,6 @@ def main():
     )
 
     if training_args.sweep_config:
-
         def wandb_hp_space(trial=None):
             return yaml.safe_load(Path(training_args.sweep_config).read_text(encoding="utf-8"))
 
@@ -509,61 +530,6 @@ def main():
             trainer.push_to_hub(**kwargs)
         else:
             trainer.create_model_card(**kwargs)
-    #
-    # if trainer.is_world_process_zero():
-    #     for split in ("valid", "test"):
-    #         if split == "valid":
-    #             if not training_args.do_eval:
-    #                 continue
-    #             dataset = validation_dataset
-    #         else:
-    #             if not training_args.do_predict:
-    #                 continue
-    #             dataset = test_dataset
-    #
-    #         logger.info(f"*** {split.upper()} ***")
-    #         df = dataset.to_pandas()
-    #         df = df.drop(columns=["__index_level_0__"], errors="ignore")
-    #
-    #         for src_lang_idx, group_ds in df.groupby("src_lang_idx"):
-    #             src_lang = data_args.src_langs[src_lang_idx]
-    #             lang_dataset = Dataset.from_pandas(group_ds)
-    #             predict_results = trainer.predict(
-    #                 lang_dataset,
-    #                 max_length=training_args.generation_max_length,
-    #                 num_beams=training_args.num_beams,
-    #                 penalty_alpha=training_args.penalty_alpha,
-    #                 top_k=training_args.top_k,
-    #                 do_sample=training_args.do_sample,
-    #                 top_p=training_args.top_p,
-    #                 metric_key_prefix=f"{split}_{src_lang}",
-    #             )
-    #             metrics = predict_results.metrics
-    #             trainer.log_metrics(f"{split}_{src_lang}", metrics)
-    #             trainer.save_metrics(f"{split}_{src_lang}", metrics)
-    #             # TODO: just write custom `predict` script?
-    #             preds = predict_results.predictions
-    #             labels = predict_results.label_ids
-    #
-    #             num_samples = len(labels)
-    #
-    #             # CLM models need to reshift their labels
-    #             if tok_wrapper.tokenizer_type in (TokenizerType.BLOOM,):
-    #                 preds = preds[:, :-1]
-    #
-    #             # SMATCH
-    #             labels_for_smatch = np.where(labels != -100, labels, tok_wrapper.tokenizer.pad_token_id)
-    #             preds_for_smatch = np.where(preds != -100, preds, tok_wrapper.tokenizer.pad_token_id)
-    #             refs_penman = tok_wrapper.batch_decode_amr_ids(labels_for_smatch, reset_variables=True)["penman"]
-    #             preds_decoded = tok_wrapper.batch_decode_amr_ids(preds_for_smatch, reset_variables=True)
-    #             preds_penman, preds_status = preds_decoded["penman"], preds_decoded["status"]
-    #
-    #             pf_predictions = Path(training_args.output_dir).joinpath(f"{split}_predictions_{src_lang}.txt")
-    #             logger.info(f"Writing {split} predictions for {src_lang} to file {pf_predictions.stem}*")
-    #
-    #             with pf_predictions.open("w", encoding="utf-8") as fhout:
-    #                 for sent, ref, pred in zip(lang_dataset["sentence"], refs_penman, preds_penman):
-    #                     fhout.write(f"{sent}\nREF: {ref}\nPRED: {pred}\n\n")
 
 
 def _mp_fn(index):
@@ -573,11 +539,3 @@ def _mp_fn(index):
 
 if __name__ == "__main__":
     main()
-
-
-# Train
-# OMP_NUM_THREADS=8 WANDB_PROJECT="amr-en-cleaned-flan-t5-large" torchrun --standalone --nproc_per_node 4 src/multi_amr/run_amr_generation.py train_config_ampere.json --model_name_or_path google/flan-t5-large --output_dir results/amr30/full_cleaned/flan-t5-large/1e-5lr+50ep+64tbs --run_name 1e-5lr+50ep+64tbs --learning_rate 1e-5 |& tee output.log
-# Eval
-# CUDA_VISIBLE_DEVICES=0 python src/multi_amr/run_amr_generation.py predict_config_ampere.json |& tee output.log
-
-# TODO: predict script, hparam sweep, check data lengths and filter data based on input_max_seq_length BEFORE sample/collating with dataset.filter

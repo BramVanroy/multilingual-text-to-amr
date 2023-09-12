@@ -23,6 +23,7 @@ def collate_amr(
     src_langs: List[str],
     tok_wrapper: AMRTokenizerWrapper,
     dereify: bool = False,
+    use_spring_label_formatting: bool = False,
     input_max_seq_length: Optional[int] = None,
     output_max_seq_length: Optional[int] = None,
 ):
@@ -75,12 +76,16 @@ def collate_amr(
             truncation=True,
             max_length=input_max_seq_length,
             return_tensors="pt",
+            return_attention_mask=True,
         )
 
         if has_labels:
-            batch["labels"] = tok_wrapper.batch_encode_amr(
-                graphs, padding=True, truncation=True, max_length=output_max_seq_length, return_tensors="pt"
-            )["input_ids"]
+            batch["labels"] = tok_wrapper.batch_encode_amr(graphs, max_length=output_max_seq_length)["input_ids"]
+            # Spring automatically creates decoder input_ids but in a different way than BART's default shift_right
+            if use_spring_label_formatting and tok_wrapper.tokenizer_type == TokenizerType.BART:
+                batch["decoder_input_ids"] = batch["labels"][:, :-1].clone()
+                batch["labels"] = batch["labels"][:, 1:].clone()
+
             batch["labels"] = torch.where(batch["labels"] == tok_wrapper.tokenizer.pad_token_id, -100, batch["labels"])
     else:
         # DECODERS-ONLY
@@ -93,6 +98,8 @@ def collate_amr(
                     f"'input_max_seq_length' + 'output_max_seq_length' ({max_total_length}) cannot be larger"
                     f" than max model size ({model_max_length}) for decoder-only models"
                 )
+        # TODO: IMPLEMENT THIS CORRECTLY (regular call does not work for pebnabstr)
+        raise NotImplementedError
         batch = tok_wrapper(
             [task_prefix + s["sentence"] + "\n" + tok_wrapper.tokenizer.eos_token + s["penmanstr"] for s in samples],
             padding=True,

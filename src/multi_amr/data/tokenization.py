@@ -2,26 +2,27 @@ import copy
 import logging
 import sys
 from enum import StrEnum, auto
+from functools import cached_property
 from typing import Dict, List, Optional, Tuple
 
 import penman
 import regex as re
 import torch
-from multi_amr.data.additional_tokens import get_added_vocabulary
-from multi_amr.data.linearization import dfs_linearize, remove_wiki_from_graph
+
+from multi_amr.data.additional_tokens import get_added_vocabulary, SPECIAL_ADDITIONS, AMR_TOKEN
 from multi_amr.data.postprocessing_graph import (
     BACKOFF,
     ParsedStatus,
     connect_graph_if_not_connected,
     fix_and_make_graph,
-    token_processing,
 )
 from multi_amr.data.postprocessing_str import (
     postprocess_str_after_delinearization,
-    postprocess_str_after_linearization,
     tokenize_except_quotes_and_angles,
 )
+from multi_amr.utils import remove_wiki_from_graph
 from transformers import (
+    AddedToken,
     AutoTokenizer,
     BartTokenizer,
     BartTokenizerFast,
@@ -56,62 +57,56 @@ class AMRTokenizerWrapper:
         self.patterns = re.compile(
             r" ?<[a-z]+:?\d*>| ?:\S+|'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
         )
+        tokens_to_add = get_added_vocabulary()
+        tokens_to_add = set(tokens_to_add)
+        voc = set(self.tokenizer.get_vocab().keys())
+        new_tokens = list(sorted(tokens_to_add - voc))
+        new_tokens = [AddedToken(t, rstrip=False, lstrip=True) for t in new_tokens]
+        if new_tokens:
+            self.tokenizer.add_tokens(new_tokens)
+            logger.info(f"Added {len(new_tokens)} new tokens to tok_wrapper")
 
+        self.lang_idxs = None
+        self.amr_token = AMR_TOKEN
+        self.amr_token_id = self.tokenizer.convert_tokens_to_ids(self.amr_token)
         if isinstance(self.tokenizer, (MBartTokenizer, MBartTokenizerFast, MBart50Tokenizer, MBart50TokenizerFast)):
             self.tokenizer_type = TokenizerType.MBART
             self.token_prefix = "\u2581"
-            self.amr_token = f"{self.token_prefix}<AMR>"
-            self.tokenizer.tgt_lang = self.amr_token  # AMR is always target in our case
-            self.lang_idxs = torch.LongTensor(list(self.tokenizer.lang_code_to_id.values()))
+            self.lang_idxs = set(self.tokenizer.lang_code_to_id.values())
         elif isinstance(self.tokenizer, (BartTokenizer, BartTokenizerFast)):
             self.tokenizer_type = TokenizerType.BART
-            self.lang_idxs = None
             self.token_prefix = "\u0120"
         elif isinstance(self.tokenizer, (NllbTokenizer, NllbTokenizerFast)):
             self.tokenizer_type = TokenizerType.NLLB
             self.token_prefix = "\u2581"
-            self.amr_token = f"{self.token_prefix}<AMR>"
-            self.tokenizer.tgt_lang = self.amr_token  # AMR is always target in our case
-            self.lang_idxs = torch.LongTensor(list(self.tokenizer.lang_code_to_id.values()))
+            self.lang_idxs = set(self.tokenizer.lang_code_to_id.values())
         elif isinstance(self.tokenizer, (T5Tokenizer, T5TokenizerFast)):
             # T5 works with general prefixes that are part of the input, e.g. "Translate English to German: "
             # so there are no language codes
             self.tokenizer_type = TokenizerType.T5
-            self.lang_idxs = None
             self.token_prefix = "\u2581"
         elif isinstance(self.tokenizer, BloomTokenizerFast):
             # BLOOM was not trained with prefixes. BLOOMZ was (also uses Bloomtokenizer) so there are no language codes
             # We will always use prefixes. There is no `slow` version
             self.tokenizer_type = TokenizerType.BLOOM
-            self.lang_idxs = None
             self.token_prefix = "\u0120"
         else:
             raise ValueError(f"Tokenizer type '{type(self.tokenizer)}' not supported.")
 
-        self.amr_token = "<AMR>"
-        tokens_to_add = get_added_vocabulary()
-        tokens_to_add = set(tokens_to_add)
-        voc = set(self.tokenizer.get_vocab().keys())
-        new_tokens = list(sorted(tokens_to_add - voc))
-
-        if new_tokens:
-            self.tokenizer.add_tokens(new_tokens)
-            logger.info(f"Added {len(new_tokens)} new tokens to tok_wrapper")
-
-        # Just adding AMR to voc and defining it here as the tgt_lang is not enough
-        # because we are always just calling the tok_wrapper (as if it were the source tok_wrapper)
-        # However, we cannot even use it as a target tok_wrapper with tgt_lang AMR, because
-        # the MBARTTokenizer only allows special language codes as tgt_lang for this purpose so
-        # we cannot take that approach. Instead we will be replacing the special source language
-        # token in "encode_penmanstrs" with our own, AMR one
         self.tokenizer.voc_size = len(self.tokenizer)
 
         self.vocab = self.tokenizer.get_vocab()
         self.added_vocab = self.tokenizer.get_added_vocab()
-        self.amr_token_idx = self.tokenizer.convert_tokens_to_ids(self.amr_token)
         assert self.amr_token in self.vocab
+        assert self.amr_token_id in self.vocab.values()
 
-        self.special_ids_and_amr_token_id = self.tokenizer.all_special_ids + [self.amr_token_idx]
+        self.special_ids_and_amr_token_id = self.tokenizer.all_special_ids + [self.amr_token_id]
+
+    @cached_property
+    def num_spec_toks_when_building(self):
+        input_ids = self.tokenizer.encode("This is not a potato.")
+        input_ids_w_special = self.tokenizer.build_inputs_with_special_tokens(input_ids)
+        return len(input_ids_w_special) - len(input_ids)
 
     @classmethod
     def from_pretrained(cls, *args, legacy: bool = True, add_prefix_space: bool = True, **kwargs):
@@ -143,21 +138,105 @@ class AMRTokenizerWrapper:
         graphs_or_penmanstrs: List[str | penman.Graph],
         remove_wiki: bool = False,
         verbose: bool = False,
-        **tokenizer_kwargs,
+        max_length: Optional[int] = None,
     ) -> BatchEncoding:
-        linearizeds = []
-        for graph in graphs_or_penmanstrs:
-            if isinstance(graph, str):
-                ## TODO: add model optoin (dereify)
-                graph = penman.decode(graph)
-            if remove_wiki:
-                graph = remove_wiki_from_graph(graph)
-            # Modified from SPRING
-            linearized_nodes = dfs_linearize(graph)
-            linearized = " ".join(linearized_nodes)
-            linearizeds.append(postprocess_str_after_linearization(linearized, verbose=verbose))
+        max_length = (max_length if max_length else self.tokenizer.model_max_length) - self.num_spec_toks_when_building
+        all_token_ids = []
 
-        return self(linearizeds, **tokenizer_kwargs)
+        self.tokenizer._switch_to_target_mode()
+        for graph in graphs_or_penmanstrs:
+            tokenized = self.tokenize_amr(graph, remove_wiki=remove_wiki, verbose=verbose)[:max_length]
+            token_ids = self.tokenizer.convert_tokens_to_ids(tokenized)
+            token_ids = self.tokenizer.build_inputs_with_special_tokens(token_ids)
+            # Replace language token with AMR token. We use this instead of tokenizer.as_target_tokenizer because
+            # for some models it is hard to incorporate a new "real" language code token that will work with that
+            if self.lang_idxs:
+                token_ids = [self.amr_token_id if idx in self.lang_idxs else idx for idx in token_ids]
+            all_token_ids.append(token_ids)
+
+        self.tokenizer._switch_to_input_mode()
+
+        # Create padded tensor
+        max_seq_len = max([len(ids) for ids in all_token_ids])
+        batch_size = len(all_token_ids)
+        token_tensor = torch.full((batch_size, max_seq_len), fill_value=self.tokenizer.pad_token_id, dtype=torch.long)
+        for seq_idx, ids in enumerate(all_token_ids):
+            token_tensor[seq_idx][: len(ids)] = torch.LongTensor(ids)
+
+        return BatchEncoding(data={"input_ids": token_tensor}, tensor_type="pt")
+
+    def tokenize_amr(
+        self,
+        graph_or_penman: penman.Graph | str,
+        remove_wiki: bool = False,
+        verbose: bool = False,
+    ) -> List[str]:
+        graph = graph_or_penman
+        if isinstance(graph_or_penman, str):
+            graph = penman.decode(graph_or_penman)
+        if remove_wiki:
+            graph = remove_wiki_from_graph(graph_or_penman)
+
+        linearized_nodes = linearize(graph)
+        if verbose:
+            print("after linearization", linearized_nodes)
+
+        bpe_tokens = []
+        pref = self.token_prefix
+
+        for tokk in linearized_nodes:
+            # Special tokens are in vocab without prefix space but regular tokens might be with prefix
+            is_in_voc = tokk in self.vocab
+            is_prefixed_in_voc = (pref + tokk) in self.vocab
+            is_rel = tokk.startswith(":") and len(tokk) > 1
+            is_spc = tokk.startswith("<") and tokk.endswith(">")
+            is_of = tokk.startswith(":") and tokk.endswith("-of")
+            is_frame = re.match(r".+-\d\d$", tokk) is not None
+            if tokk.startswith('"') and tokk.endswith('"'):
+                tokk = tokk[1:-1].replace("_", " ")
+                bpe_toks = ["<lit>"] + self.tokenizer.tokenize(tokk) + ["</lit>"]
+            elif tokk == "(":
+                bpe_toks = ["<rel>"]
+            elif tokk == ")":
+                bpe_toks = ["</rel>"]
+            elif is_rel or is_spc or is_frame or is_of:
+                if is_in_voc:
+                    bpe_toks = [tokk]
+                elif is_frame:
+                    bpe_toks = self.tokenizer.tokenize(tokk[:-3]) + [tokk[-3:]]
+                elif is_of:
+                    rel = tokk[:-3]
+                    if rel in self.vocab:
+                        bpe_toks = [rel, "-of"]
+                    else:
+                        bpe_toks = [":"] + self.tokenizer.tokenize(rel[1:]) + ["-of"]
+                elif is_rel:
+                    if "-" in tokk:
+                        # E.g. ":prep-with" -> ":prep-", "with"
+                        tokpref, rest = tokk.split("-", 1)
+                        if tokpref+"-" in self.vocab:
+                            bpe_toks = [tokpref+"-"] + self.tokenizer.tokenize(rest)
+                        else:
+                            bpe_toks = [":"] + self.tokenizer.tokenize(tokk[1:])
+                    else:
+                        bpe_toks = [":"] + self.tokenizer.tokenize(tokk[1:])
+                else:
+                    raise
+            else:
+                if is_prefixed_in_voc:
+                    bpe_toks = [pref + tokk]
+                elif is_in_voc:
+                    bpe_toks = [tokk]
+                else:
+                    bpe_toks = self.tokenizer.tokenize(tokk)
+
+            bpe_tokens.append(bpe_toks)
+
+        bpe_tokens = [b for bb in bpe_tokens for b in bb]
+
+        if verbose:
+            print("after tokenization", bpe_tokens)
+        return bpe_tokens
 
     def batch_decode_amr_ids(
         self,
@@ -193,15 +272,19 @@ class AMRTokenizerWrapper:
         if not token_ids:
             return BACKOFF, ParsedStatus.BACKOFF, None
 
+        if verbose:
+            print("Raw tokens2ids", self.tokenizer.convert_ids_to_tokens(token_ids))
+
         try:
             decoded = self.tokenizer.decode(token_ids)
             if verbose:
-                print("decoded before postprocess_str", decoded)
+                print("decoded with tokenizer", decoded)
             postprocessed = postprocess_str_after_delinearization(decoded)
+            if verbose:
+                print("after postprocess str", postprocessed)
             nodes = tokenize_except_quotes_and_angles(postprocessed)
             if verbose:
-                print("nodes after postprocess str", nodes)
-            nodes_ = nodes
+                print("After tokenization", nodes)
         except Exception as e:
             if verbose:
                 print("Decoding failure:", file=sys.stderr)
@@ -226,7 +309,7 @@ class AMRTokenizerWrapper:
                         print(nodes, file=sys.stderr)
                         print(graph_, file=sys.stderr)
                         print(token_ids, file=sys.stderr)
-                    return graph, status, nodes_
+                    return graph, status, nodes
                 except Exception as e:
                     if verbose:
                         print("Reconnection 2 failure:", file=sys.stderr)
@@ -234,128 +317,63 @@ class AMRTokenizerWrapper:
                         print(nodes, file=sys.stderr)
                         print(graph_, file=sys.stderr)
                         print(token_ids, file=sys.stderr)
-                    return BACKOFF, ParsedStatus.BACKOFF, nodes_
+                    return BACKOFF, ParsedStatus.BACKOFF, nodes
 
-    def decode_into_nodes(self, token_ids: List[int]) -> List[str]:
-        # This is the original in SPRING but, bug? Shouldn't there be a ":"?
-        rex_arg = re.compile(f"^{self.token_prefix}(op|snt|conj|prep)")
-        rex_spc = re.compile(r"<(s|/s|lit|/lit|stop|unk|pad|mask)>")
 
-        # get strings
-        subtokens = [t for t in self.tokenizer.convert_ids_to_tokens(token_ids) if t != self.tokenizer.pad_token]
+def linearize(graph: penman.Graph) -> List[str]:
+    # modified from SPRING
+    graph_ = copy.deepcopy(graph)
+    graph_.metadata = {}
+    try:
+        linearized = penman.encode(graph_).replace("–", "-")  # NLLB does not have an en-hyphen
+    except Exception as exc:
+        print(graph_)
+        print(graph_.metadata)
+        raise exc
 
-        # subword collapse
-        tokens = []
-        subword_to_token_map = {}
-        current_token_i = 0
-        for subw_i, subtok in enumerate(subtokens):
-            subword_to_token_map[subw_i] = current_token_i
+    linearized_nodes = _tokenize_encoded_graph(linearized)
+    remap = {}
+    for i in range(1, len(linearized_nodes)):
+        nxt = linearized_nodes[i]
+        lst = linearized_nodes[i - 1]
+        if nxt == "/":
+            remap[lst] = f"<pointer:{len(remap)}>"
 
-            # if empty you cannot do anything but add a new word
-            if not tokens:
-                tokens.append(subtok.lstrip(self.token_prefix))
-                current_token_i += 1
-            # after a special token release
-            elif isinstance(tokens[-1], str) and rex_spc.match(tokens[-1]):
-                tokens.append(subtok.lstrip(self.token_prefix))
-                current_token_i += 1
+    i = 1
+    linearized_nodes_ = [linearized_nodes[0]]
+    while i < (len(linearized_nodes)):
+        nxt = linearized_nodes[i]
+        lst = linearized_nodes_[-1]
+        if nxt in remap:
+            if lst == "(" and linearized_nodes[i + 1] == "/":
+                nxt = remap[nxt]
+                i += 1
+            elif lst.startswith(":"):
+                nxt = remap[nxt]
+        elif lst == ":polarity" and nxt == "-":
+            linearized_nodes_[-1] = ":negation"
+            i += 1
+            continue
+        linearized_nodes_.append(nxt)
+        i += 1
 
-            # after a subtoken ':' (which should be followed by the rest of the edge) ignore self.token_prefix
-            # TODO: this is an ugly patch due to the fact that BART tokenizer splits after ':'
-            elif (tokens[-1] == ":") and rex_arg.match(subtok):
-                tokens[-1] = tokens[-1] + subtok[1:]
+    linearized_nodes_ = [tstrip for t in linearized_nodes_ if (tstrip := t.strip())]
+    return linearized_nodes_
 
-            # leading self.token_prefix
-            elif subtok.startswith(self.token_prefix):
-                tokens.append(subtok.lstrip(self.token_prefix))
-                current_token_i += 1
 
-            # very ugly patch for some cases in which self.token_prefix is not in the following token to the edge
-            elif (
-                isinstance(tokens[-1], str)
-                and tokens[-1].startswith(":")
-                and tokens[-1][-1].isdigit()
-                and (subtok != "-of")
-            ):
-                tokens.append(subtok.lstrip(self.token_prefix))
-                current_token_i += 1
-
-            # in any other case attach to the previous
-            else:
-                tokens[-1] = tokens[-1] + subtok
-
-        # strip INIT and fix byte-level
-        tokens = [
-            self.tokenizer.convert_tokens_to_string(list(t)).lstrip() if isinstance(t, str) else t for t in tokens
-        ]
-        # tokens = [t.replace(self.token_prefix, '') if isinstance(t, str) else t for t in tokens]
-
-        # unks are substituted with thing
-        tokens = [t if t != self.tokenizer.unk_token else "thing" for t in tokens]
-
-        old_tokens = tokens
-
-        # <lit> Barack Obama </lit> -> "Barack Obama"
-        tokens = []
-        token_to_token_map = {}
-        start_search = 0
-        removed = 0
-        while True:
-            try:
-                lit_start = old_tokens.index("<lit>", start_search)
-                token_addition = old_tokens[start_search:lit_start]
-                for i, t in enumerate(token_addition, start=start_search):
-                    token_to_token_map[i] = i - removed
-                tokens += token_addition
-                lit_end = min(lit_start + 2, len(old_tokens) - 1)
-
-                while lit_end < len(old_tokens):
-                    old_tok = old_tokens[lit_end]
-
-                    if isinstance(old_tok, str) and (
-                        (old_tok.startswith(":") and len(old_tok) > 3) or (old_tok == "<stop>")
-                    ):
-                        res_tok = old_tokens[lit_start + 1 : lit_end]
-                        for i in range(lit_start, lit_end):
-                            token_to_token_map[i] = len(tokens)
-
-                        # Remove possible wrong None
-                        res = old_tokens[lit_start + 1 : lit_end]
-                        res = [str(r) for r in res if r is not None]
-                        res = '"' + "_".join(res) + '"'
-
-                        removed += len(res_tok)
-                        start_search = lit_end
-                        tokens += [res, old_tok]
-                        break
-
-                    elif old_tok == "</lit>":
-                        res_tok = old_tokens[lit_start + 1 : lit_end]
-                        for i in range(lit_start, lit_end + 1):
-                            token_to_token_map[i] = len(tokens)
-
-                        # Remove possible wrong None
-                        res = old_tokens[lit_start + 1 : lit_end]
-                        res = [str(r) for r in res if r is not None]
-                        res = '"' + "_".join(res) + '"'
-
-                        removed += len(res_tok) + 1
-                        start_search = lit_end + 1
-                        tokens.append(res)
-                        break
-
-                    else:
-                        lit_end += 1
-                        start_search = lit_end
-
-            except ValueError:
-                token_addition = old_tokens[start_search:]
-                for i, t in enumerate(token_addition, start=start_search):
-                    token_to_token_map[i] = i - removed
-
-                tokens += token_addition
-                break
-
-        tokens = [token_processing(t) for t in tokens]
-
-        return tokens
+def _tokenize_encoded_graph(linearized: str) -> List[str]:
+    # modified from SPRING
+    linearized = re.sub(r"(\".+?\")", r" \1 ", linearized)
+    pieces = []
+    for piece in linearized.split():
+        if piece.startswith('"') and piece.endswith('"'):
+            pieces.append(piece)
+        else:
+            piece = piece.replace("(", " ( ")
+            piece = piece.replace(")", " ) ")
+            piece = piece.replace(":", " :")
+            piece = piece.replace("/", " / ")
+            piece = piece.strip()
+            pieces.append(piece)
+    linearized = re.sub(r"\s+", " ", " ".join(pieces)).strip()
+    return linearized.split(" ")

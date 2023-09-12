@@ -86,7 +86,7 @@ be-polite-91
 -27
 -28
 -29
--20
+-30
 -31
 -32
 -33
@@ -249,6 +249,9 @@ be-polite-91
 :snt3
 :snt4
 :snt5
+:prep-
+:conj-
+:negation
 """.splitlines()
 
 PREDICATES = """cause-01	4563
@@ -5494,7 +5497,8 @@ go-07	1
 flout-01	1
 step-aside-05	1"""
 
-SPECIAL_ADDITIONS = ["<rel>", "</rel>", "<AMR>", "<lit>", "</lit>"]
+AMR_TOKEN = "<AMR>"
+SPECIAL_ADDITIONS = ["<rel>", "</rel>", "<lit>", "</lit>"] + [AMR_TOKEN]
 
 
 @lru_cache

@@ -118,6 +118,10 @@ class ModelArguments:
         default=0.1,
         metadata={"help": "The dropout probability specifically for attention in the model. (Not used by T5 models.)"},
     )
+    classif_dropout: float = field(
+        default=0.0,
+        metadata={"help": "The dropout probability of classifier layers. (Only for BART-like models.)"},
+    )
 
 
 @dataclass(frozen=False)
@@ -201,6 +205,12 @@ class DataTrainingArguments:
     remove_wiki: bool = field(
         default=True,
         metadata={"help": ("Whether to remove the special 'wiki:' tags from the AMR.")},
+    )
+    use_spring_label_formatting: bool = field(
+        default=False,
+        metadata={"help": ("Whether to use SPRING's custom method to create decoder_input_ids automatically, which"
+                           " is different from BART's default. When using this, make sure to also set"
+                           " `decoder_start_token_id` correctly. For BART, using the custom spring formatting, this should then be 0")},
     )
 
 
@@ -295,18 +305,18 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
             " items that, combined, account for p%. Only works if predict_with_generate=True."
         },
     )
-    generation_max_length: int = field(
-        default=None,
-        metadata={"help": "The max. generation length when getting predictions for dev or test sets."},
-    )
-    num_beams: int = field(
-        default=1,
-        metadata={"help": "The number of beams to use for generation when getting predictions for dev or test sets."},
-    )
     sweep_config: Optional[str] = field(
         default=None,
         metadata={
             "help": "A YAML file containing a sweep configuration. If given, will do hyperparameter optimisation."
             " See https://docs.wandb.ai/guides/sweeps/define-sweep-configuration"
         },
+    )
+    use_spring_sampler: bool = field(
+        default=False,
+        metadata={"help": ("Whether to use the SPRING dataloader which creates batches measured in no. tokens. Update batch_size_tokens accordingly")},
+    )
+    batch_size_tokens: int = field(
+        default=500,
+        metadata={"help": ("How many tokens to use in each batch when using the SPRING dataloader when `use_spring_sampler=True`.")},
     )
