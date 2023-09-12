@@ -1,11 +1,12 @@
 import logging
 import random
 from collections import defaultdict
+from statistics import mean
 from typing import Iterator, List
 
 import torch
 from datasets import Dataset
-from torch.utils.data import Sampler, BatchSampler
+from torch.utils.data import Sampler
 
 from multi_amr.data.tokenization import AMRTokenizerWrapper
 
@@ -36,8 +37,8 @@ def get_src_lang_grouped_indices(
     :return: indices of the dataset, ordered in such a way so that they are homogenous in their source language (with
     the potential exception of the last batch(es))
     """
-    src_langs = [sample["src_lang_idx"] for sample in dataset]
-    is_predict = len([d["penmanstr"] for d in dataset if d["penmanstr"]]) == 0
+    all_src_lang_idxs = [sample["src_lang_idx"] for sample in dataset]
+    is_predict = len([d["penmanstr"] for d in dataset if "penmanstr" in d and d["penmanstr"]]) == 0
 
     if is_predict:
         logger.warning(
@@ -48,12 +49,21 @@ def get_src_lang_grouped_indices(
         keep_incomplete_batches = True
         shuffle = False
 
+    sampleidx2lengths = {}
+    def find_lengths(sample, sample_idx):
+        if is_predict:
+            sampleidx2lengths[sample_idx] = (len(sample["sentence"]),)
+        else:
+            sampleidx2lengths[sample_idx] = (len(sample["sentence"]), len(sample["penmanstr"]))
+        return None
+
+    dataset.map(find_lengths, with_indices=True)
+
     # Per language, collect all the indices assosicated with that language
     per_lang_idxs = defaultdict(list)
-    for idx, src_lang in enumerate(src_langs):
-        per_lang_idxs[src_lang].append(idx)
+    for sample_idx, src_lang_idx in enumerate(all_src_lang_idxs):
+        per_lang_idxs[src_lang_idx].append(sample_idx)
     per_lang_idxs = dict(per_lang_idxs)
-
     lang_batches: List = []
     rest_batches: List = []
     # Iterate over a language and all its associated indices so that we can
@@ -62,7 +72,6 @@ def get_src_lang_grouped_indices(
     # put all the incomplete batches near the end or drop them in case keep_incomplete_batches = False
     for lang, lang_idxs in per_lang_idxs.items():
         lang_idxs = torch.LongTensor(lang_idxs)
-
         if shuffle:
             # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
             # Do shuffle within a language
@@ -70,16 +79,12 @@ def get_src_lang_grouped_indices(
             lang_idxs = lang_idxs[indices]
 
         if group_by_length:
-            lengthed = []
-
-            def find_lengths(sample, idx):
-                lengthed.append((idx, len(sample["sentence"]), len(sample["penmanstr"])))
-                return None
-
-            dataset.map(find_lengths, with_indices=True)
-
-            # Sort by input and output lengths, and extract lang_idxs
-            lang_idxs = torch.LongTensor([tup[0] for tup in sorted(lengthed, key=lambda tup: tup[1:], reverse=True)])
+            # Sort by input and output lengths. Largest first
+            lang_idxs = torch.LongTensor(
+                sorted(lang_idxs.tolist(),
+                       key=lambda lang_idx: sampleidx2lengths[lang_idx][1:],
+                       reverse=True)
+            )
 
         for batch in lang_idxs.split(batch_size, dim=0):
             if batch.size(0) == batch_size:
@@ -87,12 +92,23 @@ def get_src_lang_grouped_indices(
             else:
                 rest_batches.append(batch)
 
+    def sort_batches_by_avg_length(batches: torch.Tensor) -> torch.LongTensor:
+        # TODO: TEST THIS
+        batches = batches.tolist()
+        # Only averages by input length here (not output)
+        avg_lens = [(batch_idx, mean([sampleidx2lengths[idx][0] for idx in _batch])) for batch_idx, _batch in enumerate(batches)]
+        batches = torch.LongTensor([batches[tup[0]] for tup in sorted(avg_lens, key=lambda tup: tup[1], reverse=True)])
+        return batches
+
     # Do shuffle of full batches across languages
     if lang_batches:
         lang_batches: torch.Tensor = torch.stack(lang_batches)
         if shuffle:
             full_batch_indices = torch.randperm(lang_batches.size(0), generator=generator)
             lang_batches = lang_batches[full_batch_indices]
+            # Re-sort to make sure that, even with a bit of randomness from the shuffle, the batches themselves
+            # are also sorted by length
+            lang_batches = sort_batches_by_avg_length(lang_batches)
         lang_batches = lang_batches.flatten().tolist()
 
     if not lang_batches and not keep_incomplete_batches:
@@ -109,6 +125,7 @@ def get_src_lang_grouped_indices(
         if shuffle:
             incomplete_batch_indices = torch.randperm(rest_batches.size(0), generator=generator)
             rest_batches = rest_batches[incomplete_batch_indices]
+            rest_batches = sort_batches_by_avg_length(rest_batches)
         rest_batches = rest_batches.flatten().tolist()
         return lang_batches + rest_batches
     else:

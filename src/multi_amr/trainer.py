@@ -311,3 +311,8 @@ class AMRTrainer(Seq2SeqTrainer):
             raise ValueError(f"Trainer cannot instantiate unsupported optimizer: {args.optim}")
 
         return optimizer_cls, optimizer_kwargs
+
+
+"""
+WANDB_PROJECT="amr_es_ga_nl" CUDA_VISIBLE_DEVICES=2,3 deepspeed src/multi_amr/run_amr_generation.py train_config_ampere.json --output_dir results/amr30/es_ga_nl+no_processing/umt5_base+ada5e-5lr+30ep+16tbs/ --run_name umt5_base+ada5e-5lr+30ep+16tbs --overwrite_output_dir --per_device_train_batch_size 4 --gradient_accumulation_steps 2 --per_device_eval_batch_size 2 --learning_rate 5e-5 --model_name_or_path google/umt5-base --preprocessed_dataset data/preprocessed/amr30-es_ga_nl-fixed_no_processing/ --src_langs Spanish Irish Dutch --deepspeed deepspeed_configs/ds_config_zero2.json |& tee es_ga_nl_umt5.log
+"""

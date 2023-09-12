@@ -86,29 +86,33 @@ def prepare_dataset(
 
             for pfin in tqdm(list(psplit.glob("*.txt")), unit="file", desc=split_type):
                 with pfin.open(encoding="utf-8") as fhin:
-                    for graph in penman.iterdecode(fhin, model=penman_model):
-                        if remove_wiki:
-                            graph = remove_wiki_from_graph(graph)
+                    try:
+                        for graph in penman.iterdecode(fhin, model=penman_model):
+                            if remove_wiki:
+                                graph = remove_wiki_from_graph(graph)
 
-                        sentence = graph.metadata["snt"]
+                            sentence = graph.metadata["snt"]
 
-                        if fix_ftfy:
-                            sentence = fix_text(sentence)
+                            if fix_ftfy:
+                                sentence = fix_text(sentence)
 
-                        if normalize_punct:
-                            sentence = punct_norm_text.normalize(sentence)
+                            if normalize_punct:
+                                sentence = punct_norm_text.normalize(sentence)
 
-                        if detokenize:
-                            sentence = detokenize_func(sentence.split())
+                            if detokenize:
+                                sentence = detokenize_func(sentence.split())
 
-                        data["metadata"].append(graph.metadata)
-                        data["sentence"].append(sentence)
-                        data["penmanstr"].append(penman.encode(graph, model=penman_model).replace("–", "-"))
-                        data["split_type"].append(split_type)
-                        # We just use an index, so that during training we can re-use the same dataset with different
-                        # src_langs even though the data is the same. Sometimes we may need 'en_XX', other times
-                        # 'English', or 'Latn_eng'. We can set that in our training config.
-                        data["src_lang_idx"].append(src_lang_idx)
+                            data["metadata"].append(graph.metadata)
+                            data["sentence"].append(sentence)
+                            data["penmanstr"].append(penman.encode(graph, model=penman_model).replace("–", "-"))
+                            data["split_type"].append(split_type)
+                            # We just use an index, so that during training we can re-use the same dataset with different
+                            # src_langs even though the data is the same. Sometimes we may need 'en_XX', other times
+                            # 'English', or 'Latn_eng'. We can set that in our training config.
+                            data["src_lang_idx"].append(src_lang_idx)
+                    except penman.DecodeError as exc:
+                        raise penman.DecodeError(f"Error in decoding file {pfin}") from exc
+
 
     df = pd.DataFrame(data)
     del data
@@ -191,7 +195,7 @@ def main():
     cparser.add_argument(
         "--fix_ftfy",
         action="store_true",
-        help="whether to fix text issues with ftfy in both the sentence",
+        help="whether to fix text issues with in the sentence",
     )
     cparser.add_argument(
         "--normalize_punct",

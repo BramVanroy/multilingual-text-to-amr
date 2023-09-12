@@ -10,6 +10,7 @@ data/*
 !example_predict_config.json
 hub_models
 AMRBART/
+hostfile
 
 
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio, WebStorm and Rider

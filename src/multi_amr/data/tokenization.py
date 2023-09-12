@@ -71,6 +71,7 @@ class AMRTokenizerWrapper:
         self.amr_token_id = self.tokenizer.convert_tokens_to_ids(self.amr_token)
         if isinstance(self.tokenizer, (MBartTokenizer, MBartTokenizerFast, MBart50Tokenizer, MBart50TokenizerFast)):
             self.tokenizer_type = TokenizerType.MBART
+            self.tokenizer.tgt_lang = self.amr_token
             self.token_prefix = "\u2581"
             self.lang_idxs = set(self.tokenizer.lang_code_to_id.values())
         elif isinstance(self.tokenizer, (BartTokenizer, BartTokenizerFast)):
@@ -78,6 +79,7 @@ class AMRTokenizerWrapper:
             self.token_prefix = "\u0120"
         elif isinstance(self.tokenizer, (NllbTokenizer, NllbTokenizerFast)):
             self.tokenizer_type = TokenizerType.NLLB
+            self.tokenizer.tgt_lang = self.amr_token
             self.token_prefix = "\u2581"
             self.lang_idxs = set(self.tokenizer.lang_code_to_id.values())
         elif isinstance(self.tokenizer, (T5Tokenizer, T5TokenizerFast)):
