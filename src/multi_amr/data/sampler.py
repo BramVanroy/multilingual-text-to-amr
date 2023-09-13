@@ -6,9 +6,9 @@ from typing import Iterator, List
 
 import torch
 from datasets import Dataset
+from multi_amr.data.tokenization import AMRTokenizerWrapper
 from torch.utils.data import Sampler
 
-from multi_amr.data.tokenization import AMRTokenizerWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ def get_src_lang_grouped_indices(
         shuffle = False
 
     sampleidx2lengths = {}
+
     def find_lengths(sample, sample_idx):
         if is_predict:
             sampleidx2lengths[sample_idx] = (len(sample["sentence"]),)
@@ -81,9 +82,7 @@ def get_src_lang_grouped_indices(
         if group_by_length:
             # Sort by input and output lengths. Largest first
             lang_idxs = torch.LongTensor(
-                sorted(lang_idxs.tolist(),
-                       key=lambda lang_idx: sampleidx2lengths[lang_idx][1:],
-                       reverse=True)
+                sorted(lang_idxs.tolist(), key=lambda lang_idx: sampleidx2lengths[lang_idx][1:], reverse=True)
             )
 
         for batch in lang_idxs.split(batch_size, dim=0):
@@ -96,7 +95,10 @@ def get_src_lang_grouped_indices(
         # TODO: TEST THIS
         batches = batches.tolist()
         # Only averages by input length here (not output)
-        avg_lens = [(batch_idx, mean([sampleidx2lengths[idx][0] for idx in _batch])) for batch_idx, _batch in enumerate(batches)]
+        avg_lens = [
+            (batch_idx, mean([sampleidx2lengths[idx][0] for idx in _batch]))
+            for batch_idx, _batch in enumerate(batches)
+        ]
         batches = torch.LongTensor([batches[tup[0]] for tup in sorted(avg_lens, key=lambda tup: tup[1], reverse=True)])
         return batches
 

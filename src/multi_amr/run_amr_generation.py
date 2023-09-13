@@ -6,7 +6,13 @@ import os
 import random
 import sys
 import tempfile
-from enum import StrEnum
+
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    from backports.strenum import StrEnum
+
 from functools import partial
 from pathlib import Path
 from typing import List
@@ -159,14 +165,20 @@ def main():
 
     if tok_wrapper.tokenizer_type in (TokenizerType.BART, TokenizerType.MBART, TokenizerType.NLLB):
         config.dropout = model_args.dropout if model_args.dropout is not None else config.dropout
-        config.attention_dropout = model_args.attention_dropout if model_args.attention_dropout is not None else config.attention_dropout
-        config.classif_dropout = model_args.classif_dropout if model_args.classif_dropout is not None else config.classif_dropout
+        config.attention_dropout = (
+            model_args.attention_dropout if model_args.attention_dropout is not None else config.attention_dropout
+        )
+        config.classif_dropout = (
+            model_args.classif_dropout if model_args.classif_dropout is not None else config.classif_dropout
+        )
     elif tok_wrapper.tokenizer_type in (TokenizerType.T5,):
         config.dropout_rate = model_args.dropout if model_args.dropout is not None else config.dropout_rate
         # T5 does not explicitly use a separate attention dropout
     elif tok_wrapper.tokenizer_type in (TokenizerType.BLOOM,):
         config.hidden_dropout = model_args.dropout if model_args.dropout is not None else config.hidden_dropout
-        config.attention_dropout = model_args.attention_dropout if model_args.attention_dropout is not None else config.attention_dropout
+        config.attention_dropout = (
+            model_args.attention_dropout if model_args.attention_dropout is not None else config.attention_dropout
+        )
 
     # Note that T5/Bloom do not need a custom decoder ID. T5 uses a pad token for everything and specifies the language
     # in the prefix (like "translate English to AMR")
@@ -484,6 +496,7 @@ def main():
     )
 
     if training_args.sweep_config:
+
         def wandb_hp_space(trial=None):
             return yaml.safe_load(Path(training_args.sweep_config).read_text(encoding="utf-8"))
 

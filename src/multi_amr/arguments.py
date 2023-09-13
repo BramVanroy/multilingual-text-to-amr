@@ -208,9 +208,13 @@ class DataTrainingArguments:
     )
     use_spring_label_formatting: bool = field(
         default=False,
-        metadata={"help": ("Whether to use SPRING's custom method to create decoder_input_ids automatically, which"
-                           " is different from BART's default. When using this, make sure to also set"
-                           " `decoder_start_token_id` correctly. For BART, using the custom spring formatting, this should then be 0")},
+        metadata={
+            "help": (
+                "Whether to use SPRING's custom method to create decoder_input_ids automatically, which"
+                " is different from BART's default. When using this, make sure to also set"
+                " `decoder_start_token_id` correctly. For BART, using the custom spring formatting, this should then be 0"
+            )
+        },
     )
 
 
@@ -314,9 +318,17 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
     )
     use_spring_sampler: bool = field(
         default=False,
-        metadata={"help": ("Whether to use the SPRING dataloader which creates batches measured in no. tokens. Update batch_size_tokens accordingly")},
+        metadata={
+            "help": (
+                "Whether to use the SPRING dataloader which creates batches measured in no. tokens. Update batch_size_tokens accordingly"
+            )
+        },
     )
     batch_size_tokens: int = field(
         default=500,
-        metadata={"help": ("How many tokens to use in each batch when using the SPRING dataloader when `use_spring_sampler=True`.")},
+        metadata={
+            "help": (
+                "How many tokens to use in each batch when using the SPRING dataloader when `use_spring_sampler=True`."
+            )
+        },
     )

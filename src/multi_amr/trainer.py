@@ -2,31 +2,26 @@ import importlib
 import logging
 from typing import Any, Optional, Tuple
 
+import datasets
 import torch
 import transformers
 from datasets import Dataset
-from multi_amr.data.sampler import SrcLangGroupedSampler, SpringSampler
+from multi_amr.data.sampler import SpringSampler, SrcLangGroupedSampler
+from multi_amr.data.tokenization import AMRTokenizerWrapper
 from packaging import version
 from torch import nn
-from torch.utils.data import RandomSampler, SequentialSampler
-from transformers import Seq2SeqTrainer
+from torch.optim import RAdam
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from transformers import Seq2SeqTrainer, is_datasets_available
 from transformers.dependency_versions_check import dep_version_check
 from transformers.integrations import is_fairscale_available
 from transformers.optimization import Adafactor
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.trainer_pt_utils import get_parameter_names
-from transformers.trainer_utils import ShardedDDPOption, has_length
+from transformers.trainer_utils import ShardedDDPOption, has_length, seed_worker
 from transformers.training_args import OptimizerNames, TrainingArguments
 from transformers.utils import is_bitsandbytes_available, is_sagemaker_mp_enabled, strtobool
 
-from torch.optim import RAdam
-
-from multi_amr.data.tokenization import AMRTokenizerWrapper
-import datasets
-
-from transformers import is_datasets_available
-from transformers.trainer_utils import seed_worker
-from torch.utils.data import DataLoader
 
 if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
@@ -61,7 +56,7 @@ class AMRTrainer(Seq2SeqTrainer):
                 "collate_fn": data_collator,
                 "num_workers": self.args.dataloader_num_workers,
                 "pin_memory": self.args.dataloader_pin_memory,
-                "batch_sampler": batch_sampler
+                "batch_sampler": batch_sampler,
             }
 
             if not isinstance(train_dataset, torch.utils.data.IterableDataset):
@@ -88,7 +83,7 @@ class AMRTrainer(Seq2SeqTrainer):
                 "collate_fn": data_collator,
                 "num_workers": self.args.dataloader_num_workers,
                 "pin_memory": self.args.dataloader_pin_memory,
-                "batch_sampler": batch_sampler
+                "batch_sampler": batch_sampler,
             }
 
             return self.accelerator.prepare(DataLoader(eval_dataset, **dataloader_params))
@@ -163,7 +158,9 @@ class AMRTrainer(Seq2SeqTrainer):
             else:
                 if optimizer_cls == RAdam:
                     # To mimick SPRING, which does not make a distinction for wd between parameters
-                    self.optimizer = RAdam(opt_model.parameters(), **optimizer_kwargs, weight_decay=self.args.weight_decay)
+                    self.optimizer = RAdam(
+                        opt_model.parameters(), **optimizer_kwargs, weight_decay=self.args.weight_decay
+                    )
                 else:
                     self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
 

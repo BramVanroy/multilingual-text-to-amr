@@ -1,7 +1,7 @@
 import re
 from typing import List
 
-from multi_amr.data.additional_tokens import get_added_vocabulary, SPECIAL_ADDITIONS
+from multi_amr.data.additional_tokens import SPECIAL_ADDITIONS, get_added_vocabulary
 
 
 def _is_url(text: str) -> bool:
@@ -81,7 +81,11 @@ def postprocess_str_after_linearization(linearized: str, verbose: bool = False) 
 
 
 def postprocess_str_after_delinearization(delinearized: str) -> str:
-    delinearized = delinearized.replace(" -quantity", "-quantity").replace(" -entity", "-entity").replace(":negation", ":polarity - ")
+    delinearized = (
+        delinearized.replace(" -quantity", "-quantity")
+        .replace(" -entity", "-entity")
+        .replace(":negation", ":polarity - ")
+    )
 
     # Generic prepositions/conjunctions, e.g. `:prep-by` or `:conj-as-if`
     delinearized = re.sub(r":(prep|conj)-\s+(\w+)", r":\1-\2", delinearized)

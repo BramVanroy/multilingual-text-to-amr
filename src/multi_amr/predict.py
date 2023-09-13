@@ -9,11 +9,11 @@ import penman
 import torch
 from multi_amr.data.postprocessing_graph import ParsedStatus
 from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
+from penman.models.noop import model as noop_model
 from smatchpp import Smatchpp, preprocess, solvers
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, HfArgumentParser
 
-from penman.models.noop import model as noop_model
 
 @dataclass
 class PredictArguments:
@@ -40,7 +40,10 @@ class PredictArguments:
         default=None, metadata={"help": "If given, will write the predictions to this file."}
     )
     output_path_score: Optional[str] = field(
-        default=None, metadata={"help": "If given, will write the smatch score predictions to this directory in 'test_results.json'."}
+        default=None,
+        metadata={
+            "help": "If given, will write the smatch score predictions to this directory in 'test_results.json'."
+        },
     )
 
 

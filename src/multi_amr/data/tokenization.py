@@ -1,25 +1,28 @@
 import copy
 import logging
 import sys
-from enum import StrEnum, auto
+
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    from backports.strenum import StrEnum
+
+from enum import auto
 from functools import cached_property
 from typing import Dict, List, Optional, Tuple
 
 import penman
 import regex as re
 import torch
-
-from multi_amr.data.additional_tokens import get_added_vocabulary, SPECIAL_ADDITIONS, AMR_TOKEN
+from multi_amr.data.additional_tokens import AMR_TOKEN, SPECIAL_ADDITIONS, get_added_vocabulary
 from multi_amr.data.postprocessing_graph import (
     BACKOFF,
     ParsedStatus,
     connect_graph_if_not_connected,
     fix_and_make_graph,
 )
-from multi_amr.data.postprocessing_str import (
-    postprocess_str_after_delinearization,
-    tokenize_except_quotes_and_angles,
-)
+from multi_amr.data.postprocessing_str import postprocess_str_after_delinearization, tokenize_except_quotes_and_angles
 from multi_amr.utils import remove_wiki_from_graph
 from transformers import (
     AddedToken,
@@ -216,8 +219,8 @@ class AMRTokenizerWrapper:
                     if "-" in tokk:
                         # E.g. ":prep-with" -> ":prep-", "with"
                         tokpref, rest = tokk.split("-", 1)
-                        if tokpref+"-" in self.vocab:
-                            bpe_toks = [tokpref+"-"] + self.tokenizer.tokenize(rest)
+                        if tokpref + "-" in self.vocab:
+                            bpe_toks = [tokpref + "-"] + self.tokenizer.tokenize(rest)
                         else:
                             bpe_toks = [":"] + self.tokenizer.tokenize(tokk[1:])
                     else:

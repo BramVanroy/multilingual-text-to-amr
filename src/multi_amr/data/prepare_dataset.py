@@ -1,6 +1,14 @@
 import json
 import string
-from enum import StrEnum, auto
+import sys
+
+
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    from backports.strenum import StrEnum
+
+from enum import auto
 from os import PathLike
 from pathlib import Path
 from typing import List, Union
@@ -9,10 +17,9 @@ import pandas as pd
 import penman
 from datasets import Dataset, DatasetDict
 from ftfy import fix_text
+from multi_amr.utils import get_penman_model, remove_wiki_from_graph
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
 from tqdm import tqdm
-
-from multi_amr.utils import get_penman_model, remove_wiki_from_graph
 
 
 class SplitType(StrEnum):
@@ -112,7 +119,6 @@ def prepare_dataset(
                             data["src_lang_idx"].append(src_lang_idx)
                     except penman.DecodeError as exc:
                         raise penman.DecodeError(f"Error in decoding file {pfin}") from exc
-
 
     df = pd.DataFrame(data)
     del data
