@@ -191,8 +191,9 @@ def main():
         config.early_stopping = False
     # Taken from SPRING
     config.no_repeat_ngram_size = 0
-    if training_args.generation_max_length:
-        config.max_new_tokens = training_args.generation_max_length
+    if training_args.generation_max_new_tokens:
+        config.max_new_tokens = training_args.generation_max_new_tokens
+        training_args.generation_max_length = None
 
     with training_args.main_process_first(desc="(Down)loading model"):
         if tok_wrapper.tokenizer_type in (

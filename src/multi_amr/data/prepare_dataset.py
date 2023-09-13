@@ -8,11 +8,13 @@ if sys.version_info >= (3, 11):
 else:
     from backports.strenum import StrEnum
 
+import numpy as np
 from enum import auto
 from os import PathLike
 from pathlib import Path
 from typing import List, Union
-
+from collections import Counter
+from sklearn.preprocessing import KBinsDiscretizer
 import pandas as pd
 import penman
 from datasets import Dataset, DatasetDict
@@ -20,7 +22,7 @@ from ftfy import fix_text
 from multi_amr.utils import get_penman_model, remove_wiki_from_graph
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
 from tqdm import tqdm
-
+from sklearn.model_selection import StratifiedShuffleSplit
 
 class SplitType(StrEnum):
     TRAIN = auto()
@@ -52,6 +54,7 @@ def prepare_dataset(
     detokenize: bool = False,
     remove_bracketed: bool = False,
     dereify: bool = False,
+split_across_languages: bool = False,
 ):
     """Given a directory of AMR files, deduplicate all files so that every file contains unique files. We also process
      the text for the sake of normalization. This is needed because the AMR3.0 corpus sometimes has unexpected
@@ -76,9 +79,40 @@ def prepare_dataset(
     """
     pdout = Path(output_dir).resolve()
     pdout.mkdir(exist_ok=True, parents=True)
-    data = {"metadata": [], "sentence": [], "penmanstr": [], "split_type": [], "src_lang_idx": []}
     penman_model = get_penman_model(dereify=dereify)
 
+    idx_per_lang_length_split = {}
+    if split_across_languages:
+        for psplit in Path(amr_dirs[0]).glob("*"):
+            if not psplit.is_dir():
+                continue
+
+            graph_for_lang_idx = 0
+            split_type = SplitType.from_string(psplit.stem)
+
+            lengths = []
+            for pfin in tqdm(list(psplit.glob("*.txt")), unit="file", desc=split_type):
+                with pfin.open(encoding="utf-8") as fhin:
+                    for graph in penman.iterdecode(fhin, model=penman_model):
+                        penmanstr = penman.encode(graph, model=penman_model)
+                        lengths.append((graph_for_lang_idx, len(penmanstr)))
+                        graph_for_lang_idx += 1
+
+            # Sort lengths (tuples of idx, lengths) by lengths
+            lengths.sort(key=lambda tup: tup[1])
+
+            # Dictionary from graph_idx to lang_idx
+            idx_per_lang_length_split[split_type] = {}
+            per_lang = Counter()
+            for iter_idx, (graph_idx, _) in enumerate(lengths):
+                lang_idx = iter_idx % len(langs)
+                idx_per_lang_length_split[split_type][graph_idx] = lang_idx
+                per_lang[langs[lang_idx]] += 1
+
+            print(f"Original {split_type} size: {len(lengths):,}")
+
+    print("Processing main")
+    data = {"metadata": [], "sentence": [], "penmanstr": [], "split_type": [], "src_lang_idx": []}
     for src_lang_idx, (src_lang, amr_dir) in enumerate(zip(langs, amr_dirs)):
         punct_norm_text = MosesPunctNormalizer(lang=src_lang)
         detokenizer = MosesDetokenizer(lang=src_lang)
@@ -89,12 +123,20 @@ def prepare_dataset(
             if not psplit.is_dir():
                 continue
 
+            graph_for_lang_idx = 0
             split_type = SplitType.from_string(psplit.stem)
 
             for pfin in tqdm(list(psplit.glob("*.txt")), unit="file", desc=split_type):
                 with pfin.open(encoding="utf-8") as fhin:
                     try:
                         for graph in penman.iterdecode(fhin, model=penman_model):
+                            # Only continue if we indeed selected this language for this sample in this split
+                            if split_across_languages:
+                                appropriate_lang_idx = idx_per_lang_length_split[split_type][graph_for_lang_idx]
+                                if appropriate_lang_idx != src_lang_idx:
+                                    graph_for_lang_idx += 1
+                                    continue
+
                             if remove_wiki:
                                 graph = remove_wiki_from_graph(graph)
 
@@ -117,6 +159,7 @@ def prepare_dataset(
                             # src_langs even though the data is the same. Sometimes we may need 'en_XX', other times
                             # 'English', or 'Latn_eng'. We can set that in our training config.
                             data["src_lang_idx"].append(src_lang_idx)
+                            graph_for_lang_idx += 1
                     except penman.DecodeError as exc:
                         raise penman.DecodeError(f"Error in decoding file {pfin}") from exc
 
@@ -217,6 +260,11 @@ def main():
         "--remove_bracketed",
         action="store_true",
         help="whether to remove sentences that start and end with a punctuation mark (such as `( End )`)",
+    )
+    cparser.add_argument(
+        "--split_across_languages",
+        action="store_true",
+        help="by default all data from all languages is preserved. However, for computaitonal reasons, you may choose to keep the data size of only one corpus (assuming the same dataset for all languages)",
     )
     cargs = cparser.parse_args()
     prepare_dataset(**vars(cargs))
