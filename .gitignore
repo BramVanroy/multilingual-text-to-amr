@@ -2,7 +2,6 @@
 runs*
 wandb*
 results
-/data
 Pipfile*
 data/*
 *config*.json
