@@ -20,7 +20,6 @@ from typing import List
 import evaluate as evaluate
 import numpy as np
 import penman
-import smatch
 import transformers
 import yaml
 from datasets import Dataset, DatasetDict
