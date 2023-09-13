@@ -168,9 +168,11 @@ def main():
         config.hidden_dropout = model_args.dropout if model_args.dropout is not None else config.hidden_dropout
         config.attention_dropout = model_args.attention_dropout if model_args.attention_dropout is not None else config.attention_dropout
 
+    # Note that T5/Bloom do not need a custom decoder ID. T5 uses a pad token for everything and specifies the language
+    # in the prefix (like "translate English to AMR")
     if data_args.use_spring_label_formatting and tok_wrapper.tokenizer_type == TokenizerType.BART:
         config.decoder_start_token_id = 0
-    else:
+    elif tok_wrapper.tokenizer_type in (TokenizerType.MBART, TokenizerType.NLLB):
         config.decoder_start_token_id = tok_wrapper.amr_token_id
 
     # we are not using beam search so early stopping must be false
