@@ -7,6 +7,7 @@ data/*
 *config*.json
 !example_train_config.json
 !example_predict_config.json
+!deepspeed_configs/*.json
 hub_models
 AMRBART/
 hostfile
