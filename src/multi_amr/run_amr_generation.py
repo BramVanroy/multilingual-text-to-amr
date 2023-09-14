@@ -191,6 +191,7 @@ def main():
         config.early_stopping = False
     # Taken from SPRING
     config.no_repeat_ngram_size = 0
+    config.num_beams = 1
     if training_args.generation_max_new_tokens:
         config.max_new_tokens = training_args.generation_max_new_tokens
         training_args.generation_max_length = None

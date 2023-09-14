@@ -63,7 +63,7 @@ def main(din: str | PathLike):
                 [1 for leng in enc_sents_lens if leng > max_length]
             )
 
-            enc_lins = tok_wrapper(dataset["linearized_penman"], return_tensors="pt", padding=True).input_ids
+            enc_lins = tok_wrapper.batch_encode_amr(dataset["penmanstr"]).input_ids
             stats[tokenizer_name][split]["max_subwordtok_len_labels"] = enc_lins.size(1)
             enc_lins_lens = sorted(
                 [len([idx for idx in enc if idx != tok_wrapper.tokenizer.pad_token_id]) for enc in enc_lins]

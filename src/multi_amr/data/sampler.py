@@ -92,7 +92,6 @@ def get_src_lang_grouped_indices(
                 rest_batches.append(batch)
 
     def sort_batches_by_avg_length(batches: torch.Tensor) -> torch.LongTensor:
-        # TODO: TEST THIS
         batches = batches.tolist()
         # Only averages by input length here (not output)
         avg_lens = [
