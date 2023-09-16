@@ -55,7 +55,7 @@ def parse_cli(*arg_classes):
             # Instead we explicitly have to set run_name to the output_dir again -- but of course only if the user
             # did not specifically specify run_name in the config or in the CLI
             if hasattr(merged_args, "output_dir") and hasattr(merged_args, "run_name") and not run_name_specified:
-                merged_args = dataclasses.replace(merged_args, run_name=merged_args.output_dir)
+                merged_args = dataclasses.replace(merged_args, run_name=merged_args.output_dir.split("/")[-1])
 
             all_args.append(merged_args)
     else:

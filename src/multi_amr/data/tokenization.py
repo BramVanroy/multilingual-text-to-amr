@@ -64,7 +64,6 @@ class AMRTokenizerWrapper:
         tokens_to_add = set(tokens_to_add)
         voc = set(self.tokenizer.get_vocab().keys())
         new_tokens = list(sorted(tokens_to_add - voc))
-        new_tokens = [AddedToken(t, rstrip=False, lstrip=True) for t in new_tokens]
         if new_tokens:
             self.tokenizer.add_tokens(new_tokens)
             logger.info(f"Added {len(new_tokens)} new tokens to tok_wrapper")
@@ -271,14 +270,18 @@ class AMRTokenizerWrapper:
         if isinstance(token_ids, torch.Tensor):
             token_ids = token_ids.tolist()
 
+        if verbose:
+            print("Raw ids2tokens (before remove special)", self.tokenizer.convert_ids_to_tokens(token_ids))
+
         if remove_special_tokens:
             token_ids = self.remove_special_tokens(token_ids)
+
+        if verbose:
+            print("Raw ids2tokens (after remove special)", self.tokenizer.convert_ids_to_tokens(token_ids))
 
         if not token_ids:
             return BACKOFF, ParsedStatus.BACKOFF, None
 
-        if verbose:
-            print("Raw tokens2ids", self.tokenizer.convert_ids_to_tokens(token_ids))
 
         try:
             decoded = self.tokenizer.decode(token_ids)

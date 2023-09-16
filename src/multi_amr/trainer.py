@@ -96,10 +96,11 @@ class AMRTrainer(Seq2SeqTrainer):
 
         # Build the sampler.
         if self.args.group_by_lang:
-            # We use batch_size * gradient_accumulation_steps as a single batch size
-            # so that every optimization step, we are optimizing for a single language
+            # We do not use batch_size * gradient_accumulation_steps as a single batch size
+            # so it is not required that every optimization step uses all the same languages,
+            # which serves as a regularization effect we are optimizing for a single language
             return SrcLangGroupedSampler(
-                batch_size=self.args.train_batch_size * self.args.gradient_accumulation_steps,
+                batch_size=self.args.train_batch_size,
                 keep_incomplete_batches=self.args.keep_incomplete_batches,
                 dataset=self.train_dataset,
                 shuffle=self.args.shuffle,
