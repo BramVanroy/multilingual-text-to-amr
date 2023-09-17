@@ -304,16 +304,16 @@ def main():
                 "smatch_unparsable": len(ref_graphs),
             }
 
-        # Write to file for intermediate inspection. Will overwrite at every evaluation!
-        with Path("references.txt").open("w", encoding="utf-8") as fhref, Path("predictions.txt").open(
-            "w", encoding="utf-8"
-        ) as fhpred, Path("refs-preds.txt").open("w", encoding="utf-8") as fhrefpred:
-            fhref.write("\n\n".join(filtered_refs) + "\n")
-            fhpred.write("\n\n".join(filtered_preds) + "\n")
-            for idx, (ref, pred) in enumerate(zip(filtered_refs, filtered_preds)):
-                counterstr = f"{idx:,}"
-                fhrefpred.write(f"REF {counterstr}\n{'=' * (4 + len(counterstr))}\n{ref}\n\n")
-                fhrefpred.write(f"PRED {counterstr}\n{'=' * (5 + len(counterstr))}\n{pred}\n\n")
+        # # Write to file for intermediate inspection. Will overwrite at every evaluation!
+        # with Path("references.txt").open("w", encoding="utf-8") as fhref, Path("predictions.txt").open(
+        #     "w", encoding="utf-8"
+        # ) as fhpred, Path("refs-preds.txt").open("w", encoding="utf-8") as fhrefpred:
+        #     fhref.write("\n\n".join(filtered_refs) + "\n")
+        #     fhpred.write("\n\n".join(filtered_preds) + "\n")
+        #     for idx, (ref, pred) in enumerate(zip(filtered_refs, filtered_preds)):
+        #         counterstr = f"{idx:,}"
+        #         fhrefpred.write(f"REF {counterstr}\n{'=' * (4 + len(counterstr))}\n{ref}\n\n")
+        #         fhrefpred.write(f"PRED {counterstr}\n{'=' * (5 + len(counterstr))}\n{pred}\n\n")
 
         score, optimization_status = smatch_metric.score_corpus(filtered_refs, filtered_preds)
         try:
