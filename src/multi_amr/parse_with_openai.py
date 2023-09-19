@@ -12,16 +12,20 @@ from typing import Dict, List, Optional
 
 import openai
 import pandas as pd
+import penman
+from multi_amr.data.postprocessing_graph import (
+    BACKOFF,
+    ParsedStatus,
+    connect_graph_if_not_connected,
+    fix_and_make_graph,
+)
+from multi_amr.data.postprocessing_str import tokenize_except_quotes_and_angles
 from openai.error import RateLimitError
 from openai.error import Timeout as OAITimeout
 from pandas import DataFrame
 from requests.exceptions import Timeout as ReqTimeout
 from tqdm import tqdm
-import penman
 
-from multi_amr.data.postprocessing_graph import ParsedStatus, BACKOFF, fix_and_make_graph, \
-    connect_graph_if_not_connected
-from multi_amr.data.postprocessing_str import tokenize_except_quotes_and_angles
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -90,7 +94,13 @@ def get_response(messages: List[Dict[str, str]], mgr_flags: DictProxy, model: st
 
 @lru_cache
 def openai_amr_generation(
-    sentence: str, fname: str, sentid: str, lang_prompt: str, mgr_flags: DictProxy, model: str = "gpt-3.5-turbo", one_shot: bool = False
+    sentence: str,
+    fname: str,
+    sentid: str,
+    lang_prompt: str,
+    mgr_flags: DictProxy,
+    model: str = "gpt-3.5-turbo",
+    one_shot: bool = False,
 ) -> Dict:
     """Parse a given sentence to AMR with the OpenAI API.
 
@@ -101,8 +111,14 @@ def openai_amr_generation(
     :param one_shot: whether to include on example AMR tree
     :return: a (possible empty) AMR generation, or None in case of error
     """
-    response = {"sentence": sentence, "fname": fname, "sentid": sentid, "uid": f"{fname}__{sentid}", "penman_str": None,
-                "status": None}
+    response = {
+        "sentence": sentence,
+        "fname": fname,
+        "sentid": sentid,
+        "uid": f"{fname}__{sentid}",
+        "penman_str": None,
+        "status": None,
+    }
 
     if mgr_flags["rate_limit_reached"] or mgr_flags["total_failures"] >= 3:
         return response
@@ -110,7 +126,7 @@ def openai_amr_generation(
     if lang_prompt.lower().strip() == "english":
         system_prompt = {
             "role": "system",
-            "content": f"You are an automated system that generates abstract meaning representation (AMR) from text. You must not give any explanation, comments, or notes. Your output must be structured in valid, parseable penman notation."
+            "content": f"You are an automated system that generates abstract meaning representation (AMR) from text. You must not give any explanation, comments, or notes. Your output must be structured in valid, parseable penman notation.",
         }
     else:
         system_prompt = {
@@ -180,14 +196,14 @@ def translate_with_openai(
     pfout = Path(fout).resolve()
 
     skip_items = []
+    df_existing = None
     if pfout.exists():
         if pfout.stat().st_size == 0:
             # Delete if empty
             pfout.unlink()
         else:
-            df_out = pd.read_csv(pfout, sep="\t", encoding="utf-8")
-            skip_items += get_already_finished(df_out)
-            del df_out
+            df_existing = pd.read_csv(pfout, sep="\t", encoding="utf-8")
+            skip_items += get_already_finished(df_existing)
     else:
         pfout.parent.mkdir(exist_ok=True, parents=True)
 
@@ -211,7 +227,16 @@ def translate_with_openai(
                             continue
 
                         futures[
-                            executor.submit(openai_amr_generation, sentence=sentence, fname=fname, sentid=sentid, lang_prompt=lang_prompt, mgr_flags=mgr_flags, model=model, one_shot=one_shot)
+                            executor.submit(
+                                openai_amr_generation,
+                                sentence=sentence,
+                                fname=fname,
+                                sentid=sentid,
+                                lang_prompt=lang_prompt,
+                                mgr_flags=mgr_flags,
+                                model=model,
+                                one_shot=one_shot,
+                            )
                         ] = sentence
                         processed_items += 1
                         if processed_items == first_n:
@@ -251,6 +276,8 @@ def translate_with_openai(
             )
 
     df = pd.DataFrame(data)
+    if df_existing is not None:
+        df = pd.concat([df, df_existing], ignore_index=True)
     df.to_csv(pfout, sep="\t", index=False, encoding="utf-8")
 
 
@@ -271,7 +298,7 @@ def main():
         "lang_prompt",
         help="Language description to be used in the prompt. This can just be 'Dutch' but also more elaborate, e.g."
         " 'Flemish, the variant of Dutch spoken in Flanders'. If this is 'English' the system prompt will leave out"
-             " instructions of pre-translating",
+        " instructions of pre-translating",
     )
     cparser.add_argument("-m", "--model", default="gpt-3.5-turbo", help="Chat model to use")
     cparser.add_argument(

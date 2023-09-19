@@ -335,9 +335,5 @@ class ExpandedSeq2SeqTrainingArguments(Seq2SeqTrainingArguments):
     generation_max_new_tokens: int = field(
         # Based on the max. length in the test set with the MBART tokenizer.
         default=900,
-        metadata={
-            "help": (
-                "How many tokens to maximally generate when using predict_with_generate (evaluation)."
-            )
-        },
+        metadata={"help": ("How many tokens to maximally generate when using predict_with_generate (evaluation).")},
     )

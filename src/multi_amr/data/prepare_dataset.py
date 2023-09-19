@@ -8,21 +8,23 @@ if sys.version_info >= (3, 11):
 else:
     from backports.strenum import StrEnum
 
-import numpy as np
+from collections import Counter
 from enum import auto
 from os import PathLike
 from pathlib import Path
 from typing import List, Union
-from collections import Counter
-from sklearn.preprocessing import KBinsDiscretizer
+
+import numpy as np
 import pandas as pd
 import penman
 from datasets import Dataset, DatasetDict
 from ftfy import fix_text
 from multi_amr.utils import get_penman_model, remove_wiki_from_graph
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
-from tqdm import tqdm
 from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.preprocessing import KBinsDiscretizer
+from tqdm import tqdm
+
 
 class SplitType(StrEnum):
     TRAIN = auto()
@@ -54,7 +56,7 @@ def prepare_dataset(
     detokenize: bool = False,
     remove_bracketed: bool = False,
     dereify: bool = False,
-split_across_languages: bool = False,
+    split_across_languages: bool = False,
 ):
     """Given a directory of AMR files, deduplicate all files so that every file contains unique files. We also process
      the text for the sake of normalization. This is needed because the AMR3.0 corpus sometimes has unexpected

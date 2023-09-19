@@ -25,7 +25,6 @@ from multi_amr.data.postprocessing_graph import (
 from multi_amr.data.postprocessing_str import postprocess_str_after_delinearization, tokenize_except_quotes_and_angles
 from multi_amr.utils import remove_wiki_from_graph
 from transformers import (
-    AddedToken,
     AutoTokenizer,
     BartTokenizer,
     BartTokenizerFast,
@@ -281,7 +280,6 @@ class AMRTokenizerWrapper:
 
         if not token_ids:
             return BACKOFF, ParsedStatus.BACKOFF, None
-
 
         try:
             decoded = self.tokenizer.decode(token_ids)

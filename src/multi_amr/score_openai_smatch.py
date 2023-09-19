@@ -1,13 +1,11 @@
-from typing import List
 from collections import Counter
-
-from smatchpp import preprocess, solvers, eval_statistics
-
-from smatchpp import Smatchpp, util
-from multi_amr.data.postprocessing_graph import BACKOFF
-import penman
 from pathlib import Path
+from typing import List
+
 import pandas as pd
+import penman
+from multi_amr.data.postprocessing_graph import BACKOFF
+from smatchpp import Smatchpp, eval_statistics, preprocess, solvers, util
 
 
 class BackOffSmatchpp(Smatchpp):
@@ -27,7 +25,7 @@ class BackOffSmatchpp(Smatchpp):
         return match_dict, status, back_offed_idxs
 
     def score_corpus(self, amrs, amrs2):
-        match_dict, status, back_offed_idxs = self.process_corpus(amrs, amrs2)
+        match_dict, status, new_back_offed_idxs = self.process_corpus(amrs, amrs2)
 
         # pairwise statistic
         if self.printer.score_type is None:
@@ -40,7 +38,7 @@ class BackOffSmatchpp(Smatchpp):
         # aggregate statistic (micro, macro...)
         else:
             final_result = self.printer.get_final_result(match_dict)
-        return final_result, status, back_offed_idxs
+        return final_result, status, new_back_offed_idxs
 
 
 def read_data(fpred: str, dref: str):
@@ -63,6 +61,7 @@ def read_data(fpred: str, dref: str):
     print(predictions[0])
     return predictions, references, statuses
 
+
 def score_corpus(predictions: List[str], references: List[str]):
     graph_standardizer = preprocess.AMRStandardizer(syntactic_standardization="dereify")
     ilp = solvers.ILP()
@@ -83,10 +82,7 @@ def main():
     import argparse
 
     cparser = argparse.ArgumentParser(
-        "Generate AMR from text with OpenAI's API.\nIf you get a RateLimitError concerning using more tokens per minute"
-        " than is accepted, you can try lowering --max_parallel_requests to a smaller number.\n"
-        " To use this script, you need access to the OpenAI API. Make sure your API key is set as an environment"
-        " variable OPENAI_API_KEY (or use --api_key). Note: THIS WILL INCUR COSTS.",
+        "Score the AMRs generated with OpenAI's API. Will use BACKOFF graph in case of issues.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -105,5 +101,5 @@ def main():
     print("NO. NEW BACKOFFS", len(back_offed_idxs))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
