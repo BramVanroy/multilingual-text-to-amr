@@ -126,12 +126,12 @@ def openai_amr_generation(
     if lang_prompt.lower().strip() == "english":
         system_prompt = {
             "role": "system",
-            "content": f"You are an automated system that generates abstract meaning representation (AMR) from text. You must not give any explanation, comments, or notes. Your output must be structured in valid, parseable penman notation.",
+            "content": f"You are an automated system that generates abstract meaning representation (AMR) from text. You must not give any explanation, comments, or notes. Your output must be structured in valid, parsable penman notation.",
         }
     else:
         system_prompt = {
             "role": "system",
-            "content": f"You are an automated system that generates abstract meaning representation (AMR) from text. You must not give any explanation, comments, or notes. Your output must be structured in valid, parseable penman notatio. The input text is in {lang_prompt} but your output must still follow AMR conventions, which means that the concepts and frames are more like English. This may mean that you need to translate the input text to English first, and then parse the translation to AMR.",
+            "content": f"You are an automated system that generates abstract meaning representation (AMR) from text. You must not give any explanation, comments, or notes. Your output must be structured in valid, parsable penman notatio. The input text is in {lang_prompt} but your output must still follow AMR conventions, which means that the concepts and frames are more like English. This may mean that you need to translate the input text to English first, and then parse the translation to AMR.",
         }
 
     if one_shot:

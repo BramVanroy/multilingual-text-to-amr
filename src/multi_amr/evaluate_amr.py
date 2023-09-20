@@ -257,11 +257,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-"""
-cd /home/ampere/vanroy/multilingual-text-to-amr/
-source .venv/bin/activate
-
-CUDA_VISIBLE_DEVICES=1 python src/multi_amr/evaluate_amr.py --model_name results/amr30/en_es_nl+no_processing --dref data/amrs_fixed/split/test --src_lang en_XX --dataset_name amr30_en_test --batch_size 2
-CUDA_VISIBLE_DEVICES=2 python src/multi_amr/evaluate_amr.py --model_name results/amr30/en_es_nl+no_processing --dref data/translated/amr_es_fixed/split/test --src_lang es_XX --dataset_name amr30_es_test --batch_size 2
-CUDA_VISIBLE_DEVICES=3 python src/multi_amr/evaluate_amr.py --model_name results/amr30/en_es_nl+no_processing --dref data/translated/amr_nl_fixed/split/test --src_lang nl_XX --dataset_name amr30_nl_test --batch_size 2
-"""
