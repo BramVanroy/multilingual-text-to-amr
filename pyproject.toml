@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "multi_amr"
 # Do not forget to change in __init__.py too!
-version = "0.0.1"
+version = "1.0.0-alpha"
 authors = [
     {name = "Bram Vanroy", email = "bramvanroy@hotmail.com"},
 ]
