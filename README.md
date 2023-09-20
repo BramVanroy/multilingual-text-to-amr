@@ -1,5 +1,8 @@
-# multilingual-text-to-amr
 
+
+
+
+cd mu 
 **THIS REPOSITORY AND README IS STILL UNDER DEVELOPMENT. NOT READY FOR PRODUCTION**
  
 An adaptation of MBART to parse text into AMR for multiple languages.
@@ -89,7 +92,7 @@ following should work for single node, multi-gpu systems. Where `--nproc_per_nod
 and `OMP_NUM_THREADS` is the number of CPU threads divided by number of GPUs.
 
 ```shell
-OMP_NUM_THREADS=6 python -m torch.distributed.run --standalone --nproc_per_node 2 src/mbart_amr/run_mbart_amr.py config.json
+OMP_NUM_THREADS=6 python -m torch.distributed.run --standalone --nproc_per_node 2 src/multi_amr/run_amr_generation.py config.json
 ```
 
 # Predictions and evaluation
@@ -108,14 +111,14 @@ To be entirely sure about the performance for each language, it is best to evalu
 # Architecture and tokenizer
 For now, the MBART architecture can be used as-is with the exception of added vocabulary items (i.e. increasing the embedding size a
 little bit; currently 121 new tokens). These added vocabulary items can be found as a
-[Python iterable](src/mbart_amr/data/tokens.py) in this repo. This also adds `amr_XX`, which is used
+[Python iterable](src/multi_amr/data/tokens.py) in this repo. This also adds `amr_XX`, which is used
 as the "special language code" for generating AMR. The description of all tokens that we add is given later in this
 README.
 
-The [tokenizer](src/mbart_amr/data/tokenization.py) is updated to add AMR-specific functionality:
+The [tokenizer](src/multi_amr/data/tokenization.py) is updated to add AMR-specific functionality:
 
 - encoding penman AMR strings to token IDs by linearizing and then tokenizing with `.encode_penmanstrs()`;
-- decoding tokenized and linearized AMRs with `.decode_amr_and_fix()`. Note that the `clean_up_tokenization()` function
+- decoding tokenized and linearized AMRs with `.decode_amr_and_fix()`. Note that the `clean_up_amr_tokenization()` function
 is paramount to make sure that everything is working well to solve spacing issues left by the tokenizer.
 
 This approach was tested on the whole AMR 3.0 corpus. It can successfully go from all trees, to a linearized 
@@ -124,7 +127,7 @@ version, to a tokenized version, back to a linearized version, and back to the s
 
 # Linearization
 
-[linearization.py](src/mbart_amr/data/linearization.py)
+[linearization.py](src/multi_amr/data/linearization.py)
 
 I decided to linearize AMR by starting from the penman `Tree` (not the graph). The reason being that graphs can be 
 cyclical, which I did not want to deal with. By recursively iterating over the tree and making use of the annotation
@@ -158,8 +161,8 @@ Here is an example
 ```python
 import penman
 from ftfy import fix_text
-from src.mbart_amr.data.tokenization import AMRMBartTokenizer
-from src.mbart_amr.data.linearization import linearized2penmanstr
+from src.multi_amr.data.tokenization import AMRTokenizerWrapper
+from src.multi_amr.data.linearization import linearized2penmanstr
 
 penman_str = "(d / dog :ARG0-of (b / bark-01))"  # A penman string representing the AMR graph
 # NOTE: the fix_text is important to make sure the reference tree also is correctly formed, e.g.
@@ -171,7 +174,7 @@ tree = penman.parse(penman_str)
 tree.reset_variables()
 penman_str = penman.format(tree)
 
-tokenizer = AMRMBartTokenizer.from_pretrained("facebook/mbart-large-cc25")
+tokenizer = AMRTokenizerWrapper.from_pretrained("facebook/mbart-large-cc25")
 encoded = tokenizer.encode_penmanstrs(penman_str, remove_wiki=True)
 decoded = tokenizer.decode_amr_and_fix(encoded.input_ids)
 decoded_penman = linearized2penmanstr(decoded)
@@ -290,3 +293,100 @@ translate). Therefore, we add the special token `amr_XX` which we will use as a 
 ## LICENSE
 
 Distributed under a GPLv3 [license](LICENSE).
+
+
+# Tokenization results (original SPRING/AMRBART)
+Remove wiki? True Tok? bigscience/bloomz-560m Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9997', 'smatch_recall': '0.9997', 'smatch_fscore': '0.9997', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? bigscience/bloomz-560m Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9983', 'smatch_recall': '0.9983', 'smatch_fscore': '0.9983', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/mbart-large-cc25 Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9986', 'smatch_recall': '0.9986', 'smatch_fscore': '0.9986', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/mbart-large-cc25 Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9976', 'smatch_recall': '0.9980', 'smatch_fscore': '0.9978', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? google/mt5-base Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9987', 'smatch_recall': '0.9986', 'smatch_fscore': '0.9986', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? google/mt5-base Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9976', 'smatch_recall': '0.9980', 'smatch_fscore': '0.9978', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9987', 'smatch_recall': '0.9986', 'smatch_fscore': '0.9986', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/nllb-200-3.3B Fast? True
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9976', 'smatch_recall': '0.9979', 'smatch_fscore': '0.9978', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/mbart-large-cc25 Fast? False
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9992', 'smatch_recall': '0.9987', 'smatch_fscore': '0.9989', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/mbart-large-cc25 Fast? False
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9982', 'smatch_recall': '0.9981', 'smatch_fscore': '0.9981', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? google/mt5-base Fast? False
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9992', 'smatch_recall': '0.9987', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? google/mt5-base Fast? False
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9982', 'smatch_recall': '0.9981', 'smatch_fscore': '0.9981', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? False
+{'status_stats': 'OK: 59,252; BACKOFF: 3', 'smatch': {'smatch_precision': '0.9992', 'smatch_recall': '0.9987', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
+
+# REV 2
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9988', 'smatch_recall': '0.9991', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9988', 'smatch_recall': '0.9991', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? google/mt5-base Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9988', 'smatch_recall': '0.9991', 'smatch_fscore': '0.9990', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/nllb-200-3.3B Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9974', 'smatch_recall': '0.9977', 'smatch_fscore': '0.9975', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? google/mt5-base Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9974', 'smatch_recall': '0.9978', 'smatch_fscore': '0.9976', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/mbart-large-cc25 Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9974', 'smatch_recall': '0.9978', 'smatch_fscore': '0.9976', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? bigscience/bloomz-560m Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9996', 'smatch_recall': '0.9996', 'smatch_fscore': '0.9996', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? bigscience/bloomz-560m Fast? True
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9983', 'smatch_recall': '0.9983', 'smatch_fscore': '0.9983', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? bigscience/bloomz-560m Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9996', 'smatch_recall': '0.9996', 'smatch_fscore': '0.9996', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? bigscience/bloomz-560m Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9983', 'smatch_recall': '0.9983', 'smatch_fscore': '0.9983', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/mbart-large-cc25 Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9997', 'smatch_recall': '0.9997', 'smatch_fscore': '0.9997', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/mbart-large-cc25 Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9983', 'smatch_recall': '0.9983', 'smatch_fscore': '0.9983', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? google/mt5-base Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9997', 'smatch_recall': '0.9997', 'smatch_fscore': '0.9997', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? google/mt5-base Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9983', 'smatch_recall': '0.9983', 'smatch_fscore': '0.9983', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? True Tok? facebook/nllb-200-3.3B Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9997', 'smatch_recall': '0.9997', 'smatch_fscore': '0.9997', 'ratio_invalid_amrs': '0.0000'}}
+
+Remove wiki? False Tok? facebook/nllb-200-3.3B Fast? False
+{'status_stats': 'OK: 59,255', 'smatch': {'smatch_precision': '0.9982', 'smatch_recall': '0.9982', 'smatch_fscore': '0.9982', 'ratio_invalid_amrs': '0.0000'}}
+
+
+# Changes compared to spring/amrmbart
+- replaced :polarity - with :negation
+- use special </of> isntead of -of
+- add :prep-
+- add <rel> </rel> instead of (  )
+- different smart initializations

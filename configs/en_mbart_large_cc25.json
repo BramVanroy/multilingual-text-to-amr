@@ -1,0 +1,68 @@
+{
+  "preprocessed_dataset": "data/preprocessed/amr30-en-fixed-no_processing",
+  "src_langs": ["en_XX"],
+  "output_dir": "results/amr30/en+no_processing/",
+  "overwrite_output_dir": true,
+  "save_safetensors": true,
+  "report_to": "wandb",
+  "log_level": "info",
+  "smart_initialization": true,
+  "group_by_length": true,
+  "group_by_lang": true,
+  "use_spring_sampler": false,
+  "noise_range": 0.01,
+  "seed": 42,
+
+  "evaluation_strategy": "epoch",
+  "save_strategy": "epoch",
+  "eval_steps": null,
+  "save_steps": null,
+  "logging_steps": 1,
+  "save_total_limit": 3,
+  "num_train_epochs": 25,
+  "dropout": 0.2,
+  "attention_dropout": null,
+  "classif_dropout": null,
+
+  "input_max_seq_length": 256,
+  "output_max_seq_length": 1024,
+
+  "max_train_samples": null,
+  "max_eval_samples": null,
+  "max_test_samples": null,
+
+  "per_device_train_batch_size": 2,
+  "per_device_eval_batch_size": 2,
+  "gradient_accumulation_steps": 8,
+  "eval_accumulation_steps": null,
+
+  "optim": "adamw_torch",
+  "learning_rate": 5e-5,
+  "weight_decay": 0.01,
+  "lr_scheduler_type": "linear",
+  "warmup_steps": 0.0,
+  "adam_beta1": 0.9,
+  "adam_beta2": 0.999,
+  "max_grad_norm": 2.5,
+
+  "early_stopping_patience": 8,
+  "early_stopping_threshold": 0.1,
+
+  "model_name_or_path": "facebook/mbart-large-cc25",
+  "bf16": false,
+  "fp16": false,
+  "tf32": true,
+  "low_cpu_mem_usage": false,
+  "ddp_find_unused_parameters": true,
+
+  "do_train": true,
+  "do_eval": true,
+  "do_predict": false,
+  "metric_for_best_model": "eval_smatch_fscore",
+  "load_best_model_at_end": true,
+
+  "predict_with_generate": true,
+  "generation_max_new_tokens": 512,
+  "generation_num_beams": 1,
+  "do_sample": false
+}

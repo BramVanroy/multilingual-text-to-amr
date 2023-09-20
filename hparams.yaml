@@ -1,0 +1,11 @@
+method: bayes
+metric:
+  name: "objective"
+  goal: maximize
+parameters:
+  learning_rate:
+    values: [1e-4, 5e-5, 8e-6]
+  gradient_accumulation_steps:
+    values: [1, 2, 4]
+  num_train_epochs:
+    value: 12
