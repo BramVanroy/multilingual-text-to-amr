@@ -1,15 +1,29 @@
 # Multilingual text to AMR parsing
 
-**THIS REPOSITORY AND README IS STILL UNDER DEVELOPMENT. NOT READY FOR PRODUCTION**
- 
-An adaptation of MBART to parse text into AMR for multiple languages.
+- MBART finetuned [models](https://huggingface.co/collections/BramVanroy/multilingual-text-to-amr-650b0fd576856b9acb257535) for English, Spanish and Dutch
+- [Demo](https://huggingface.co/spaces/BramVanroy/text-to-amr) illustrating the text-to-AMR capabilities
+
+## Install
+
+First install the package by cloning and installing. For now, checkout the alpha release that should be compatible with commands
+presented here.
+
+```shell
+git clone https://github.com/BramVanroy/multilingual-text-to-amr.git
+cd multilingual-text-to-amr
+git checkout tags/v1.0.0-alpha
+pip install .
+```
 
 ## Usage
 
-First install the package by running the following in the root directory where `setup.py` is present.
+### CLIN models
 
-```shell
-pip install -e .
+To reproduce the models that are presented at CLIN, you can find the related configuration files under `configs/`. You can then train the model
+accordingly by using the config that you want, optionally overwriting some of the CLI arguments:
+
+```python
+python src/multi_amr/run_amr_generation.py <configs/config.json> <overriding_args>
 ```
 
 ## Notes
