@@ -22,9 +22,17 @@ pip install .
 To reproduce the models that are presented at CLIN, you can find the related configuration files under `configs/`. You can then train the model
 accordingly by using the config that you want, optionally overwriting some of the CLI arguments:
 
-```python
+```shell
 python src/multi_amr/run_amr_generation.py <configs/config.json> <overriding_args>
 ```
+
+To evaluate a trained model on the test set portion of a dataset, use the following script. It will write a JSON file with scores and TSV filw with predictions
+to the given checkpoint directory (`--model_name`).
+
+```shell
+python src/multi_amr/evaluate_amr.py --model_name results/amr30/es_nl+no_processing --dref data/amrs/split/test --src_lang es_XX --dataset_name amr30_es_test --batch_size 2
+```
+
 
 ## Notes
 
