@@ -97,6 +97,7 @@ def openai_amr_generation(
     sentence: str,
     fname: str,
     sentid: str,
+    reference_penman_str: str,
     lang_prompt: str,
     mgr_flags: DictProxy,
     model: str = "gpt-3.5-turbo",
@@ -118,6 +119,7 @@ def openai_amr_generation(
         "uid": f"{fname}__{sentid}",
         "penman_str": None,
         "status": None,
+        "reference_penman_str": reference_penman_str,
     }
 
     if mgr_flags["rate_limit_reached"] or mgr_flags["total_failures"] >= 3:
@@ -225,7 +227,7 @@ def translate_with_openai(
 
                         if uid in skip_items:
                             continue
-
+                        graph.metadata = {}
                         futures[
                             executor.submit(
                                 openai_amr_generation,
@@ -233,6 +235,7 @@ def translate_with_openai(
                                 fname=fname,
                                 sentid=sentid,
                                 lang_prompt=lang_prompt,
+                                reference_penman_str=penman.encode(graph),
                                 mgr_flags=mgr_flags,
                                 model=model,
                                 one_shot=one_shot,

@@ -6,16 +6,12 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import penman
 import torch
-from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
-from multi_amr.score_openai_smatch import BackOffSmatchpp
 from smatchpp import eval_statistics, preprocess, solvers
 from tqdm import tqdm
-from transformers import (
-    AutoModelForCausalLM,
-    AutoModelForSeq2SeqLM,
-    HfArgumentParser,
-    PreTrainedModel,
-)
+from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, HfArgumentParser, PreTrainedModel
+
+from multi_amr.evaluate.backoff_smatch import BackOffSmatchpp
+from multi_amr.tokenization import AMRTokenizerWrapper, TokenizerType
 
 
 def batch_translate(
@@ -61,7 +57,7 @@ def batch_translate(
         # DECODERS-ONLY
         raise NotImplementedError
 
-    with torch.no_grad():
+    with torch.inference_mode():
         generated = model.generate(**encoded, output_scores=True, return_dict_in_generate=True, **gen_kwargs)
 
     generated["sequences"] = generated["sequences"].cpu()
@@ -112,7 +108,7 @@ def get_resources(model_name_or_path: str) -> Tuple[PreTrainedModel, AMRTokenize
 def evaluate(
     model_name: str,
     dref: str,
-dataset_name: str,
+    dataset_name: str,
     src_lang: str,
     batch_size: int = 8,
     num_beams: int = 5,
@@ -224,8 +220,17 @@ dataset_name: str,
     pfmodel = Path(model_name)
     if pfmodel.exists() and pfmodel.is_dir():
         pfmodel.joinpath(f"{dataset_name}_results.json").write_text(json.dumps(score, indent=4), encoding="utf-8")
+
+        pfpreds = pfmodel.joinpath(f"{dataset_name}_predictions.tsv")
         df = pd.DataFrame(results)
-        df.to_csv(pfmodel.joinpath(f"{dataset_name}_predictions.tsv"), sep="\t", encoding="utf-8", index=False)
+        df.to_csv(pfpreds, sep="\t", encoding="utf-8", index=False)
+
+        pfpreds = pfpreds.with_stem(f"{pfpreds.stem}-preds-only").with_suffix(".txt")
+        pfrefs = pfpreds.with_stem(f"{pfpreds.stem}-refs-only").with_suffix(".txt")
+        predictions = df["penman_str"].tolist()
+        pfpreds.write_text("\n\n".join(predictions))
+        references = df["reference_penman_str"].tolist()
+        pfrefs.write_text("\n\n".join(references))
 
 
 @dataclass

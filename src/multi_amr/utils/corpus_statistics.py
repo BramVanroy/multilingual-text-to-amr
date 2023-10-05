@@ -3,7 +3,7 @@ from os import PathLike
 from pathlib import Path
 
 from datasets import DatasetDict
-from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
+from multi_amr.tokenization import AMRTokenizerWrapper, TokenizerType
 from tqdm import tqdm
 
 

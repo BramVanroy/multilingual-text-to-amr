@@ -2,12 +2,14 @@ from collections import Counter
 from itertools import product
 from pathlib import Path
 from typing import List
-from smatchpp import Smatchpp, preprocess, solvers
-from tqdm import tqdm
+
 import penman
 
-from multi_amr.data.tokenization import AMRTokenizerWrapper
+from multi_amr.tokenization import AMRTokenizerWrapper
 from multi_amr.utils import remove_wiki_from_graph
+from smatchpp import Smatchpp, preprocess, solvers
+from tqdm import tqdm
+
 
 USE_FAST = (True, False)
 TOKENIZER_NAMES = (

@@ -5,7 +5,8 @@ from typing import List, Optional
 
 import penman
 import torch
-from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
+
+from multi_amr.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.utils import get_penman_model
 
 

@@ -1,5 +1,4 @@
 import re
-from typing import List
 
 from multi_amr.data.additional_tokens import SPECIAL_ADDITIONS, get_added_vocabulary
 

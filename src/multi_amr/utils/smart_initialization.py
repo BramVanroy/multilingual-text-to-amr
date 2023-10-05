@@ -1,6 +1,7 @@
 import torch
 from multi_amr.data.additional_tokens import AMR_TOKEN
-from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
+
+from multi_amr.tokenization import AMRTokenizerWrapper, TokenizerType
 from transformers import PreTrainedModel
 
 

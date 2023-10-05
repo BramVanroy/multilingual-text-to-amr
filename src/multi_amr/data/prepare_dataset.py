@@ -14,15 +14,12 @@ from os import PathLike
 from pathlib import Path
 from typing import List, Union
 
-import numpy as np
 import pandas as pd
 import penman
 from datasets import Dataset, DatasetDict
 from ftfy import fix_text
 from multi_amr.utils import get_penman_model, remove_wiki_from_graph
 from sacremoses import MosesDetokenizer, MosesPunctNormalizer
-from sklearn.model_selection import StratifiedShuffleSplit
-from sklearn.preprocessing import KBinsDiscretizer
 from tqdm import tqdm
 
 

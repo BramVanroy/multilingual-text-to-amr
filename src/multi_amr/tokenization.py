@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Tuple
 import penman
 import regex as re
 import torch
-from multi_amr.data.additional_tokens import AMR_TOKEN, SPECIAL_ADDITIONS, get_added_vocabulary
+from multi_amr.data.additional_tokens import AMR_TOKEN, get_added_vocabulary
 from multi_amr.data.postprocessing_graph import (
     BACKOFF,
     ParsedStatus,

@@ -6,7 +6,7 @@ from typing import Iterator, List
 
 import torch
 from datasets import Dataset
-from multi_amr.data.tokenization import AMRTokenizerWrapper
+from multi_amr.tokenization import AMRTokenizerWrapper
 from torch.utils.data import Sampler
 
 

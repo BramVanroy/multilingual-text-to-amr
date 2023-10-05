@@ -2,18 +2,10 @@
 from dataclasses import dataclass, field
 
 from huggingface_hub import HfApi
-
-from transformers import (
-    HfArgumentParser,
-)
+from transformers import HfArgumentParser
 
 
-def upload(
-    model_name: str,
-    model_dir: str,
-    username: str = "BramVanroy",
-        exist_ok: bool = False
-):
+def upload(model_name: str, model_dir: str, username: str = "BramVanroy", exist_ok: bool = False):
     api = HfApi()
     api.create_repo(f"{username}/{model_name}", exist_ok=exist_ok)
     api.upload_folder(
@@ -29,7 +21,10 @@ class ScriptArguments:
     model_name: str = field(metadata={"help": "model name to use on the hub"})
     model_dir: str = field(metadata={"help": "model directory where to upload from"})
     username: str = field(default="BramVanroy", metadata={"help": "model directory where to upload from"})
-    exist_ok: str = field(default=False, metadata={"help": "if this flag is set, no error will be thrown when the remote repo already exists"})
+    exist_ok: str = field(
+        default=False,
+        metadata={"help": "if this flag is set, no error will be thrown when the remote repo already exists"},
+    )
 
 
 def main():
@@ -45,4 +40,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from peft import PeftConfig, PeftModel
-from transformers import AutoTokenizer, HfArgumentParser, AutoConfig
+from transformers import AutoConfig, AutoTokenizer, HfArgumentParser
 
 
 @dataclass
@@ -13,10 +13,14 @@ class ScriptArguments:
     adapter_model_name: str = field(metadata={"help": "the directory containing the adapters"})
     base_model_name: str = field(metadata={"help": "the base model name"})
     output_name: Optional[str] = field(default=None, metadata={"help": "where to save the output"})
-    no_require_generate: bool = field(default=False,
-                                      metadata={"help": "whether to NOT require that the model implements"
-                                                        " .generate(). This is useful if you are trying to convert a"
-                                                        " model that is not a generative one (e.g. for classification)"})
+    no_require_generate: bool = field(
+        default=False,
+        metadata={
+            "help": "whether to NOT require that the model implements"
+            " .generate(). This is useful if you are trying to convert a"
+            " model that is not a generative one (e.g. for classification)"
+        },
+    )
 
 
 if __name__ == "__main__":
@@ -37,7 +41,9 @@ if __name__ == "__main__":
         arch_cls = getattr(importlib.import_module("transformers"), arch)
         # Using safetensors gave some unexpected warnings about uninitialized embedding layers
         # so we just load the regular PyTorch *.bin checkpoints and save as safetensors later
-        model = arch_cls.from_pretrained(script_args.model_name_or_path, device_map="cpu", trust_remote_code=True, use_safetensors=False)
+        model = arch_cls.from_pretrained(
+            script_args.model_name_or_path, device_map="cpu", trust_remote_code=True, use_safetensors=False
+        )
         # Make sure that the model can generate, if that is required
         if not script_args.no_require_generate and not model.can_generate():
             print(f"Model arch {arch} does not implement generate(), which we require. Skipping...")
@@ -59,7 +65,9 @@ if __name__ == "__main__":
         break
 
     if not saved:
-        print("Did not find any architecture that was compatible with .generate() and therefore could not correctly"
-               " save the model. Is something wrong with your config?")
+        print(
+            "Did not find any architecture that was compatible with .generate() and therefore could not correctly"
+            " save the model. Is something wrong with your config?"
+        )
     else:
         print(f"Merged and saved to {str(Path(script_args.output_name).resolve())}!")
