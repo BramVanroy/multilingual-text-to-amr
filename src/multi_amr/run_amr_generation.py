@@ -26,7 +26,7 @@ from datasets import Dataset, DatasetDict
 from multi_amr.arguments import DataTrainingArguments, ExpandedSeq2SeqTrainingArguments, ModelArguments
 from multi_amr.data.collator import collate_amr
 from multi_amr.data.postprocessing_graph import BACKOFF, ParsedStatus
-from multi_amr.data.tokenization import AMRTokenizerWrapper, TokenizerType
+from multi_amr.tokenization import AMRTokenizerWrapper, TokenizerType
 from multi_amr.parse_cli import parse_cli
 from multi_amr.peft_callback import PeftSavingCallback
 from multi_amr.trainer import AMRTrainer

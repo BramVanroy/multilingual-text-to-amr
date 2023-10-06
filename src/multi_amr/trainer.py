@@ -7,7 +7,7 @@ import torch
 import transformers
 from datasets import Dataset
 from multi_amr.data.sampler import SpringSampler, SrcLangGroupedSampler
-from multi_amr.data.tokenization import AMRTokenizerWrapper
+from multi_amr.tokenization import AMRTokenizerWrapper
 from packaging import version
 from torch import nn
 from torch.optim import RAdam
