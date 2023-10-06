@@ -1,7 +1,7 @@
 {
   "preprocessed_dataset": "data/preprocessed/amr30-en_es_nl-fixed_no_processing_stratified",
   "src_langs": ["en_XX", "es_XX", "nl_XX"],
-  "output_dir": "results/amr30/en_es_nl+no_processing/",
+  "output_dir": "results/amr30/en_es_nl+no_processing+stratified/",
   "overwrite_output_dir": true,
   "save_safetensors": true,
   "report_to": "wandb",
