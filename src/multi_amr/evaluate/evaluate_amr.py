@@ -57,13 +57,22 @@ def batch_translate(
         # DECODERS-ONLY
         raise NotImplementedError
 
+    # Make sure that we return all the beams
+    beam_size = gen_kwargs["num_beams"]
+    gen_kwargs["num_return_sequences"] = beam_size
+
     with torch.inference_mode():
         generated = model.generate(**encoded, output_scores=True, return_dict_in_generate=True, **gen_kwargs)
 
     generated["sequences"] = generated["sequences"].cpu()
     generated["sequences_scores"] = generated["sequences_scores"].cpu()
     best_scoring_results = {"graph": [], "status": []}
-    beam_size = gen_kwargs["num_beams"]
+
+    if len(generated["sequences_scores"]) != beam_size * len(texts):
+        raise ValueError(
+            f"Expected {beam_size * len(texts)} sequences after beam search (beam_size * batch_size),"
+            f" but got {len(generated['sequences_scores'])}"
+        )
 
     # Select the best item from the beam: the sequence with best status and highest score
     for sample_idx in range(0, len(generated["sequences_scores"]), beam_size):
