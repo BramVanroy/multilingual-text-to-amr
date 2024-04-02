@@ -2,6 +2,7 @@
 
 - MBART finetuned [models](https://huggingface.co/collections/BramVanroy/multilingual-text-to-amr-650b0fd576856b9acb257535) for English, Spanish and Dutch
 - [Demo](https://huggingface.co/spaces/BramVanroy/text-to-amr) illustrating the text-to-AMR capabilities
+- Datasets: accepted to LDC, to be released in the second half of 2024
 
 ## Install
 
