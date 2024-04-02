@@ -2,6 +2,7 @@
 
 - MBART finetuned [models](https://huggingface.co/collections/BramVanroy/multilingual-text-to-amr-650b0fd576856b9acb257535) for English, Spanish and Dutch
 - [Demo](https://huggingface.co/spaces/BramVanroy/text-to-amr) illustrating the text-to-AMR capabilities
+- Datasets: accepted at LDC, to be released in the second half of 2024
 
 ## Install
 
@@ -11,7 +12,7 @@ presented here.
 ```shell
 git clone https://github.com/BramVanroy/multilingual-text-to-amr.git
 cd multilingual-text-to-amr
-git checkout tags/v1.0.0-alpha
+git checkout tags/v1.0.0-alpha.3
 pip install .
 ```
 
